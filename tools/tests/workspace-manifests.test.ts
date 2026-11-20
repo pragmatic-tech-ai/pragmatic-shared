@@ -56,9 +56,9 @@ describe('workspace manifests', () =>
 {
     const packages = Workspace.Packages();
 
-    it('lists the twenty-one packages', () =>
+    it('lists the twenty-two packages', () =>
     {
-        assert.equal(packages.length, 21);
+        assert.equal(packages.length, 22);
     });
 
     it('takes todl, todl-runtime and mural as peer dependencies linked to the sibling checkout, never as dependencies', () =>
@@ -94,6 +94,7 @@ describe('workspace manifests', () =>
         const expected: Record<string, string[]> = {
             'pragmatic-identity': ['@pragmatic-tech-ai/todl-runtime'],
             'pragmatic-component': [],
+            'pragmatic-hive-protocol': [],
             'pragmatic-identity-store': ['@pragmatic-tech-ai/todl-runtime'],
             'pragmatic-realm-adapters': ['@pragmatic-tech-ai/todl', '@pragmatic-tech-ai/todl-runtime'],
             'pragmatic-realm-custom': ['@pragmatic-tech-ai/todl', '@pragmatic-tech-ai/todl-runtime'],

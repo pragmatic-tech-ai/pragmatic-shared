@@ -1,7 +1,7 @@
 {
   "name": "pragmatic-shared",
   "private": true,
-  "description": "The platform packages shared by the Pragmatic containers: identity contracts, realm services, stores, identity sources, per-realm adapters, component descriptors, component configuration (repository, applied object, runtime reader), the application host, the public-edge contracts (entitlements, ledger, customer API) and the application shell.",
+  "description": "The platform packages shared by the Pragmatic containers: identity contracts, realm services, stores, identity sources, per-realm adapters, component descriptors, component configuration (repository, applied object, runtime reader), the hive agent channel protocol (enrolment, signed intents, approvals, reports, placements, tunnel control), the application host, the public-edge contracts (entitlements, ledger, customer API) and the application shell.",
   "repository": {
     "type": "git",
     "url": "https://github.com/pragmatic-tech-ai/pragmatic-shared.git"
@@ -9,6 +9,7 @@
   "workspaces": [
     "packages/pragmatic-identity",
     "packages/pragmatic-component",
+    "packages/pragmatic-hive-protocol",
     "packages/pragmatic-identity-source-local",
     "packages/pragmatic-identity-realm",
     "packages/pragmatic-identity-store",
@@ -30,7 +31,7 @@
     "packages/pragmatic-app-shell"
   ],
   "scripts": {
-    "build": "npm run build -w packages/pragmatic-identity && npm run build -w packages/pragmatic-component && npm run build -w packages/pragmatic-identity-source-local && npm run build -w packages/pragmatic-identity-realm && npm run build -w packages/pragmatic-identity-store && npm run build -w packages/pragmatic-identity-source-oidc && npm run build -w packages/pragmatic-identity-source-entra && npm run build -w packages/pragmatic-identity-source-google && npm run build -w packages/pragmatic-identity-source-identity-platform && npm run build -w packages/pragmatic-identity-source-pragmatic && npm run build -w packages/pragmatic-realm-adapters && npm run build -w packages/pragmatic-realm-custom && npm run build -w packages/pragmatic-realm-gcp && npm run build -w packages/pragmatic-realm-aws && npm run build -w packages/pragmatic-realm-azure && npm run build -w packages/pragmatic-configuration && npm run build -w packages/pragmatic-app-host && npm run build -w packages/pragmatic-entitlements-contract && npm run build -w packages/pragmatic-ledger-contract && npm run build -w packages/pragmatic-customer-api-contract && npm run build -w packages/pragmatic-app-shell",
+    "build": "npm run build -w packages/pragmatic-identity && npm run build -w packages/pragmatic-component && npm run build -w packages/pragmatic-hive-protocol && npm run build -w packages/pragmatic-identity-source-local && npm run build -w packages/pragmatic-identity-realm && npm run build -w packages/pragmatic-identity-store && npm run build -w packages/pragmatic-identity-source-oidc && npm run build -w packages/pragmatic-identity-source-entra && npm run build -w packages/pragmatic-identity-source-google && npm run build -w packages/pragmatic-identity-source-identity-platform && npm run build -w packages/pragmatic-identity-source-pragmatic && npm run build -w packages/pragmatic-realm-adapters && npm run build -w packages/pragmatic-realm-custom && npm run build -w packages/pragmatic-realm-gcp && npm run build -w packages/pragmatic-realm-aws && npm run build -w packages/pragmatic-realm-azure && npm run build -w packages/pragmatic-configuration && npm run build -w packages/pragmatic-app-host && npm run build -w packages/pragmatic-entitlements-contract && npm run build -w packages/pragmatic-ledger-contract && npm run build -w packages/pragmatic-customer-api-contract && npm run build -w packages/pragmatic-app-shell",
     "test": "npm test --workspaces && npm run test:tools",
     "pretest": "npm run build",
     "test:tools": "tsx --test \"tools/tests/*.test.ts\"",
