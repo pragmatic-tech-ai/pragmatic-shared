@@ -2,6 +2,8 @@
 # checkouts (one copy of each in a consumer's workspace), so CI rebuilds that layout: this repository is checked out
 # to $GITHUB_WORKSPACE/pragmatic-shared and todl-runtime and TODL are cloned beside it and built. Their own
 # @pragmatic-tech-ai dependencies (mural, pragmatic-graph, ...) come from GitHub Packages, read with this run's token.
+# pragmatic-app-shell also takes @pragmatic-tech-ai/mural as a file: peer on the sibling Mural folder; CI does not
+# build Mural from source (its build compiles its templates and demos), it unpacks the latest published package there.
 name: ci
 on:
   push:
@@ -36,13 +38,25 @@ jobs:
           for pkg in todl-runtime TODL; do
             (cd "$pkg" && npm install --no-audit --no-fund && npm run build)
           done
-      # TODL's lock resolves todl-runtime from GitHub Packages; point it at the sibling so the workspace holds ONE
-      # todl-runtime (an object from one copy fails instanceof against the other's class), as in local development.
+      - name: Mural from GitHub Packages
+        working-directory: ${{ github.workspace }}
+        run: |
+          version=$(npm view @pragmatic-tech-ai/mural version)
+          npm pack "@pragmatic-tech-ai/mural@$version" --silent
+          mkdir Mural
+          tar -xzf pragmatic-tech-ai-mural-"$version".tgz -C Mural --strip-components=1
+          (cd Mural && npm install --omit=dev --ignore-scripts --no-package-lock --no-audit --no-fund)
+      # TODL's lock and Mural's install resolve todl-runtime from GitHub Packages; point both at the sibling so the
+      # workspace holds ONE todl-runtime (an object from one copy fails instanceof against the other's class), as in
+      # local development.
       - name: One todl-runtime in the workspace
         working-directory: ${{ github.workspace }}
         run: |
-          rm -rf TODL/node_modules/@pragmatic-tech-ai/todl-runtime
-          ln -s ../../../todl-runtime TODL/node_modules/@pragmatic-tech-ai/todl-runtime
+          for consumer in TODL Mural; do
+            rm -rf "$consumer/node_modules/@pragmatic-tech-ai/todl-runtime"
+            mkdir -p "$consumer/node_modules/@pragmatic-tech-ai"
+            ln -s ../../../todl-runtime "$consumer/node_modules/@pragmatic-tech-ai/todl-runtime"
+          done
       - name: Install
         working-directory: ${{ github.workspace }}/pragmatic-shared
         run: npm ci --no-audit --no-fund

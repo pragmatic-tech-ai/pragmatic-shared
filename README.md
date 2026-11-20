@@ -20,14 +20,16 @@ The platform packages shared by the Pragmatic containers, under their `pragmatic
 | `pragmatic-realm-azure` | `todl-platform-azure` | adapters for the Azure realm option |
 | `pragmatic-component` | (new) | component descriptors: what a released container supports (options, settings and which are secret, application roles, storage, endpoints), its configuration JSON Schema, the configuration validator and secret references |
 | `pragmatic-app-host` | (new) | the server of a Mural application: the ordered request pipeline, declared routes, the UI bundle, JSON API limits, OIDC and password sign-in sessions, claims authorization, audit (Postgres repositories) |
+| `pragmatic-app-shell` | (new) | the client shell of a Mural application, speaking `pragmatic-app-host`: sign-in page (OIDC redirect, optional password), session handling and expiry, change-password dialog, one-time-secret page, pending-state holders, the JSON API client base, and their compiled `.mu` views |
 
 The cross-provider tests of the old `todl-identity-cloud` (Entra and Google side by side) live in
 `pragmatic-identity-source-google`, which has a dev dependency on `pragmatic-identity-source-entra`.
 
 ## Working in the repository
 
-The packages take `@pragmatic-tech-ai/todl-runtime` and `@pragmatic-tech-ai/todl` as peer dependencies on the sibling
-`todl-runtime` and `TODL` folders (`file:` peers); build those first. A peer, not a dependency: a consumer holds one
+The packages take `@pragmatic-tech-ai/todl-runtime` and `@pragmatic-tech-ai/todl` (and, for `pragmatic-app-shell`,
+`@pragmatic-tech-ai/mural`) as peer dependencies on the sibling `todl-runtime`, `TODL` and `Mural` folders (`file:`
+peers); build those first. A peer, not a dependency: a consumer holds one
 copy of each (an object made by a second copy fails `instanceof` against the first one's class). The publish tool
 turns each `file:` peer into `^<sibling version>` and refuses one that is not on the registry.
 

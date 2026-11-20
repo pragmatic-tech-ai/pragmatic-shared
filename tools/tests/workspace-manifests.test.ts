@@ -39,7 +39,11 @@ class Workspace
     public static readonly Scope = '@pragmatic-tech-ai/';
     public static readonly License = 'Apache-2.0';
     /** Packages a consumer must hold exactly one copy of: an object from one copy fails `instanceof` against the other. */
-    public static readonly Singletons: Record<string, string> = { '@pragmatic-tech-ai/todl': '../../../TODL', '@pragmatic-tech-ai/todl-runtime': '../../../todl-runtime' };
+    public static readonly Singletons: Record<string, string> = {
+        '@pragmatic-tech-ai/todl': '../../../TODL',
+        '@pragmatic-tech-ai/todl-runtime': '../../../todl-runtime',
+        '@pragmatic-tech-ai/mural': '../../../Mural',
+    };
 
     public static Packages(): PackageManifest[]
     {
@@ -52,12 +56,12 @@ describe('workspace manifests', () =>
 {
     const packages = Workspace.Packages();
 
-    it('lists the fourteen packages', () =>
+    it('lists the fifteen packages', () =>
     {
-        assert.equal(packages.length, 14);
+        assert.equal(packages.length, 15);
     });
 
-    it('takes todl and todl-runtime as peer dependencies linked to the sibling checkout, never as dependencies', () =>
+    it('takes todl, todl-runtime and mural as peer dependencies linked to the sibling checkout, never as dependencies', () =>
     {
         for (const manifest of packages)
         {
@@ -97,6 +101,7 @@ describe('workspace manifests', () =>
             'pragmatic-realm-aws': ['@pragmatic-tech-ai/todl', '@pragmatic-tech-ai/todl-runtime'],
             'pragmatic-realm-azure': ['@pragmatic-tech-ai/todl', '@pragmatic-tech-ai/todl-runtime'],
             'pragmatic-app-host': ['@pragmatic-tech-ai/todl', '@pragmatic-tech-ai/todl-runtime'],
+            'pragmatic-app-shell': ['@pragmatic-tech-ai/mural', '@pragmatic-tech-ai/todl-runtime'],
         };
         for (const [name, singletons] of Object.entries(expected))
         {

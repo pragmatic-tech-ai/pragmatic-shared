@@ -1,0 +1,42 @@
+{
+  "name": "@pragmatic-tech-ai/pragmatic-app-shell",
+  "version": "0.5.0",
+  "license": "Apache-2.0",
+  "description": "The client shell of a Mural application: sign-in page, session handling, change-password dialog, one-time-secret page, pending-state holders and a JSON API client base for pragmatic-app-host.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pragmatic-tech-ai/pragmatic-shared.git",
+    "directory": "packages/pragmatic-app-shell"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "public"
+  },
+  "scripts": {
+    "compile:mu": "node scripts/mu-build.mjs compile",
+    "build": "node scripts/mu-build.mjs compile && tsc -p tsconfig.build.json && node scripts/mu-build.mjs copy",
+    "test": "node scripts/mu-build.mjs compile && tsx --test \"src/**/tests/*.test.ts\""
+  },
+  "peerDependencies": {
+    "@pragmatic-tech-ai/mural": "file:../../../Mural",
+    "@pragmatic-tech-ai/todl-runtime": "file:../../../todl-runtime"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "tsx": "^4.0.0",
+    "typescript": "^5.5.0"
+  }
+}
