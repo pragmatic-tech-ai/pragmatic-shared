@@ -1,0 +1,57 @@
+# The packages take @pragmatic-tech-ai/todl and @pragmatic-tech-ai/todl-runtime as file: peers on the sibling
+# checkouts (one copy of each in a consumer's workspace), so CI rebuilds that layout: this repository is checked out
+# to $GITHUB_WORKSPACE/pragmatic-shared and todl-runtime and TODL are cloned beside it and built. Their own
+# @pragmatic-tech-ai dependencies (mural, pragmatic-graph, ...) come from GitHub Packages, read with this run's token.
+name: ci
+on:
+  push:
+  pull_request:
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: pragmatic-shared
+      - name: Clone siblings
+        working-directory: ${{ github.workspace }}
+        run: |
+          for pair in todl-runtime:todl-runtime todl:TODL; do
+            git clone --depth 1 "https://github.com/pragmatic-tech-ai/${pair%%:*}.git" "${pair#*:}"
+          done
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Configure GitHub Packages auth
+        env:
+          PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          (umask 077 && printf 'registry=https://registry.npmjs.org/\n@pragmatic-tech-ai:registry=https://npm.pkg.github.com\n//npm.pkg.github.com/:_authToken=%s\n' "$PACKAGES_TOKEN" > ~/.npmrc)
+      - name: Build siblings in dependency order
+        working-directory: ${{ github.workspace }}
+        run: |
+          for pkg in todl-runtime TODL; do
+            (cd "$pkg" && npm install --no-audit --no-fund && npm run build)
+          done
+      # TODL's lock resolves todl-runtime from GitHub Packages; point it at the sibling so the workspace holds ONE
+      # todl-runtime (an object from one copy fails instanceof against the other's class), as in local development.
+      - name: One todl-runtime in the workspace
+        working-directory: ${{ github.workspace }}
+        run: |
+          rm -rf TODL/node_modules/@pragmatic-tech-ai/todl-runtime
+          ln -s ../../../todl-runtime TODL/node_modules/@pragmatic-tech-ai/todl-runtime
+      - name: Install
+        working-directory: ${{ github.workspace }}/pragmatic-shared
+        run: npm ci --no-audit --no-fund
+      - name: Build
+        working-directory: ${{ github.workspace }}/pragmatic-shared
+        run: npm run build
+      - name: Test the packages
+        working-directory: ${{ github.workspace }}/pragmatic-shared
+        run: npm test --workspaces
+      - name: Test the publish tool
+        working-directory: ${{ github.workspace }}/pragmatic-shared
+        run: npm run test:tools && npm run typecheck:tools

@@ -2,8 +2,9 @@ import { DelegationDepth, IdentityConfig, Realm, RealmKind } from "@pragmatic-te
 import { FakeAuditSink, FakeRoleGrantStore, FakeSessionManager } from "@pragmatic-tech-ai/pragmatic-identity/testing";
 import { GoogleIdentityPack } from "../google-identity-pack.js";
 import { GoogleIdentityProfile } from "../google-identity-profile.js";
-import { OidcSettingKeys, InMemoryOidcFlowStateStore, FakeOidcHttpClient, FakeOidcIdp, MapSecretStore } from "@pragmatic-tech-ai/pragmatic-identity-source-oidc";
-import type { MintOptions } from "@pragmatic-tech-ai/pragmatic-identity-source-oidc";
+import { OidcSettingKeys, InMemoryOidcFlowStateStore } from "@pragmatic-tech-ai/pragmatic-identity-source-oidc";
+import { FakeOidcHttpClient, FakeOidcIdp, MapSecretStore } from "@pragmatic-tech-ai/pragmatic-identity-source-oidc/testing";
+import type { MintOptions } from "@pragmatic-tech-ai/pragmatic-identity-source-oidc/testing";
 
 export class GoogleFixture
 {

@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { AuthMethod, AuthenticatedResult, AuditEventKind, Credential, DelegationDepth, PresentedSecret } from "@pragmatic-tech-ai/pragmatic-identity";
-import { UpstreamTokenVault, FakeOidcIdp } from "@pragmatic-tech-ai/pragmatic-identity-source-oidc";
+import { UpstreamTokenVault } from "@pragmatic-tech-ai/pragmatic-identity-source-oidc";
+import { FakeOidcIdp } from "@pragmatic-tech-ai/pragmatic-identity-source-oidc/testing";
 import { EntraFixture } from "./entra-fixture.js";
 
 class Golden

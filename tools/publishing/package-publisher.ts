@@ -1,7 +1,8 @@
-import { spawnSync } from 'node:child_process';
-import { DependencyRewriter, IManifestReader } from './dependency-rewriter.js';
-import { PackageManifest } from './package-manifest.js';
+import { DependencyRewriter, IManifestReader, IRewrittenDependency } from './dependency-rewriter.js';
+import { DependencySection, PackageManifest } from './package-manifest.js';
 import { PackageStager } from './package-stager.js';
+import { IProcessRunner, NpmProcessRunner } from './process-runner.js';
+import { IRegistryLookup, NpmRegistryLookup } from './registry-lookup.js';
 
 /** What happened to one package. */
 export enum PublishOutcome
@@ -13,24 +14,29 @@ export enum PublishOutcome
 
 /**
  * Publishes one built package to GitHub Packages from a staged copy whose `file:` dependencies are version ranges.
- * Lifecycle scripts are not run in the staged copy (the package is built before), and a name@version that
- * already exists is skipped.
+ * Lifecycle scripts are not run in the staged copy (the package is built before), a name@version that already
+ * exists is skipped, and a rewritten runtime dependency (dependencies / peer / optional) whose target version is
+ * not on the registry is refused: `^<local version>` would publish a range nothing satisfies.
  */
 export class PackagePublisher implements IManifestReader
 {
     public static readonly Registry = 'https://npm.pkg.github.com';
-    private static readonly Npm = 'npm';
+    private static readonly PackCommand = 'pack';
+    private static readonly PublishCommand = 'publish';
+    private static readonly PackDestinationFlag = '--pack-destination';
     private static readonly IgnoreScripts = '--ignore-scripts';
     private static readonly RegistryFlag = '--registry';
-    private static readonly Utf8 = 'utf8';
     private static readonly VersionSeparator = '@';
-    private static readonly Quote = '"';
-    private static readonly Space = ' ';
+    private static readonly RegistryCheckedSections: readonly string[] = [DependencySection.Dependencies, DependencySection.PeerDependencies, DependencySection.OptionalDependencies];
 
     private readonly rewriter = new DependencyRewriter(this);
     private readonly stager = new PackageStager();
 
-    public constructor(private readonly dryRun: boolean, private readonly log: (line: string) => void)
+    public constructor(
+        private readonly dryRun: boolean,
+        private readonly log: (line: string) => void,
+        private readonly runner: IProcessRunner = new NpmProcessRunner(),
+        private readonly registry: IRegistryLookup = new NpmRegistryLookup(runner, PackagePublisher.Registry))
     {
     }
 
@@ -41,9 +47,9 @@ export class PackagePublisher implements IManifestReader
 
     public Publish(directory: string): PublishOutcome
     {
-        const manifest = PackageManifest.Read(directory);
-        const id = manifest.Name + PackagePublisher.VersionSeparator + manifest.Version;
-        if (!this.dryRun && this.Exists(id))
+        const manifest = this.Read(directory);
+        const id = PackagePublisher.Id(manifest.Name, manifest.Version);
+        if (!this.dryRun && this.registry.Exists(id))
         {
             this.log(`${id}: ${PublishOutcome.AlreadyPublished}, skipped`);
             return PublishOutcome.AlreadyPublished;
@@ -53,16 +59,17 @@ export class PackagePublisher implements IManifestReader
         {
             this.log(`${id}: ${dependency.Section}/${dependency.Name} ${dependency.From} -> ${dependency.To}`);
         }
+        this.RequirePublishedTargets(id, result.Rewritten);
         const staging = this.stager.Stage(manifest, result.Manifest);
         if (this.dryRun)
         {
-            this.Run(['pack', PackagePublisher.IgnoreScripts, '--pack-destination', staging], staging);
+            this.Run([PackagePublisher.PackCommand, PackagePublisher.IgnoreScripts, PackagePublisher.PackDestinationFlag, staging], staging);
             this.log(`${id}: ${PublishOutcome.Packed} in ${staging}`);
             return PublishOutcome.Packed;
         }
         try
         {
-            this.Run(['publish', PackagePublisher.IgnoreScripts, PackagePublisher.RegistryFlag, PackagePublisher.Registry], staging);
+            this.Run([PackagePublisher.PublishCommand, PackagePublisher.IgnoreScripts, PackagePublisher.RegistryFlag, PackagePublisher.Registry], staging);
         }
         finally
         {
@@ -72,37 +79,40 @@ export class PackagePublisher implements IManifestReader
         return PublishOutcome.Published;
     }
 
-    private Exists(id: string): boolean
+    /** Refuses a rewritten runtime dependency whose target name@version is not on the registry (devDependencies are exempt). */
+    private RequirePublishedTargets(id: string, rewritten: IRewrittenDependency[]): void
     {
-        const result = spawnSync(PackagePublisher.CommandLine(['view', id, 'version', PackagePublisher.RegistryFlag, PackagePublisher.Registry]), PackagePublisher.SpawnOptions(process.cwd()));
-        return result.status === 0 && result.stdout.trim().length > 0;
+        const missing = rewritten
+            .filter(dependency => PackagePublisher.RegistryCheckedSections.includes(dependency.Section))
+            .map(dependency => PackagePublisher.Id(dependency.Name, dependency.Version))
+            .filter(target => !this.registry.Exists(target));
+        if (missing.length > 0)
+        {
+            throw new Error(PackagePublisher.UnpublishedTargets(id, missing));
+        }
     }
 
     private Run(args: string[], cwd: string): void
     {
-        const result = spawnSync(PackagePublisher.CommandLine(args), { ...PackagePublisher.SpawnOptions(cwd), stdio: 'inherit' });
-        if (result.status !== 0)
+        const result = this.runner.Run(args, cwd, true);
+        if (result.Status !== 0)
         {
-            throw new Error(PackagePublisher.CommandFailed(args[0], cwd, result.status));
+            throw new Error(PackagePublisher.CommandFailed(args[0], cwd, result.Status));
         }
+    }
+
+    private static Id(name: string, version: string): string
+    {
+        return name + PackagePublisher.VersionSeparator + version;
+    }
+
+    private static UnpublishedTargets(id: string, missing: string[]): string
+    {
+        return `${id}: dependencies not on the registry (publish them first): ${missing.join(', ')}`;
     }
 
     private static CommandFailed(command: string, cwd: string, status: number | null): string
     {
         return `npm ${command} failed in ${cwd} (exit ${status})`;
-    }
-
-    /**
-     * One command line with quoted arguments: npm is a shell script (npm.cmd on Windows), so it runs through the
-     * shell. The command itself stays unquoted — a quoted "npm" breaks npm.cmd's own path resolution on Windows.
-     */
-    public static CommandLine(args: string[]): string
-    {
-        return [PackagePublisher.Npm, ...args.map(arg => PackagePublisher.Quote + arg + PackagePublisher.Quote)].join(PackagePublisher.Space);
-    }
-
-    private static SpawnOptions(cwd: string): { cwd: string; encoding: BufferEncoding; shell: boolean }
-    {
-        return { cwd, encoding: PackagePublisher.Utf8, shell: true };
     }
 }

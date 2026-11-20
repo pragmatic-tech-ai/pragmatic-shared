@@ -24,8 +24,10 @@ The cross-provider tests of the old `todl-identity-cloud` (Entra and Google side
 
 ## Working in the repository
 
-The packages depend on `@pragmatic-tech-ai/todl-runtime` and `@pragmatic-tech-ai/todl`, taken from the sibling
-`todl-runtime` and `TODL` folders (`file:` dependencies); build those first.
+The packages take `@pragmatic-tech-ai/todl-runtime` and `@pragmatic-tech-ai/todl` as peer dependencies on the sibling
+`todl-runtime` and `TODL` folders (`file:` peers); build those first. A peer, not a dependency: a consumer holds one
+copy of each (an object made by a second copy fails `instanceof` against the first one's class). The publish tool
+turns each `file:` peer into `^<sibling version>` and refuses one that is not on the registry.
 
 ```
 npm install
@@ -34,4 +36,11 @@ npm test
 ```
 
 `npm install` links the workspace packages to each other locally. `npm run build` builds them in dependency order;
-the tests of a package import its dependencies' built `dist`, so build before testing.
+the tests of a package import its dependencies' built `dist`, so build before testing. Test helpers ship from a
+`./testing` subpath (`pragmatic-identity/testing`, `pragmatic-identity-source-oidc/testing`), never the main entry.
+
+## Publishing
+
+`npm run publish:packages -- [--dry-run] packages/<name>...` publishes built packages to GitHub Packages from a staged
+copy (`tools/publish-packages.ts`, tests in `tools/tests/`, `npm run test:tools`). It refuses a `dist` older than its
+`src`, and every package carries the one workspace version.

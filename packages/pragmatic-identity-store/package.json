@@ -1,6 +1,7 @@
 {
   "name": "@pragmatic-tech-ai/pragmatic-identity-store",
-  "version": "0.1.0",
+  "version": "0.1.1",
+  "license": "Apache-2.0",
   "description": "Stores: accounts, sessions, grants, tokens, secrets.",
   "repository": {
     "type": "git",
@@ -26,9 +27,11 @@
     "test": "tsx --test \"src/**/*.test.ts\""
   },
   "dependencies": {
-    "@pragmatic-tech-ai/pragmatic-identity": "0.1.0",
-    "@pragmatic-tech-ai/pragmatic-identity-realm": "0.1.0",
-    "@pragmatic-tech-ai/pragmatic-identity-source-local": "0.1.0",
+    "@pragmatic-tech-ai/pragmatic-identity": "0.1.1",
+    "@pragmatic-tech-ai/pragmatic-identity-realm": "0.1.1",
+    "@pragmatic-tech-ai/pragmatic-identity-source-local": "0.1.1"
+  },
+  "peerDependencies": {
     "@pragmatic-tech-ai/todl-runtime": "file:../../../todl-runtime"
   },
   "devDependencies": {

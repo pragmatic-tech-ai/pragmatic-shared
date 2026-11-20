@@ -1,6 +1,7 @@
 {
   "name": "@pragmatic-tech-ai/pragmatic-realm-custom",
-  "version": "0.1.0",
+  "version": "0.1.1",
+  "license": "Apache-2.0",
   "description": "Adapters for the custom realm option (self-hosted, Node).",
   "repository": {
     "type": "git",
@@ -27,7 +28,7 @@
     "build": "tsc -p tsconfig.build.json",
     "test": "tsx --test \"src/**/*.test.ts\""
   },
-  "dependencies": {
+  "peerDependencies": {
     "@pragmatic-tech-ai/todl": "file:../../../TODL",
     "@pragmatic-tech-ai/todl-runtime": "file:../../../todl-runtime"
   },

@@ -6,7 +6,6 @@ import * as path from 'node:path';
 import { DependencyRewriter, IManifestReader } from '../publishing/dependency-rewriter.js';
 import { IPackageManifestData, PackageManifest } from '../publishing/package-manifest.js';
 import { PackageStager } from '../publishing/package-stager.js';
-import { PackagePublisher } from '../publishing/package-publisher.js';
 
 class FakeReader implements IManifestReader
 {
@@ -106,6 +105,7 @@ describe('PackageStager', () =>
             fs.mkdirSync(path.join(packageDir, 'src'));
             fs.writeFileSync(path.join(packageDir, 'dist', 'sub', 'index.js'), 'export {};\n');
             fs.writeFileSync(path.join(packageDir, 'src', 'index.ts'), 'export {};\n');
+            fs.utimesSync(path.join(packageDir, 'src', 'index.ts'), 1000, 1000);
             fs.writeFileSync(path.join(packageDir, 'README.md'), '# pkg\n');
             const manifest = new PackageManifest(packageDir, { name: '@scope/pkg', version: '1.0.0', files: ['dist', 'README.md'] });
             const staging = new PackageStager().Stage(manifest, { ...manifest.Data, dependencies: { 'a': '^1.0.0' } }, root);
@@ -134,13 +134,5 @@ describe('PackageStager', () =>
         {
             fs.rmSync(root, { recursive: true, force: true });
         }
-    });
-});
-
-describe('PackagePublisher', () =>
-{
-    it('quotes every argument, not the command, of the npm command line', () =>
-    {
-        assert.equal(PackagePublisher.CommandLine(['pack', '--pack-destination', 'C:\\a b']), 'npm "pack" "--pack-destination" "C:\\a b"');
     });
 });

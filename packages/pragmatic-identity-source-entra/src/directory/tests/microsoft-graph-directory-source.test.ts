@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { IdpDirectoryRequest, IdpUserState, Realm, RealmKind } from "@pragmatic-tech-ai/pragmatic-identity";
-import { MapSecretStore, HttpStatusError, OidcSettingKeys } from "@pragmatic-tech-ai/pragmatic-identity-source-oidc";
+import { HttpStatusError, OidcSettingKeys } from "@pragmatic-tech-ai/pragmatic-identity-source-oidc";
+import { MapSecretStore } from "@pragmatic-tech-ai/pragmatic-identity-source-oidc/testing";
 import type { IHttpClient } from "@pragmatic-tech-ai/pragmatic-identity-source-oidc";
 import { MicrosoftGraphDirectorySource } from "../microsoft-graph-directory-source.js";
 

@@ -1,6 +1,7 @@
 {
   "name": "@pragmatic-tech-ai/pragmatic-realm-gcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
+  "license": "Apache-2.0",
   "description": "Adapters for the GCP realm option.",
   "repository": {
     "type": "git",
@@ -35,11 +36,13 @@
     "@google-cloud/cloud-sql-connector": "1.12.1",
     "@google-cloud/secret-manager": "7.2.0",
     "@google-cloud/storage": "8.4.0",
-    "@pragmatic-tech-ai/pragmatic-identity": "0.1.0",
-    "@pragmatic-tech-ai/pragmatic-realm-adapters": "0.1.0",
-    "@pragmatic-tech-ai/todl": "file:../../../TODL",
-    "@pragmatic-tech-ai/todl-runtime": "file:../../../todl-runtime",
+    "@pragmatic-tech-ai/pragmatic-identity": "0.1.1",
+    "@pragmatic-tech-ai/pragmatic-realm-adapters": "0.1.1",
     "pg": "8.23.1"
+  },
+  "peerDependencies": {
+    "@pragmatic-tech-ai/todl": "file:../../../TODL",
+    "@pragmatic-tech-ai/todl-runtime": "file:../../../todl-runtime"
   },
   "devDependencies": {
     "@grpc/grpc-js": "1.14.6",

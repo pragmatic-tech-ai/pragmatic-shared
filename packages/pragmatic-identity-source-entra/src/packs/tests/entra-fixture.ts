@@ -1,7 +1,8 @@
 import { DelegationDepth, IdentityConfig, Realm, RealmKind } from "@pragmatic-tech-ai/pragmatic-identity";
 import type { Role } from "@pragmatic-tech-ai/pragmatic-identity";
 import { FakeAuditSink, FakeRoleGrantStore, FakeSessionManager } from "@pragmatic-tech-ai/pragmatic-identity/testing";
-import { MapSecretStore, OidcSettingKeys, InMemoryOidcFlowStateStore, FakeOidcHttpClient, FakeOidcIdp } from "@pragmatic-tech-ai/pragmatic-identity-source-oidc";
+import { OidcSettingKeys, InMemoryOidcFlowStateStore } from "@pragmatic-tech-ai/pragmatic-identity-source-oidc";
+import { MapSecretStore, FakeOidcHttpClient, FakeOidcIdp } from "@pragmatic-tech-ai/pragmatic-identity-source-oidc/testing";
 import { MicrosoftEntraPack } from "../microsoft-entra-pack.js";
 
 export class EntraFixture

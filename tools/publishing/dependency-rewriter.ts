@@ -14,6 +14,8 @@ export interface IRewrittenDependency
     Name: string;
     From: string;
     To: string;
+    /** The version of the package the `file:` reference pointed at. */
+    Version: string;
 }
 
 /** The manifest to publish plus what was rewritten in it. */
@@ -54,7 +56,7 @@ export class DependencyRewriter
                 }
                 const range = DependencyRewriter.CaretRange + target.Version;
                 dependencies[name] = range;
-                rewritten.push({ Section: section, Name: name, From: spec, To: range });
+                rewritten.push({ Section: section, Name: name, From: spec, To: range, Version: target.Version });
             }
         }
         const remaining = DependencyRewriter.FindFileReferences(data);

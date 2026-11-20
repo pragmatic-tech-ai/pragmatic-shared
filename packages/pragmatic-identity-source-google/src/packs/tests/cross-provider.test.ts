@@ -6,7 +6,8 @@ import { FakeAuditSink, FakeRoleGrantStore, FakeSessionManager } from "@pragmati
 import { MicrosoftEntraProfile, MicrosoftEntraPack } from "@pragmatic-tech-ai/pragmatic-identity-source-entra";
 import { GoogleIdentityProfile } from "../google-identity-profile.js";
 import { GoogleIdentityPack } from "../google-identity-pack.js";
-import { OidcSettingKeys, InMemoryOidcFlowStateStore, FakeOidcHttpClient, FakeOidcIdp, MapSecretStore } from "@pragmatic-tech-ai/pragmatic-identity-source-oidc";
+import { OidcSettingKeys, InMemoryOidcFlowStateStore } from "@pragmatic-tech-ai/pragmatic-identity-source-oidc";
+import { FakeOidcHttpClient, FakeOidcIdp, MapSecretStore } from "@pragmatic-tech-ai/pragmatic-identity-source-oidc/testing";
 
 class Fixture
 {

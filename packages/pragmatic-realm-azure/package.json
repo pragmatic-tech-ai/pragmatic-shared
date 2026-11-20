@@ -1,6 +1,7 @@
 {
   "name": "@pragmatic-tech-ai/pragmatic-realm-azure",
-  "version": "0.1.0",
+  "version": "0.1.1",
+  "license": "Apache-2.0",
   "description": "Adapters for the Azure realm option.",
   "repository": {
     "type": "git",
@@ -35,11 +36,13 @@
     "@azure/identity": "4.14.0",
     "@azure/keyvault-secrets": "4.11.2",
     "@azure/storage-blob": "12.34.0",
-    "@pragmatic-tech-ai/pragmatic-identity": "0.1.0",
-    "@pragmatic-tech-ai/pragmatic-realm-adapters": "0.1.0",
-    "@pragmatic-tech-ai/todl": "file:../../../TODL",
-    "@pragmatic-tech-ai/todl-runtime": "file:../../../todl-runtime",
+    "@pragmatic-tech-ai/pragmatic-identity": "0.1.1",
+    "@pragmatic-tech-ai/pragmatic-realm-adapters": "0.1.1",
     "pg": "8.23.1"
+  },
+  "peerDependencies": {
+    "@pragmatic-tech-ai/todl": "file:../../../TODL",
+    "@pragmatic-tech-ai/todl-runtime": "file:../../../todl-runtime"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",

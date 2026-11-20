@@ -6,7 +6,8 @@ import {
     FakeSessionManager,
     IdentityPackConformance,
 } from "@pragmatic-tech-ai/pragmatic-identity/testing";
-import { InMemoryOidcFlowStateStore, MapSecretStore } from "@pragmatic-tech-ai/pragmatic-identity-source-oidc";
+import { InMemoryOidcFlowStateStore } from "@pragmatic-tech-ai/pragmatic-identity-source-oidc";
+import { MapSecretStore } from "@pragmatic-tech-ai/pragmatic-identity-source-oidc/testing";
 import type { IHttpClient } from "@pragmatic-tech-ai/pragmatic-identity-source-oidc";
 import { GoogleIdentityPack } from "../google-identity-pack.js";
 import { GoogleFixture } from "./google-fixture.js";
