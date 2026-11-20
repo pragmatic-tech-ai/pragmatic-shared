@@ -56,9 +56,9 @@ describe('workspace manifests', () =>
 {
     const packages = Workspace.Packages();
 
-    it('lists the twenty packages', () =>
+    it('lists the twenty-one packages', () =>
     {
-        assert.equal(packages.length, 20);
+        assert.equal(packages.length, 21);
     });
 
     it('takes todl, todl-runtime and mural as peer dependencies linked to the sibling checkout, never as dependencies', () =>
@@ -100,6 +100,7 @@ describe('workspace manifests', () =>
             'pragmatic-realm-gcp': ['@pragmatic-tech-ai/todl', '@pragmatic-tech-ai/todl-runtime'],
             'pragmatic-realm-aws': ['@pragmatic-tech-ai/todl', '@pragmatic-tech-ai/todl-runtime'],
             'pragmatic-realm-azure': ['@pragmatic-tech-ai/todl', '@pragmatic-tech-ai/todl-runtime'],
+            'pragmatic-configuration': ['@pragmatic-tech-ai/todl', '@pragmatic-tech-ai/todl-runtime'],
             'pragmatic-app-host': ['@pragmatic-tech-ai/todl', '@pragmatic-tech-ai/todl-runtime'],
             'pragmatic-entitlements-contract': [],
             'pragmatic-ledger-contract': [],
