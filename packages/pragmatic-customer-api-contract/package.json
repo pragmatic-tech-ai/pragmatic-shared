@@ -1,0 +1,45 @@
+{
+  "name": "@pragmatic-tech-ai/pragmatic-customer-api-contract",
+  "version": "0.6.0",
+  "license": "Apache-2.0",
+  "description": "The personal cabinet's operational calls through the platform edge to the platform admin console: tenants, hive enrolment and levels, hives and health, email domains, leaving; DTOs, typed client, edge relay, route definitions, error codes.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pragmatic-tech-ai/pragmatic-shared.git",
+    "directory": "packages/pragmatic-customer-api-contract"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "clean": "rimraf dist",
+    "prepublishOnly": "npm run clean && npm run build",
+    "test": "tsx --test \"src/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@pragmatic-tech-ai/pragmatic-app-host": "0.6.0",
+    "@pragmatic-tech-ai/pragmatic-entitlements-contract": "0.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "rimraf": "^6.0.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.0"
+  }
+}

@@ -20,6 +20,9 @@ The platform packages shared by the Pragmatic containers, under their `pragmatic
 | `pragmatic-realm-azure` | `todl-platform-azure` | adapters for the Azure realm option |
 | `pragmatic-component` | (new) | component descriptors: what a released container supports (options, settings and which are secret, application roles, storage, endpoints), its configuration JSON Schema, the configuration validator and secret references |
 | `pragmatic-app-host` | (new) | the server of a Mural application: the ordered request pipeline, declared routes, the UI bundle, JSON API limits, OIDC and password sign-in sessions, claims authorization, audit (Postgres repositories) |
+| `pragmatic-entitlements-contract` | (new) | the entitlement statement the clients ledger sends to the platform admin console (client, kind, customer admins, plan limits, state, version), its sender and receiver, the operations it gates |
+| `pragmatic-ledger-contract` | (new) | the clients ledger's internal API the personal cabinet calls: register a client, my client, plans, checkout (Paddle references), cancel; DTOs, typed client, routes |
+| `pragmatic-customer-api-contract` | (new) | the personal cabinet's operations through the platform edge to the platform admin console: tenants, hive enrolment by level, hives and health, email domains, leaving; DTOs, typed client, edge relay, routes, error codes |
 | `pragmatic-app-shell` | (new) | the client shell of a Mural application, speaking `pragmatic-app-host`: sign-in page (OIDC redirect, optional password), session handling and expiry, change-password dialog, one-time-secret page, pending-state holders, the JSON API client base, and their compiled `.mu` views |
 
 The cross-provider tests of the old `todl-identity-cloud` (Entra and Google side by side) live in

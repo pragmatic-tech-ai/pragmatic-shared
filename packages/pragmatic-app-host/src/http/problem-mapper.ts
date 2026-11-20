@@ -67,7 +67,7 @@ export class ProblemMapper
         }
         if (err instanceof HttpProblem)
         {
-            JsonApi.WriteJson(res, err.Status, { [ProblemMapper.ErrorField]: err.message })
+            JsonApi.WriteJson(res, err.Status, { ...err.Fields(), [ProblemMapper.ErrorField]: err.message })
             return
         }
         const mapping = err instanceof Error ? this.MappingFor(err) : undefined

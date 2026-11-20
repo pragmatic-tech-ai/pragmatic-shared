@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { ProblemMapper } from '../problem-mapper.js'
 import { BodyTooLargeError } from '../body-too-large-error.js'
-import { HttpProblem } from '../http-problem.js'
+import { BadRequestProblem, HttpProblem } from '../http-problem.js'
 import { TestHttp } from '../../tests/support/test-http.js'
 
 class NotThereError extends Error
@@ -76,6 +76,10 @@ test('built in: BodyTooLargeError is 413, an HttpProblem carries its own status,
     assert.deepEqual([tooLarge.Status, tooLarge.Body], [413, { error: 'Request body too large' }])
     const problem = await Probe.Answer(mapper, new HttpProblem(422, 'name is required'))
     assert.deepEqual([problem.Status, problem.Body], [422, { error: 'name is required' }])
+    const coded = await Probe.Answer(mapper, new HttpProblem(409, 'taken', 'tenant-taken'))
+    assert.deepEqual([coded.Status, coded.Body], [409, { error: 'taken', code: 'tenant-taken' }])
+    const bad = await Probe.Answer(mapper, new BadRequestProblem('Name is required'))
+    assert.deepEqual([bad.Status, bad.Body], [400, { error: 'Name is required', code: 'invalid-request' }])
     assert.equal((await Probe.Answer(mapper, 'a string')).Status, 500)
 })
 

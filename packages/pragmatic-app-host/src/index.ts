@@ -22,6 +22,12 @@ export { HttpProblem, BadRequestProblem } from './http/http-problem.js'
 export { BodyTooLargeError } from './http/body-too-large-error.js'
 export { HttpMethod, HttpMethods } from './http/http-method.js'
 export { CacheControl } from './http/cache-control.js'
+export { JsonFields } from './http/json-fields.js'
+export type { JsonStringRule, JsonIntegerRule } from './http/json-fields.js'
+export { JsonPostClient, JsonReply, JsonPostUnavailableError } from './http/json-post-client.js'
+
+export { InternalApiCredential, InternalApiSecretError } from './internal/internal-api-credential.js'
+export { InternalApiGuard } from './internal/internal-api-guard.js'
 
 export { HostAllowList } from './guards/host-allow-list.js'
 export { OriginGuard } from './guards/origin-guard.js'
