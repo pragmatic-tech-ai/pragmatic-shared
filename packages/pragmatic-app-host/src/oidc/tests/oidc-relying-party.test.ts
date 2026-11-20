@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { InMemoryOidcFlowStateStore } from '@pragmatic-tech-ai/pragmatic-identity-source-oidc'
-import { FakeOidcHttpClient, FakeOidcIdp } from '@pragmatic-tech-ai/pragmatic-identity-source-oidc/testing'
+import { FakeOidcHttpClient, FakeOidcIdp, TlsTestRealm } from '@pragmatic-tech-ai/pragmatic-identity-source-oidc/testing'
 import { SqlOidcFlowStateStore } from '@pragmatic-tech-ai/pragmatic-realm-adapters'
 import { SqlTestSessions } from '@pragmatic-tech-ai/pragmatic-realm-adapters/testing'
 import { OidcRelyingParty } from '../oidc-relying-party.js'
@@ -137,4 +137,24 @@ SqlTestSessions.Describe('OidcRelyingParty over SqlOidcFlowStateStore', (makeSes
         const identity = await new OidcRelyingParty(await SqlOidcFlowStateStore.Open(session)).Complete(client, 'c', begun.State)
         assert.equal(identity.Subject, 'user-1')
     })
+})
+
+test('a realm on a private CA: the CA bundle file (per client, or the relying party default) is trusted for discovery', async () =>
+{
+    let idp!: FakeOidcIdp
+    const realm = await TlsTestRealm.Start(new Map([['/.well-known/openid-configuration', () => idp.DiscoveryDocument()]]))
+    try
+    {
+        idp = await FakeOidcIdp.Create(realm.Origin)
+        const client: IOidcClientConfig = { Issuer: idp.Issuer, DiscoveryUrl: idp.DiscoveryUrl, ClientId: RpFixture.ClientId, RedirectUri: RpFixture.RedirectUri }
+        const begun = await new OidcRelyingParty(new InMemoryOidcFlowStateStore()).Begin({ ...client, CaBundleFile: TlsTestRealm.CaFile })
+        assert.equal(new URL(begun.Url).origin + new URL(begun.Url).pathname, idp.AuthorizationEndpoint)
+        assert.ok(await new OidcRelyingParty(new InMemoryOidcFlowStateStore(), { CaBundleFile: TlsTestRealm.CaFile }).Begin(client))
+        await assert.rejects(new OidcRelyingParty(new InMemoryOidcFlowStateStore()).Begin(client), OidcLoginError)
+        await assert.rejects(new OidcRelyingParty(new InMemoryOidcFlowStateStore()).Begin({ ...client, CaBundleFile: TlsTestRealm.CaFile + '.missing' }), OidcLoginError)
+    }
+    finally
+    {
+        await realm.Stop()
+    }
 })

@@ -12,8 +12,9 @@
 // StackPanel, whose AppShellSubmitOnEnter style (a Style is the only place `on <Event>` is allowed) invokes
 // SubmitKeyCommand with the key args. Why the shell could not start shows above, with Try again.
 //
-// The header: who is signed in, Change password (when the application offers it), Log out, and what the last
-// account action did, why access was refused, or why logout failed.
+// The header: who is signed in, Change password (greyed when the application does not offer it, hidden when it also
+// hides unoffered actions), Log out, and what the last account action did, why access was refused, or why logout
+// failed.
 //
 // The change-password dialog: current, new and confirm, all masked native password inputs; why Confirm is still off
 // shows under the field at fault. The one-time-secret page: the value with Copy, the warning, "I've saved it", and
@@ -73,7 +74,8 @@ resources AppShellResources {
                 Button [ DockPanel.Dock = Right, Variant = Text, Command = $LogoutCommand, Margin = (12,0,0,0) ] {
                     TextBlock [ Text = "Log out" ]
                 }
-                Button [ DockPanel.Dock = Right, Variant = Text, Command = $ChangePasswordCommand, Margin = (12,0,0,0) ] {
+                Button [ DockPanel.Dock = Right, Variant = Text, Command = $ChangePasswordCommand, Margin = (12,0,0,0),
+                         Visibility = $ShowsChangePassword << ToVisibility ] {
                     TextBlock [ Text = "Change password" ]
                 }
                 TextBlock [ DockPanel.Dock = Right, Text = $Email, Style = @UiLabel, Foreground = @Fg0, VerticalAlignment = Center ]

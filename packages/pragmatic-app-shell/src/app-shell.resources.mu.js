@@ -147,6 +147,7 @@ export class AppShellResources extends ResourceDictionary {
             _button28.set_property_value(Button.VariantKey, ButtonVariant.Text);
             _button28.set_property_value(Button.CommandKey, DataContextBinding(_button28, "ChangePasswordCommand"));
             _button28.set_property_value(Button.MarginKey, new Thickness(12, 0, 0, 0));
+            _button28.set_property_value(Button.VisibilityKey, DataContextBinding(_button28, "ShowsChangePassword", ToVisibility));
             const _textBlock29 = new TextBlock();
             _textBlock29.set_property_value(TextBlock.TextKey, "Change password");
             _button28.Content = _textBlock29;

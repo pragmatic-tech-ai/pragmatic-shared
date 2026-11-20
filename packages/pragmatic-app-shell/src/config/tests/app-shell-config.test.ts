@@ -65,4 +65,10 @@ describe('AppShellConfig', () =>
     {
         assert.throws(() => new AppShellConfig({ ProductName: 'A', MinPasswordLength: 0 }), /password length/)
     })
+
+    it('shows unoffered account actions greyed by default; HideUnofferedActions hides them', () =>
+    {
+        assert.equal(new AppShellConfig({ ProductName: 'A' }).HidesUnofferedActions, false)
+        assert.equal(new AppShellConfig({ ProductName: 'A', HideUnofferedActions: true }).HidesUnofferedActions, true)
+    })
 })

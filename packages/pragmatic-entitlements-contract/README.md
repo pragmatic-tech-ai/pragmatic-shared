@@ -15,7 +15,8 @@ the mesh. Design: `dev-kit/docs/superpowers/specs/2026-11-20-d2-contracts-design
   (`EntitlementsLink.CredentialFromFile`), strict decoding, per-client serialisation, newer versions handed to the
   application's `IEntitlementSink`, equal ones `duplicate`, older ones `stale`.
 - Shared by the two API contracts: `CentralLoginSubject`, `ICentralLoginVerifier` (the application verifies the
-  central login's ID tokens), `CustomerCallAuthenticator` (link bearer plus the customer's own token in
-  `x-pragmatic-customer-token`).
+  central login's ID tokens), `CentralLoginSubjectVerifier` (the `ICentralLoginVerifier` over a realm token verifier:
+  `CentralLoginTokenVerifier` of `pragmatic-identity-source-pragmatic`, or a `RealmTokenVerifier` for a configured
+  issuer), `CustomerCallAuthenticator` (link bearer plus the customer's own token in `x-pragmatic-customer-token`).
 
-Dependencies: the workspace's `pragmatic-app-host`.
+Dependencies: the workspace's `pragmatic-app-host` and `pragmatic-identity-source-oidc`.

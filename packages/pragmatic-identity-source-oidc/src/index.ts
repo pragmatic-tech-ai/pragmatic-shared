@@ -31,3 +31,10 @@ export { UnsupportedSourceTokenProvider } from "./obo/unsupported-source-token-p
 export type { IRevocableSourceTokenProvider } from "./obo/revocable-source-token-provider.js";
 export { GenericOidcProfile } from "./packs/generic-oidc-profile.js";
 export { GenericOidcPack } from "./packs/generic-oidc-pack.js";
+export { CaTrustingHttpClient } from "./http/ca-trusting-http-client.js";
+export { OidcHttpClients } from "./http/oidc-http-clients.js";
+export type { IRealmTokenVerifier } from "./verify/token-verifier.js";
+export type { RealmTokenVerifierOptions } from "./verify/realm-token-verifier-options.js";
+export { RealmTokenVerifier } from "./verify/realm-token-verifier.js";
+export { RealmTokenPrincipal } from "./verify/realm-token-principal.js";
+export { TokenVerifierUnavailableError } from "./verify/token-verifier-unavailable-error.js";

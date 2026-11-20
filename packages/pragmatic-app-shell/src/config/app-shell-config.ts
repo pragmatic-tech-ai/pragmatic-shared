@@ -38,6 +38,9 @@ export interface AppShellOptions
     readonly RolesClaim?: string
     /** The session claim that carries this application's roles. Default `app_roles` (the `ClaimsAuthorizer` default). */
     readonly AppRolesClaim?: string
+    /** Hide the header's account actions the application does not offer (Change password without a ChangePassword
+     *  path, e.g. an OIDC-only application) instead of showing them greyed. Default false: shown, greyed. */
+    readonly HideUnofferedActions?: boolean
 }
 
 /**
@@ -78,6 +81,8 @@ export class AppShellConfig
     public readonly EmailClaim: string
     public readonly RolesClaim: string
     public readonly AppRolesClaim: string
+    /** Whether the header hides the account actions the application does not offer (rather than greying them). */
+    public readonly HidesUnofferedActions: boolean
     private readonly redirect: boolean | undefined
 
     public constructor(options: AppShellOptions)
@@ -118,6 +123,7 @@ export class AppShellConfig
         this.EmailClaim = options.EmailClaim ?? AppShellConfig.DefaultEmailClaim
         this.RolesClaim = options.RolesClaim ?? AppShellConfig.DefaultRolesClaim
         this.AppRolesClaim = options.AppRolesClaim ?? AppShellConfig.DefaultAppRolesClaim
+        this.HidesUnofferedActions = options.HideUnofferedActions ?? false
         this.redirect = options.RedirectWhenSignedOut
     }
 

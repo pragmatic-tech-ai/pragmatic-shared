@@ -8,6 +8,8 @@ export interface MintOptions
     kid?: string;
     issuer?: string;
     expSecondsFromNow?: number;
+    /** `iat` relative to now (default 0); `null` leaves `iat` out. */
+    iatSecondsFromNow?: number | null;
 }
 
 export class FakeOidcIdp
@@ -48,10 +50,10 @@ export class FakeOidcIdp
         this.DiscoveryUrl = Issuer + FakeOidcIdp.DiscoveryPath;
     }
 
-    public static async Create(issuer?: string): Promise<FakeOidcIdp>
+    /** An IdP with one fresh RS256 key; `kid` names it (default `test-key-1`; another kid models a rotated key). */
+    public static async Create(issuer?: string, kid: string = FakeOidcIdp.DefaultKid): Promise<FakeOidcIdp>
     {
         const { publicKey, privateKey } = await generateKeyPair(FakeOidcIdp.SigAlg);
-        const kid = FakeOidcIdp.DefaultKid;
         const jwk = await exportJWK(publicKey);
         jwk.kid = kid;
         jwk.alg = FakeOidcIdp.SigAlg;
@@ -78,12 +80,16 @@ export class FakeOidcIdp
     {
         const exp = Math.floor(Date.now() / 1000) + (opts?.expSecondsFromNow ?? FakeOidcIdp.DefaultExpSeconds);
         const claims = typeof payload[FakeOidcIdp.SubClaim] === "string" ? { [FakeOidcIdp.OidClaim]: payload[FakeOidcIdp.SubClaim], ...payload } : payload;
-        return await new SignJWT(claims)
+        const jwt = new SignJWT(claims)
             .setProtectedHeader({ alg: opts?.alg ?? FakeOidcIdp.SigAlg, kid: opts?.kid ?? this.kid })
-            .setIssuedAt()
             .setIssuer(opts?.issuer ?? this.Issuer)
-            .setExpirationTime(exp)
-            .sign(this.privateKey);
+            .setExpirationTime(exp);
+        const iat = opts?.iatSecondsFromNow;
+        if (iat !== null)
+        {
+            jwt.setIssuedAt(Math.floor(Date.now() / 1000) + (iat ?? 0));
+        }
+        return await jwt.sign(this.privateKey);
     }
 
     /** A token-endpoint response: the id token plus a fake upstream access and refresh token. */

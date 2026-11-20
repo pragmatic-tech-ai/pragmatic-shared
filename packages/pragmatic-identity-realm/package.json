@@ -1,6 +1,6 @@
 {
   "name": "@pragmatic-tech-ai/pragmatic-identity-realm",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "license": "Apache-2.0",
   "description": "Realm services: directory, audit, the realm, tenant roles, role mapping and role resolution.",
   "repository": {
@@ -27,7 +27,7 @@
     "test": "tsx --test \"src/**/*.test.ts\""
   },
   "dependencies": {
-    "@pragmatic-tech-ai/pragmatic-identity": "0.10.0"
+    "@pragmatic-tech-ai/pragmatic-identity": "0.11.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

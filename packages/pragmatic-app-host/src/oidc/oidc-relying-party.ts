@@ -1,5 +1,5 @@
 import { AuthMethod, AuthenticatedResult, Credential, DelegationDepth, IdentityConfig, PresentedSecret, Realm, RealmKind, RealmRoleClaims } from '@pragmatic-tech-ai/pragmatic-identity'
-import { ClaimsMapper, FetchHttpClient, GenericOidcProfile, JwksCache, OidcAuthenticator, OidcDiscovery, OidcResolvedConfig } from '@pragmatic-tech-ai/pragmatic-identity-source-oidc'
+import { ClaimsMapper, GenericOidcProfile, JwksCache, OidcAuthenticator, OidcDiscovery, OidcHttpClients, OidcResolvedConfig } from '@pragmatic-tech-ai/pragmatic-identity-source-oidc'
 import type { IHttpClient, IOidcFlowStateStore } from '@pragmatic-tech-ai/pragmatic-identity-source-oidc'
 import type { IOidcClientConfig } from './oidc-client-config.js'
 import { OidcLoginError } from './oidc-login-error.js'
@@ -10,8 +10,10 @@ import { RealmRoleGroupStrategy } from './realm-role-group-strategy.js'
 
 export interface OidcRelyingPartyOptions
 {
-    /** The HTTP client of a config that brings none; default fetch (https only). */
+    /** The HTTP client of a config that brings none; default from CaBundleFile (fetch, https only, when absent). */
     Http?: IHttpClient
+    /** A PEM CA bundle file trusted besides the public roots by the default HTTP client: a realm on a private CA. */
+    CaBundleFile?: string
     /** The session claim the subject's tenant roles go under; default `roles` (the ClaimsAuthorizer's default). */
     SessionRoleClaim?: string
     /** The session claim this application's roles go under; default `app_roles` (the ClaimsAuthorizer's default). */
@@ -55,10 +57,11 @@ export class OidcRelyingParty
     private readonly sessionAppRoleClaim: string
     private readonly now: (() => Date) | undefined
     private readonly caches = new WeakMap<IHttpClient, OidcCaches>()
+    private readonly caClients = new Map<string, IHttpClient>()
 
     public constructor(private readonly flowStates: IOidcFlowStateStore, options: OidcRelyingPartyOptions = {})
     {
-        this.http = options.Http ?? new FetchHttpClient()
+        this.http = options.Http ?? OidcHttpClients.Create(options.CaBundleFile)
         this.sessionRoleClaim = options.SessionRoleClaim ?? RealmRoleClaims.RolesClaim
         this.sessionAppRoleClaim = options.SessionAppRoleClaim ?? RealmRoleClaims.AppRolesClaim
         this.now = options.Now
@@ -113,7 +116,7 @@ export class OidcRelyingParty
 
     private Authenticator(client: IOidcClientConfig): OidcAuthenticator
     {
-        const http = client.Http ?? this.http
+        const http = client.Http ?? (client.CaBundleFile === undefined ? this.http : this.CaClient(client.CaBundleFile))
         let caches = this.caches.get(http)
         if (caches === undefined)
         {
@@ -137,6 +140,18 @@ export class OidcRelyingParty
             Resolved: new OidcResolvedConfig(client.DiscoveryUrl, client.Issuer, client.ClientId, client.RedirectUri, scopes, hasSecret ? ClientSecretStore.Reference : null, OidcRelyingParty.ClientSecretParam),
             now: this.now,
         })
+    }
+
+    // One CA-trusting client per bundle file, so its discovery and key caches are kept across sign-ins.
+    private CaClient(caBundleFile: string): IHttpClient
+    {
+        let http = this.caClients.get(caBundleFile)
+        if (http === undefined)
+        {
+            http = OidcHttpClients.Create(caBundleFile)
+            this.caClients.set(caBundleFile, http)
+        }
+        return http
     }
 
     /** The realm the client signs into, named by its issuer. */

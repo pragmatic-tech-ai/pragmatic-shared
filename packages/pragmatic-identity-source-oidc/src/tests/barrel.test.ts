@@ -4,7 +4,7 @@ import * as assert from "node:assert/strict";
 /** The test helpers ship from the `./testing` subpath only, never from the main entry production code imports. */
 class Barrel
 {
-    public static readonly Helpers = ["FakeOidcIdp", "FakeOidcHttpClient", "MapSecretStore"];
+    public static readonly Helpers = ["FakeOidcIdp", "FakeOidcHttpClient", "MapSecretStore", "TlsTestRealm"];
 }
 
 test("the main entry exports no test helper", async () =>

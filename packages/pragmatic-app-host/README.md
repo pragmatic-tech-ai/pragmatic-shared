@@ -47,7 +47,8 @@ else is a generic 500).
 - `WsTicketStore` over `ITicketRepository`: single-use WebSocket tickets in the subprotocol.
 - `OidcRelyingParty` + `OidcLoginEndpoint` (begin, callback, session, logout) with an application-supplied
   `IOidcClientProvider`; flow state in any `IOidcFlowStateStore` (`SqlOidcFlowStateStore` in production);
-  `CaTrustingHttpClient` for a realm on a private CA.
+  a realm on a private CA through a CA bundle file (`CaBundleFile` on the relying party or per client; the
+  `CaTrustingHttpClient` and `OidcHttpClients` of `pragmatic-identity-source-oidc`, re-exported here).
 - `PasswordLoginEndpoint` over an application's `IPasswordAuthenticator` (optional break-glass sign-in).
 - `SessionEndpoint`, `WsTicketEndpoint`.
 - `AuditTrail` over `IAuditRepository`.

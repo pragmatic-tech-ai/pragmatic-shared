@@ -3,6 +3,7 @@ export { ClientKind, ClientKinds } from './client/client-kind.js'
 export { CentralLoginSubject } from './central-login/central-login-subject.js'
 export type { CentralLoginSubjectJson } from './central-login/central-login-subject.js'
 export type { ICentralLoginVerifier } from './central-login/central-login-verifier.js'
+export { CentralLoginSubjectVerifier } from './central-login/central-login-subject-verifier.js'
 export { CustomerCallAuthenticator, CustomerCallOutcome, CustomerCallResult } from './central-login/customer-call-authenticator.js'
 
 export { EntitledOperation, EntitledOperations, EntitlementLimit } from './entitlement/entitled-operation.js'

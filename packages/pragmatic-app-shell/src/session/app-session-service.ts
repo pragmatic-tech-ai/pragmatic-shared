@@ -23,6 +23,7 @@ export class AppSessionService extends ServiceBase
     private static readonly SubjectProperty = 'Subject'
     private static readonly IsSignedInProperty = 'IsSignedIn'
     private static readonly ProductNameProperty = 'ProductName'
+    private static readonly ShowsChangePasswordProperty = 'ShowsChangePassword'
     private static readonly LogoutErrorProperty = 'LogoutError'
     private static readonly AccountNoticeProperty = 'AccountNotice'
     private static readonly AccessNoticeProperty = 'AccessNotice'
@@ -61,7 +62,7 @@ export class AppSessionService extends ServiceBase
     /** Binds the session and listens to the client's 401 / 403 (a previous client's are released). */
     public Initialize(client: AppSessionClient, session: AppSession, reloader: IPageReloader): void
     {
-        const before = [this.Email, this.Subject, this.IsSignedIn, this.ProductName] as const
+        const before = [this.Email, this.Subject, this.IsSignedIn, this.ProductName, this.ShowsChangePassword] as const
         for (const subscription of this.subscriptions)
         {
             subscription.dispose()
@@ -79,6 +80,7 @@ export class AppSessionService extends ServiceBase
         this.RaiseIfChanged(P.SubjectProperty, before[1], this.Subject)
         this.RaiseIfChanged(P.IsSignedInProperty, before[2], this.IsSignedIn)
         this.RaiseIfChanged(P.ProductNameProperty, before[3], this.ProductName)
+        this.RaiseIfChanged(P.ShowsChangePasswordProperty, before[4], this.ShowsChangePassword)
         this.OnInitialized()
         this.changePasswordCommand.RaiseCanExecuteChanged()
     }
@@ -163,6 +165,14 @@ export class AppSessionService extends ServiceBase
     public get ChangePasswordCommand(): RelayCommand
     {
         return this.changePasswordCommand
+    }
+
+    /** Whether the header shows Change password: always (greyed when not offered), unless the application hides the
+     *  actions it does not offer (AppShellOptions.HideUnofferedActions) and offers no own-password change. */
+    public get ShowsChangePassword(): boolean
+    {
+        const client = this.client
+        return client === undefined || !client.Config.HidesUnofferedActions || client.ChangesPassword
     }
 
     /** What the last account action did ('Password changed...'); '' when none. */

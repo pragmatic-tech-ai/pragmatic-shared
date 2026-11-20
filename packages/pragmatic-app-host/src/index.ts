@@ -77,7 +77,7 @@ export { OidcLoginEndpoint } from './oidc/oidc-login-endpoint.js'
 export type { OidcLoginEndpointOptions } from './oidc/oidc-login-endpoint.js'
 export type { IOidcClientConfig, IOidcClientProvider } from './oidc/oidc-client-config.js'
 export { OidcLoginError } from './oidc/oidc-login-error.js'
-export { CaTrustingHttpClient } from './oidc/ca-trusting-http-client.js'
+export { CaTrustingHttpClient, OidcHttpClients } from '@pragmatic-tech-ai/pragmatic-identity-source-oidc'
 
 export { PasswordLoginEndpoint } from './password/password-login-endpoint.js'
 export type { IPasswordAuthenticator } from './password/password-authenticator.js'

@@ -112,6 +112,17 @@ describe('AppSessionService', () =>
         assert.equal(new SessionKit({}, { roles: ['viewer'] }).Service.ChangePasswordCommand.CanExecute(), false)
     })
 
+    it('shows Change password (greyed when not offered) unless the application hides unoffered actions', () =>
+    {
+        assert.equal(new AppSessionService(new ServiceProvider()).ShowsChangePassword, true)
+        assert.equal(new SessionKit().Service.ShowsChangePassword, true)
+        assert.equal(new SessionKit({ Paths: {} }).Service.ShowsChangePassword, true)
+        assert.equal(new SessionKit({ HideUnofferedActions: true }).Service.ShowsChangePassword, true)
+        const oidcOnly = new SessionKit({ Paths: {}, HideUnofferedActions: true }).Service
+        assert.equal(oidcOnly.ShowsChangePassword, false)
+        assert.equal(oidcOnly.ChangePasswordCommand.CanExecute(), false)
+    })
+
     it('Change password without a dialog service says so', async () =>
     {
         const kit = new SessionKit()

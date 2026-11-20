@@ -9,7 +9,8 @@ the clients ledger), speaking the routes of `@pragmatic-tech-ai/pragmatic-app-ho
 - `AppShellConfig`: what the application says about itself, injected through constructors: product name, sign-in
   methods (`SignInMethod.Oidc`, `SignInMethod.Password` for break-glass), the mount prefix (`ApiBasePath`), the host
   routes (defaults are the host's: `/api/session`, `/api/logout`, `/api/login`, `/auth/oidc/begin`,
-  `/api/ws-ticket`; the own-password change path is the application's), the password floor and the claim names.
+  `/api/ws-ticket`; the own-password change path is the application's), the password floor, the claim names and
+  `HideUnofferedActions` (an OIDC-only application hides Change password instead of showing it greyed).
 - `ApiClientBase`: the JSON client every application client derives from. Own-origin paths only, same-origin
   credentials, a JSON body on every mutation; non-2xx throws `ApiError`; every 401 / 403 is raised on
   `Unauthorized` / `Forbidden` first.

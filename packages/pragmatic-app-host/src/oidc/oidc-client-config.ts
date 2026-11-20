@@ -25,8 +25,12 @@ export interface IOidcClientConfig
     Application?: string
     /** Claims every session of this client carries (e.g. the tenant whose realm signed the subject in). */
     FixedClaims?: SessionClaims
-    /** The HTTP client for discovery, keys and the code exchange (e.g. a CaTrustingHttpClient); default fetch. */
+    /** The HTTP client for discovery, keys and the code exchange (e.g. a CaTrustingHttpClient); default the relying
+     *  party's (or one trusting CaBundleFile). */
     Http?: IHttpClient
+    /** A PEM CA bundle file (from a secret or config file) trusted besides the public roots for this client's realm: a
+     *  realm on a private CA. Ignored when Http is given. */
+    CaBundleFile?: string
 }
 
 /**
