@@ -107,3 +107,11 @@ test("Endpoints rejects a non-https discoveryUrl without fetching", async () =>
     await assert.rejects(discovery.Endpoints("http://x/.well-known/openid-configuration"));
     assert.equal(stub.GetCount, 0);
 });
+
+test("Endpoints reads prompt_values_supported (OIDC Initiating User Registration), empty when absent", async () =>
+{
+    const idp = await FakeOidcIdp.Create();
+    assert.deepEqual((await new OidcDiscovery(new FakeOidcHttpClient(idp)).Endpoints(idp.DiscoveryUrl)).PromptValues, []);
+    idp.PromptValues = ["none", "login", "create", 7];
+    assert.deepEqual((await new OidcDiscovery(new FakeOidcHttpClient(idp)).Endpoints(idp.DiscoveryUrl)).PromptValues, ["none", "login", "create"]);
+});

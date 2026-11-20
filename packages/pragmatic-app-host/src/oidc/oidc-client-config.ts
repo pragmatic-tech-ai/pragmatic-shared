@@ -14,6 +14,9 @@ export interface IOidcClientConfig
     RedirectUri: string
     /** Default `openid email profile`. */
     Scopes?: readonly string[]
+    /** Claims the ID token must carry besides the ones always checked (e.g. `iat`, `email`); a token without one is
+     *  refused. Default none. */
+    RequiredClaims?: readonly string[]
     /** A confidential client's secret; absent for a public (PKCE-only) client. Never logged or echoed. */
     ClientSecret?: string
     /** Session claim <- id-token claim; default `email <- email`. */

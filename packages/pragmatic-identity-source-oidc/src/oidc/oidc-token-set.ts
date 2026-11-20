@@ -29,10 +29,10 @@ export class OidcTokenSet
     }
 }
 
-/** A sign-in's result and, when it succeeded, its upstream tokens. */
+/** A sign-in's result and, when it succeeded, its upstream tokens and the return path its flow was begun with. */
 export class OidcSignInOutcome<TResult>
 {
-    public constructor(public readonly Result: TResult, public readonly Tokens: OidcTokenSet | null)
+    public constructor(public readonly Result: TResult, public readonly Tokens: OidcTokenSet | null, public readonly ReturnPath: string | null = null)
     {
     }
 }

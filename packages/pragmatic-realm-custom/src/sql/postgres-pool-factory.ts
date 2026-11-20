@@ -1,7 +1,5 @@
 import { readFile } from 'node:fs/promises'
-import pg from 'pg'
 import type { Pool, PoolConfig } from 'pg'
-import { parseIntoClientConfig } from 'pg-connection-string'
 
 export interface PostgresPoolOptions
 {
@@ -17,7 +15,10 @@ export interface PostgresPoolOptions
 /** The custom realm option's Postgres: a pg.Pool for one application's database, from a database URL read from a
  *  secret file. TLS is the URL's business: `sslmode=require|verify-ca|verify-full` turns it on, `sslrootcert=<path>`
  *  names a private CA (with `sslcert`/`sslkey` for client certificates), `sslmode=disable` or no sslmode keeps a
- *  plain connection (the hive's own `pragmatic-postgres` on the pod network). Errors never echo the URL. */
+ *  plain connection (the hive's own `pragmatic-postgres` on the pod network). Errors never echo the URL.
+ *
+ *  `pg` and `pg-connection-string` load on the first Create, never at import: the package root exports this factory,
+ *  and a consumer with no database (the Plexus desktop app) imports the root without loading Postgres. */
 export class PostgresPoolFactory
 {
     private static readonly DefaultMaxConnections = 10
@@ -28,7 +29,7 @@ export class PostgresPoolFactory
     private static readonly SchemeMessage = 'the database URL file does not hold a postgres:// URL: '
     private static readonly PoolSizeMessage = 'the pool size must be at least 1'
 
-    public constructor(private readonly options: PostgresPoolOptions, private readonly createPool: (config: PoolConfig) => Pool = config => new pg.Pool(config))
+    public constructor(private readonly options: PostgresPoolOptions, private readonly createPool?: (config: PoolConfig) => Pool)
     {
         if (options.MaxConnections !== undefined && !(options.MaxConnections >= 1))
         {
@@ -39,6 +40,7 @@ export class PostgresPoolFactory
     public async Create(): Promise<Pool>
     {
         const url = await this.ReadUrl()
+        const { parseIntoClientConfig } = await import('pg-connection-string')
         const config: PoolConfig = {
             ...parseIntoClientConfig(url),
             max: this.options.MaxConnections ?? PostgresPoolFactory.DefaultMaxConnections,
@@ -47,7 +49,12 @@ export class PostgresPoolFactory
         {
             config.application_name = this.options.ApplicationName
         }
-        return this.createPool(config)
+        if (this.createPool !== undefined)
+        {
+            return this.createPool(config)
+        }
+        const pg = await import('pg')
+        return new pg.default.Pool(config)
     }
 
     private async ReadUrl(): Promise<string>

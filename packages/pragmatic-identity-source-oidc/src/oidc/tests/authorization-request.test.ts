@@ -25,3 +25,22 @@ test("Build emits the full authorization-code + PKCE query", () =>
     assert.equal(q.get("redirect_uri"), "https://app.example/cb?x=1");
     assert.equal(q.get("scope"), "openid profile email");
 });
+
+test("Build adds prompt and login_hint only when given", () =>
+{
+    const base = {
+        AuthorizationEndpoint: "https://idp.example/authorize",
+        ClientId: "client-1",
+        RedirectUri: "https://app.example/cb",
+        Scopes: ["openid"],
+        State: "st",
+        Nonce: "no",
+        Challenge: "ch"
+    };
+    const plain = new URL(AuthorizationRequest.Build(base)).searchParams;
+    assert.equal(plain.has("prompt"), false);
+    assert.equal(plain.has("login_hint"), false);
+    const hinted = new URL(AuthorizationRequest.Build({ ...base, Prompt: "create", LoginHint: "ann@example.com" })).searchParams;
+    assert.equal(hinted.get("prompt"), "create");
+    assert.equal(hinted.get("login_hint"), "ann@example.com");
+});

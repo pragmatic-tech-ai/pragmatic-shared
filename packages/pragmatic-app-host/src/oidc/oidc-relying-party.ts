@@ -1,6 +1,6 @@
 import { AuthMethod, AuthenticatedResult, Credential, DelegationDepth, IdentityConfig, PresentedSecret, Realm, RealmKind, RealmRoleClaims } from '@pragmatic-tech-ai/pragmatic-identity'
 import { ClaimsMapper, GenericOidcProfile, JwksCache, OidcAuthenticator, OidcDiscovery, OidcHttpClients, OidcResolvedConfig, OidcSignInOutcome } from '@pragmatic-tech-ai/pragmatic-identity-source-oidc'
-import type { IHttpClient, IOidcFlowStateStore, OidcTokenSet } from '@pragmatic-tech-ai/pragmatic-identity-source-oidc'
+import type { IHttpClient, IOidcFlowStateStore, OidcBeginOptions, OidcTokenSet } from '@pragmatic-tech-ai/pragmatic-identity-source-oidc'
 import type { IOidcClientConfig } from './oidc-client-config.js'
 import { OidcLoginError } from './oidc-login-error.js'
 import { ClientSecretStore } from './client-secret-store.js'
@@ -67,11 +67,13 @@ export class OidcRelyingParty
         this.now = options.Now
     }
 
-    public async Begin(client: IOidcClientConfig): Promise<{ Url: string, State: string }>
+    /** The authorize URL of a new sign-in; `begin` asks for sign-up, passes a login hint, and carries a return path
+     *  (validated by the caller) through the flow state to CompleteWithTokens. */
+    public async Begin(client: IOidcClientConfig, begin: OidcBeginOptions = {}): Promise<{ Url: string, State: string }>
     {
         try
         {
-            return await this.Authenticator(client).BeginAuthorization(OidcRelyingParty.RealmOf(client))
+            return await this.Authenticator(client).BeginAuthorization(OidcRelyingParty.RealmOf(client), begin)
         }
         catch (err)
         {
@@ -85,7 +87,8 @@ export class OidcRelyingParty
     }
 
     /** Complete, also handing back the sign-in's upstream tokens (the verified ID token, the access and refresh tokens
-     *  when issued) for an application that retains them (SessionTokenRetention). */
+     *  when issued) for an application that retains them (SessionTokenRetention), and the return path the flow was begun
+     *  with. */
     public async CompleteWithTokens(client: IOidcClientConfig, code: string, state: string): Promise<OidcSignInOutcome<SignedInIdentity>>
     {
         const presented = new PresentedSecret(code)
@@ -110,7 +113,7 @@ export class OidcRelyingParty
             {
                 sessionClaims = sessionClaims.With(name, client.FixedClaims?.Values(name) ?? [])
             }
-            return new OidcSignInOutcome(new SignedInIdentity(principal.Id, sessionClaims), outcome.Tokens)
+            return new OidcSignInOutcome(new SignedInIdentity(principal.Id, sessionClaims), outcome.Tokens, outcome.ReturnPath)
         }
         catch (err)
         {
@@ -151,7 +154,7 @@ export class OidcRelyingParty
             Secrets: secrets,
             Claims: new ClaimsMapper(profile),
             Config: new IdentityConfig(OidcRelyingParty.PackId, DelegationDepth.AuthnDirectory, new Map(), new Map(), new Map()),
-            Resolved: new OidcResolvedConfig(client.DiscoveryUrl, client.Issuer, client.ClientId, client.RedirectUri, scopes, hasSecret ? ClientSecretStore.Reference : null, OidcRelyingParty.ClientSecretParam),
+            Resolved: new OidcResolvedConfig(client.DiscoveryUrl, client.Issuer, client.ClientId, client.RedirectUri, scopes, hasSecret ? ClientSecretStore.Reference : null, OidcRelyingParty.ClientSecretParam, client.RequiredClaims ?? []),
             now: this.now,
         })
     }

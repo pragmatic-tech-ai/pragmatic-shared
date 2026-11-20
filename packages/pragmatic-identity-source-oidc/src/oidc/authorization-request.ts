@@ -7,6 +7,10 @@ export type AuthorizationRequestOptions =
     State: string;
     Nonce: string;
     Challenge: string;
+    /** OIDC `prompt` (e.g. `create`, OIDC Initiating User Registration); omitted when absent. */
+    Prompt?: string;
+    /** OIDC `login_hint` (the identifier the user is expected to sign in with); omitted when absent. */
+    LoginHint?: string;
 };
 
 export class AuthorizationRequest
@@ -21,6 +25,8 @@ export class AuthorizationRequest
     private static readonly CodeChallengeParam = "code_challenge";
     private static readonly CodeChallengeMethodParam = "code_challenge_method";
     private static readonly CodeChallengeMethodS256 = "S256";
+    private static readonly PromptParam = "prompt";
+    private static readonly LoginHintParam = "login_hint";
     private static readonly ScopeSeparator = " ";
 
     public static Build(opts: AuthorizationRequestOptions): string
@@ -34,6 +40,14 @@ export class AuthorizationRequest
         url.searchParams.set(AuthorizationRequest.NonceParam, opts.Nonce);
         url.searchParams.set(AuthorizationRequest.CodeChallengeParam, opts.Challenge);
         url.searchParams.set(AuthorizationRequest.CodeChallengeMethodParam, AuthorizationRequest.CodeChallengeMethodS256);
+        if (opts.Prompt !== undefined)
+        {
+            url.searchParams.set(AuthorizationRequest.PromptParam, opts.Prompt);
+        }
+        if (opts.LoginHint !== undefined)
+        {
+            url.searchParams.set(AuthorizationRequest.LoginHintParam, opts.LoginHint);
+        }
         return url.toString();
     }
 }

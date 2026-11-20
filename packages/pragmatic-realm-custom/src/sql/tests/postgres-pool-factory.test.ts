@@ -110,6 +110,24 @@ test('a pool size below 1 is refused', () =>
     assert.throws(() => new PostgresPoolFactory({ UrlFile: 'x', MaxConnections: 0 }), /pool size/)
 })
 
+test('without an injected pool creator, Create loads pg then and answers a pg.Pool (no connection is opened)', async () =>
+{
+    await UrlFile.With('postgres://app:pw@127.0.0.1:1/appdb', async path =>
+    {
+        const pool = await new PostgresPoolFactory({ UrlFile: path, MaxConnections: 3 }).Create()
+        try
+        {
+            const pg = await import('pg')
+            assert.ok(pool instanceof pg.default.Pool)
+            assert.equal(pool.options.max, 3)
+        }
+        finally
+        {
+            await pool.end()
+        }
+    })
+})
+
 class LiveDatabase
 {
     public static readonly Url = process.env.PRAGMATIC_TEST_PG_URL ?? ''

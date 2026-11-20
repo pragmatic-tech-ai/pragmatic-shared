@@ -163,7 +163,7 @@ describe('OidcLoginEndpoint session cookie SameSite (the callback is a cross-sit
     it('a Lax cookie stays off cross-site mutations, and the Origin guard still refuses a foreign Origin', async () =>
     {
         new OidcLoginEndpoint(new OidcRelyingParty(new InMemoryOidcFlowStateStore()), new HostClients(idp, http), fixture.Gate).Register(fixture.Routes)
-        fixture.Routes.Add({ Method: HttpMethod.Post, Pattern: '/api/things', Auth: RouteAuth.Session, Role: ClaimsAuthorizer.AnySignedIn, Handler: ctx => ctx.WriteJson(201, {}) })
+        fixture.Routes.Add({ Method: HttpMethod.Post, Pattern: '/api/things', Auth: RouteAuth.Session, Role: ClaimsAuthorizer.AnySignedIn, Handler: async ctx => ctx.WriteJson(201, {}) })
         await fixture.Start()
         const flow = await new CrossSiteFlow(fixture, idp, http).Run()
         const browser = new SameSiteBrowser()

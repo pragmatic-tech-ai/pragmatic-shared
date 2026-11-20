@@ -69,7 +69,7 @@ class Fixture
     {
     }
 
-    public static async Create(secretRef: string | null = null): Promise<Fixture>
+    public static async Create(secretRef: string | null = null, requiredClaims: readonly string[] = []): Promise<Fixture>
     {
         const idp = await FakeOidcIdp.Create();
         const http = new FakeOidcHttpClient(idp);
@@ -77,7 +77,7 @@ class Fixture
         const secrets = new MapSecretStore();
         await secrets.Put(Fixture.SecretRef, Fixture.SecretValue);
         const resolved = new OidcResolvedConfig(
-            idp.DiscoveryUrl, idp.Issuer, Fixture.ClientId, Fixture.RedirectUri, ["openid", "email"], secretRef, "client_secret");
+            idp.DiscoveryUrl, idp.Issuer, Fixture.ClientId, Fixture.RedirectUri, ["openid", "email"], secretRef, "client_secret", requiredClaims);
         const auth = new OidcAuthenticator({
             Http: http,
             Discovery: new OidcDiscovery(http),
@@ -304,5 +304,54 @@ describe("OidcAuthenticator token retention", () =>
         assert.equal(await f.Auth.Refresh("rt", "u1"), null);
         f.Http.FailTokenEndpoint = true;
         assert.equal(await f.Auth.Refresh("rt", "u1"), null);
+    });
+});
+
+describe("OidcAuthenticator begin options", () =>
+{
+    test("SignUp asks for prompt=create only when the issuer advertises it", async () =>
+    {
+        const f = await Fixture.Create();
+        const silent = new URL((await f.Auth.BeginAuthorization(f.Realm, { SignUp: true })).Url).searchParams;
+        assert.equal(silent.has("prompt"), false);
+        const g = await Fixture.Create();
+        g.Idp.PromptValues = ["login", "create"];
+        const asked = new URL((await g.Auth.BeginAuthorization(g.Realm, { SignUp: true })).Url).searchParams;
+        assert.equal(asked.get("prompt"), "create");
+        const plain = new URL((await g.Auth.BeginAuthorization(g.Realm)).Url).searchParams;
+        assert.equal(plain.has("prompt"), false);
+    });
+
+    test("LoginHint is passed through to the authorize request", async () =>
+    {
+        const f = await Fixture.Create();
+        const q = new URL((await f.Auth.BeginAuthorization(f.Realm, { LoginHint: "ann@example.com" })).Url).searchParams;
+        assert.equal(q.get("login_hint"), "ann@example.com");
+    });
+
+    test("ReturnPath rides in the flow state and comes back with the completed sign-in (null when none)", async () =>
+    {
+        const f = await Fixture.Create();
+        for (const returnPath of ["/register", null])
+        {
+            const { State } = await f.Auth.BeginAuthorization(f.Realm, returnPath === null ? {} : { ReturnPath: returnPath });
+            const flow = f.Store.Peek(State)!;
+            assert.equal(flow.ReturnPath, returnPath);
+            f.Http.NextTokenResponse = { id_token: await f.Idp.MintIdToken({ sub: "u1", aud: Fixture.ClientId, nonce: flow.Nonce }), token_type: "Bearer" };
+            const outcome = await f.Auth.AuthenticateWithTokens(new Credential(AuthMethod.Oidc, State), new PresentedSecret(Fixture.DefaultCode), f.Realm);
+            assert.ok(outcome.Result instanceof AuthenticatedResult);
+            assert.equal(outcome.ReturnPath, returnPath);
+        }
+    });
+});
+
+describe("OidcAuthenticator required claims", () =>
+{
+    test("a token without a required claim is rejected; with every one it signs in", async () =>
+    {
+        const f = await Fixture.Create(null, ["iat", "email"]);
+        assert.ok((await f.CompleteLogin()).Result instanceof AuthenticatedResult);
+        assert.ok((await f.CompleteLogin({ mintOpts: { iatSecondsFromNow: null } })).Result instanceof RejectedResult);
+        assert.ok((await f.CompleteLogin({ payload: { email: undefined } })).Result instanceof RejectedResult);
     });
 });

@@ -51,7 +51,11 @@ else is a generic 500).
   `CaTrustingHttpClient` and `OidcHttpClients` of `pragmatic-identity-source-oidc`, re-exported here). With OIDC
   sign-in registered the session cookie defaults to `SameSite=Lax` (the callback is a cross-site redirect back from
   the login page); password-only applications keep `Strict`; a configured mode always wins; the Origin guard still
-  refuses foreign mutations.
+  refuses foreign mutations. The begin route takes `prompt=create` (sign-up, sent only when the issuer advertises
+  `create` in `prompt_values_supported`), a `login_hint` (passed through), and a `return` path that lands the user
+  where they started: relative, same-origin, under one of the endpoint's `ReturnPaths` prefixes (`ReturnPathPolicy`),
+  carried in the flow state and checked again at the callback; anything else lands on `AfterSignInPath`. A client
+  config's `RequiredClaims` (e.g. `iat`, `email`) refuses an ID token without them.
 - Upstream token retention (opt-in): a `SessionTokenRetention` on the `SessionGate` keeps each sign-in's ID token (and
   access token if issued) server-side beside the session, sealed by `SessionTokenVault` (AES-256-GCM, key from the
   application's secret and the session bearer) in an `ISessionTokenRepository` (`SqlSessionTokenRepository`); route

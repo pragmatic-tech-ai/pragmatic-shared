@@ -14,6 +14,7 @@ export class OidcDiscovery
     private static readonly AuthorizationEndpointField = "authorization_endpoint";
     private static readonly TokenEndpointField = "token_endpoint";
     private static readonly JwksUriField = "jwks_uri";
+    private static readonly PromptValuesField = "prompt_values_supported";
     private static readonly HttpsProtocol = "https:";
     private static readonly InvalidDocumentError = "OIDC discovery document is invalid";
     private static readonly InsecureEndpointError = "OIDC discovery endpoint must use https";
@@ -45,7 +46,7 @@ export class OidcDiscovery
         OidcDiscovery.RequireHttps(token);
         OidcDiscovery.RequireHttps(jwks);
 
-        const value = new OidcEndpoints(issuer, authorization, token, jwks);
+        const value = new OidcEndpoints(issuer, authorization, token, jwks, OidcDiscovery.StringList(doc, OidcDiscovery.PromptValuesField));
         this.cache.set(discoveryUrl, { value, expiresAt: this.now().getTime() + OidcDiscovery.TtlMs });
         return value;
     }
@@ -58,6 +59,13 @@ export class OidcDiscovery
             throw new Error(OidcDiscovery.InvalidDocumentError);
         }
         return v;
+    }
+
+    /** An optional array of strings; its non-string entries are dropped, and anything else reads as empty. */
+    private static StringList(doc: Record<string, unknown> | null, field: string): readonly string[]
+    {
+        const v = doc?.[field];
+        return Array.isArray(v) ? v.filter((entry): entry is string => typeof entry === "string") : [];
     }
 
     private static RequireHttps(url: string): void

@@ -37,6 +37,8 @@ export class FakeOidcIdp
     public readonly TokenEndpoint: string;
     public readonly JwksUri: string;
     public readonly DiscoveryUrl: string;
+    /** Advertised as `prompt_values_supported` when set (entries of any type, to model a sloppy document). */
+    public PromptValues: readonly unknown[] | null = null;
 
     private constructor(
         private readonly privateKey: CryptoKey,
@@ -68,6 +70,7 @@ export class FakeOidcIdp
             authorization_endpoint: this.AuthorizationEndpoint,
             token_endpoint: this.TokenEndpoint,
             jwks_uri: this.JwksUri,
+            ...(this.PromptValues === null ? {} : { prompt_values_supported: this.PromptValues }),
         };
     }
 

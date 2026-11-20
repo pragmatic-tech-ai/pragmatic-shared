@@ -24,6 +24,18 @@ import { OidcFlowState } from "./oidc-flow-state.js";
 import { AuthorizationRequest } from "./authorization-request.js";
 import { OidcSignInOutcome, OidcTokenSet } from "./oidc-token-set.js";
 
+/** How one sign-in is begun. */
+export interface OidcBeginOptions
+{
+    /** Ask the issuer to open on account creation (`prompt=create`); sent only when its discovery document advertises
+     *  `create` in `prompt_values_supported`, otherwise the flow begins as a plain sign-in. */
+    SignUp?: boolean;
+    /** Passed through as `login_hint`. */
+    LoginHint?: string;
+    /** Carried in the flow state and handed back with the completed sign-in (OidcSignInOutcome.ReturnPath). */
+    ReturnPath?: string;
+}
+
 export interface OidcAuthenticatorOptions
 {
     Http: IHttpClient;
@@ -61,6 +73,7 @@ export class OidcAuthenticator implements IAuthenticator
     private static readonly AllowedAlgs = ["RS256", "ES256"] as const;
     private static readonly ClockToleranceSec = 60;
     private static readonly NoMatchingKeyCode = "ERR_JWKS_NO_MATCHING_KEY";
+    private static readonly PromptCreate = "create";
 
     public readonly Method = AuthMethod.Oidc;
 
@@ -71,7 +84,7 @@ export class OidcAuthenticator implements IAuthenticator
         this.now = opts.now ?? (() => new Date());
     }
 
-    public async BeginAuthorization(_realm: Realm): Promise<{ Url: string; State: string }>
+    public async BeginAuthorization(_realm: Realm, begin: OidcBeginOptions = {}): Promise<{ Url: string; State: string }>
     {
         const resolved = this.opts.Resolved;
         const endpoints = await this.opts.Discovery.Endpoints(resolved.DiscoveryUrl);
@@ -79,7 +92,8 @@ export class OidcAuthenticator implements IAuthenticator
         const state = randomBytes(OidcAuthenticator.StateBytes).toString(OidcAuthenticator.RandomEncoding);
         const nonce = randomBytes(OidcAuthenticator.StateBytes).toString(OidcAuthenticator.RandomEncoding);
         const expiresAt = new Date(this.now().getTime() + OidcAuthenticator.FlowTtlMs);
-        await this.opts.FlowStates.Put(new OidcFlowState(state, nonce, pkce.Verifier, resolved.RedirectUri, expiresAt));
+        await this.opts.FlowStates.Put(new OidcFlowState(state, nonce, pkce.Verifier, resolved.RedirectUri, expiresAt, begin.ReturnPath ?? null));
+        const signUp = begin.SignUp === true && endpoints.PromptValues.includes(OidcAuthenticator.PromptCreate);
         const url = AuthorizationRequest.Build({
             AuthorizationEndpoint: endpoints.AuthorizationEndpoint,
             ClientId: resolved.ClientId,
@@ -88,6 +102,8 @@ export class OidcAuthenticator implements IAuthenticator
             State: state,
             Nonce: nonce,
             Challenge: pkce.Challenge,
+            Prompt: signUp ? OidcAuthenticator.PromptCreate : undefined,
+            LoginHint: begin.LoginHint,
         });
         return { Url: url, State: state };
     }
@@ -138,7 +154,7 @@ export class OidcAuthenticator implements IAuthenticator
 
             const principal = this.opts.Claims.Map(payload as Record<string, unknown>, realm, this.opts.Config);
             await this.StoreUpstream(realm, principal.Id, tokenResponse);
-            return new OidcSignInOutcome<AuthenticationResult>(new AuthenticatedResult(principal), this.TokenSetOf(payload, idToken, tokenResponse, null));
+            return new OidcSignInOutcome<AuthenticationResult>(new AuthenticatedResult(principal), this.TokenSetOf(payload, idToken, tokenResponse, null), flow.ReturnPath);
         }
         catch
         {
@@ -203,6 +219,7 @@ export class OidcAuthenticator implements IAuthenticator
             audience: resolved.ClientId,
             algorithms: [...OidcAuthenticator.AllowedAlgs],
             clockTolerance: OidcAuthenticator.ClockToleranceSec,
+            requiredClaims: [...resolved.RequiredClaims],
         };
         try
         {
