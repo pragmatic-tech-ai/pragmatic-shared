@@ -74,4 +74,18 @@ describe('SessionCookie', () =>
     {
         assert.throws(() => new SessionCookie().Build('a;b', new Date()))
     })
+
+    it('an OIDC sign-in surface makes the default SameSite Lax; Strict stays without one; an explicit mode always stays', () =>
+    {
+        const passwordOnly = new SessionCookie({ Secure: false })
+        assert.equal(passwordOnly.SameSite, SameSiteMode.Strict)
+        const oidc = new SessionCookie({ Secure: false, Now: Fixture.Clock })
+        oidc.AdmitCrossSiteSignIn()
+        assert.equal(oidc.SameSite, SameSiteMode.Lax)
+        assert.ok(oidc.Build('t', new Date(Fixture.Now + 1000)).includes('; SameSite=Lax;'))
+        assert.ok(oidc.BuildClearing().includes('; SameSite=Lax;'))
+        const pinned = new SessionCookie({ Secure: false, SameSite: SameSiteMode.Strict })
+        pinned.AdmitCrossSiteSignIn()
+        assert.equal(pinned.SameSite, SameSiteMode.Strict)
+    })
 })

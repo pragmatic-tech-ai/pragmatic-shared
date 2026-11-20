@@ -68,6 +68,7 @@ export class SessionEndpoint
             {
                 // Already refused in this process (fail closed); the token is never logged.
             }
+            await this.gate.Tokens?.Forget(token).catch(() => undefined)
         }
         CacheControl.NoStore(ctx.Response)
         ctx.Response.setHeader(SessionEndpoint.SetCookieHeader, this.gate.Cookie.BuildClearing())

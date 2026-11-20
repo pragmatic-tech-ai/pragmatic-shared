@@ -223,3 +223,86 @@ describe("OidcAuthenticator", () =>
         }
     });
 });
+
+describe("OidcAuthenticator token retention", () =>
+{
+    test("AuthenticateWithTokens hands back the verified id token, the access and refresh tokens and their expiry", async () =>
+    {
+        const f = await Fixture.Create();
+        const { State } = await f.Auth.BeginAuthorization(f.Realm);
+        const flow = f.Store.Peek(State)!;
+        const idToken = await f.Idp.MintIdToken({ sub: "u1", aud: Fixture.ClientId, nonce: flow.Nonce, email: "a@x.io" }, { expSecondsFromNow: 300 });
+        f.Http.NextTokenResponse = { id_token: idToken, token_type: "Bearer", access_token: "at-1", refresh_token: "rt-1", expires_in: 120 };
+        const before = Date.now();
+        const outcome = await f.Auth.AuthenticateWithTokens(new Credential(AuthMethod.Oidc, State), new PresentedSecret(Fixture.DefaultCode), f.Realm);
+        assert.ok(outcome.Result instanceof AuthenticatedResult);
+        const tokens = outcome.Tokens!;
+        assert.equal(tokens.IdToken, idToken);
+        assert.equal(tokens.AccessToken, "at-1");
+        assert.equal(tokens.RefreshToken, "rt-1");
+        assert.equal(tokens.Subject, "u1");
+        const idExpiry = tokens.IdTokenExpiresAt.getTime();
+        assert.ok(idExpiry > before + 290_000 && idExpiry <= Date.now() + 301_000);
+        // The tokens are due when the earlier of the two expires: the access token's 120 s.
+        assert.ok(tokens.ExpiresAt.getTime() >= before + 119_000 && tokens.ExpiresAt.getTime() <= Date.now() + 120_000);
+    });
+
+    test("a response with only an id token: no access or refresh token, due when the id token expires", async () =>
+    {
+        const f = await Fixture.Create();
+        const { State } = await f.Auth.BeginAuthorization(f.Realm);
+        const flow = f.Store.Peek(State)!;
+        f.Http.NextTokenResponse = { id_token: await f.Idp.MintIdToken({ sub: "u1", aud: Fixture.ClientId, nonce: flow.Nonce }), token_type: "Bearer" };
+        const outcome = await f.Auth.AuthenticateWithTokens(new Credential(AuthMethod.Oidc, State), new PresentedSecret(Fixture.DefaultCode), f.Realm);
+        const tokens = outcome.Tokens!;
+        assert.equal(tokens.AccessToken, null);
+        assert.equal(tokens.RefreshToken, null);
+        assert.equal(tokens.ExpiresAt.getTime(), tokens.IdTokenExpiresAt.getTime());
+    });
+
+    test("a rejected sign-in hands back no tokens", async () =>
+    {
+        const f = await Fixture.Create();
+        const outcome = await f.Auth.AuthenticateWithTokens(new Credential(AuthMethod.Oidc, "no-such-state"), new PresentedSecret("x"), f.Realm);
+        assert.ok(outcome.Result instanceof RejectedResult);
+        assert.equal(outcome.Tokens, null);
+    });
+
+    test("Refresh redeems the refresh token, verifies the new id token (no nonce) and keeps the subject", async () =>
+    {
+        const f = await Fixture.Create(Fixture.SecretRef);
+        const idToken = await f.Idp.MintIdToken({ sub: "u1", aud: Fixture.ClientId });
+        f.Http.NextTokenResponse = { id_token: idToken, access_token: "at-2", refresh_token: "rt-2", expires_in: 60 };
+        const tokens = await f.Auth.Refresh("rt-1", "u1");
+        assert.ok(tokens !== null);
+        assert.equal(tokens.IdToken, idToken);
+        assert.equal(tokens.AccessToken, "at-2");
+        assert.equal(tokens.RefreshToken, "rt-2");
+        const posted = f.Http.PostedFields.at(-1)!;
+        assert.equal(posted.get("grant_type"), "refresh_token");
+        assert.equal(posted.get("refresh_token"), "rt-1");
+        assert.equal(posted.get("client_id"), Fixture.ClientId);
+        assert.equal(posted.get("client_secret"), Fixture.SecretValue);
+    });
+
+    test("Refresh keeps the refresh token the issuer did not rotate", async () =>
+    {
+        const f = await Fixture.Create();
+        f.Http.NextTokenResponse = { id_token: await f.Idp.MintIdToken({ sub: "u1", aud: Fixture.ClientId }), access_token: "at-2" };
+        const tokens = await f.Auth.Refresh("rt-1", "u1");
+        assert.equal(tokens?.RefreshToken, "rt-1");
+    });
+
+    test("Refresh refuses another subject, a bad id token, a missing id token and a failing endpoint", async () =>
+    {
+        const f = await Fixture.Create();
+        f.Http.NextTokenResponse = { id_token: await f.Idp.MintIdToken({ sub: "u2", aud: Fixture.ClientId }), access_token: "at" };
+        assert.equal(await f.Auth.Refresh("rt", "u1"), null);
+        f.Http.NextTokenResponse = { id_token: await f.Idp.MintIdToken({ sub: "u1", aud: "other" }), access_token: "at" };
+        assert.equal(await f.Auth.Refresh("rt", "u1"), null);
+        f.Http.NextTokenResponse = { access_token: "at" };
+        assert.equal(await f.Auth.Refresh("rt", "u1"), null);
+        f.Http.FailTokenEndpoint = true;
+        assert.equal(await f.Auth.Refresh("rt", "u1"), null);
+    });
+});

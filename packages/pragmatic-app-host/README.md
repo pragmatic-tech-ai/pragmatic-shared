@@ -48,14 +48,23 @@ else is a generic 500).
 - `OidcRelyingParty` + `OidcLoginEndpoint` (begin, callback, session, logout) with an application-supplied
   `IOidcClientProvider`; flow state in any `IOidcFlowStateStore` (`SqlOidcFlowStateStore` in production);
   a realm on a private CA through a CA bundle file (`CaBundleFile` on the relying party or per client; the
-  `CaTrustingHttpClient` and `OidcHttpClients` of `pragmatic-identity-source-oidc`, re-exported here).
+  `CaTrustingHttpClient` and `OidcHttpClients` of `pragmatic-identity-source-oidc`, re-exported here). With OIDC
+  sign-in registered the session cookie defaults to `SameSite=Lax` (the callback is a cross-site redirect back from
+  the login page); password-only applications keep `Strict`; a configured mode always wins; the Origin guard still
+  refuses foreign mutations.
+- Upstream token retention (opt-in): a `SessionTokenRetention` on the `SessionGate` keeps each sign-in's ID token (and
+  access token if issued) server-side beside the session, sealed by `SessionTokenVault` (AES-256-GCM, key from the
+  application's secret and the session bearer) in an `ISessionTokenRepository` (`SqlSessionTokenRepository`); route
+  handlers read them with `SessionGate.UpstreamTokens(req)`. A refresh token is redeemed when the tokens fall due;
+  without one the session ends with the ID token (less a 30 s margin; `EndWithIdToken: false` keeps the endpoint's
+  policy). Logout forgets them.
 - `PasswordLoginEndpoint` over an application's `IPasswordAuthenticator` (optional break-glass sign-in).
 - `SessionEndpoint`, `WsTicketEndpoint`.
 - `AuditTrail` over `IAuditRepository`.
 
 Every repository has an in-memory implementation (tests) and a Postgres one (`Sql*Repository.Open(session)`, its
 schema applied by `SqlMigrationRunner`: modules `app_host.sessions`, `app_host.audit`, `app_host.ws_tickets`,
-`app_host.throttles`).
+`app_host.throttles`, `app_host.session_tokens`).
 
 Dependencies: the workspace's `pragmatic-identity`, `pragmatic-identity-source-oidc` and `pragmatic-realm-adapters`,
 and `ws`.

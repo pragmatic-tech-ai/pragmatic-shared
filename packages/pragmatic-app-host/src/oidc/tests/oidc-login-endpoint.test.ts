@@ -9,6 +9,12 @@ import { OidcLoginEndpoint } from '../oidc-login-endpoint.js'
 import type { IOidcClientConfig, IOidcClientProvider } from '../oidc-client-config.js'
 import { OidcLoginError } from '../oidc-login-error.js'
 import { SessionClaims } from '../../session/session-claims.js'
+import { SameSiteMode, SessionCookie } from '../../session/session-cookie.js'
+import { SessionGate } from '../../session/session-gate.js'
+import { HttpMethod } from '../../http/http-method.js'
+import { RouteAuth } from '../../routing/route.js'
+import { ClaimsAuthorizer } from '../../authz/claims-authorizer.js'
+import { NavigationKind, SameSiteBrowser } from '../../tests/support/same-site-browser.js'
 
 /** The app-supplied provider: resolves the client from the request host (as the tenant console resolves its tenant). */
 class HostClients implements IOidcClientProvider
@@ -95,5 +101,77 @@ describe('OidcLoginEndpoint', () =>
     {
         assert.equal((await fixture.Send('/api/session')).Status, 401)
         assert.equal((await fixture.Send('/api/logout', { Method: 'POST' })).Status, 204)
+    })
+})
+
+/** Begin, then the login page redirects back (cross-site) to the callback, which redirects on to the application. */
+class CrossSiteFlow
+{
+    public constructor(private readonly fixture: HostFixture, private readonly idp: FakeOidcIdp, private readonly http: FakeOidcHttpClient)
+    {
+    }
+
+    /** The callback's Set-Cookie and the Cookie header the browser sends on the follow-up navigation to the application. */
+    public async Run(): Promise<{ SetCookie: string, FollowUp: string | undefined }>
+    {
+        const location = new URL((await this.fixture.Send('/auth/oidc/begin')).Header('location') ?? '')
+        this.http.NextTokenResponse = this.idp.TokenResponse(await this.idp.MintIdToken({ sub: 'user-1', aud: 'console', nonce: location.searchParams.get('nonce'), email: 'u@x' }))
+        const callback = await this.fixture.Send('/auth/oidc/callback?code=c&state=' + encodeURIComponent(location.searchParams.get('state') ?? ''))
+        const setCookie = callback.Header('set-cookie') ?? ''
+        const browser = new SameSiteBrowser()
+        browser.Store(setCookie)
+        // The navigation's chain: initiated by the login page (cross-site), then the callback's redirect (same-site).
+        return { SetCookie: setCookie, FollowUp: browser.CookieHeader('GET', NavigationKind.TopLevel, [false, true]) }
+    }
+}
+
+describe('OidcLoginEndpoint session cookie SameSite (the callback is a cross-site redirect back from the login page)', () =>
+{
+    let fixture: HostFixture
+    let idp: FakeOidcIdp
+    let http: FakeOidcHttpClient
+
+    beforeEach(async () =>
+    {
+        fixture = new HostFixture()
+        idp = await FakeOidcIdp.Create()
+        http = new FakeOidcHttpClient(idp)
+    })
+
+    afterEach(async () => await fixture.Stop())
+
+    it('an application with OIDC sign-in issues a Lax cookie, which the follow-up navigation carries', async () =>
+    {
+        new OidcLoginEndpoint(new OidcRelyingParty(new InMemoryOidcFlowStateStore()), new HostClients(idp, http), fixture.Gate).Register(fixture.Routes)
+        await fixture.Start()
+        const flow = await new CrossSiteFlow(fixture, idp, http).Run()
+        assert.ok(flow.SetCookie.includes('SameSite=Lax'))
+        assert.equal(flow.FollowUp, flow.SetCookie.split(';')[0])
+        assert.equal((await fixture.Send('/api/session', { Cookie: flow.FollowUp })).Status, 200)
+    })
+
+    it('with SameSite pinned to Strict the follow-up navigation carries no cookie (why Lax is the OIDC default)', async () =>
+    {
+        const gate = new SessionGate(fixture.Sessions, new SessionCookie({ Name: HostFixture.CookieName, Secure: false, SameSite: SameSiteMode.Strict }))
+        new OidcLoginEndpoint(new OidcRelyingParty(new InMemoryOidcFlowStateStore()), new HostClients(idp, http), gate).Register(fixture.Routes)
+        await fixture.Start({}, { Sessions: gate })
+        const flow = await new CrossSiteFlow(fixture, idp, http).Run()
+        assert.ok(flow.SetCookie.includes('SameSite=Strict'))
+        assert.equal(flow.FollowUp, undefined)
+    })
+
+    it('a Lax cookie stays off cross-site mutations, and the Origin guard still refuses a foreign Origin', async () =>
+    {
+        new OidcLoginEndpoint(new OidcRelyingParty(new InMemoryOidcFlowStateStore()), new HostClients(idp, http), fixture.Gate).Register(fixture.Routes)
+        fixture.Routes.Add({ Method: HttpMethod.Post, Pattern: '/api/things', Auth: RouteAuth.Session, Role: ClaimsAuthorizer.AnySignedIn, Handler: ctx => ctx.WriteJson(201, {}) })
+        await fixture.Start()
+        const flow = await new CrossSiteFlow(fixture, idp, http).Run()
+        const browser = new SameSiteBrowser()
+        browser.Store(flow.SetCookie)
+        assert.equal(browser.CookieHeader('POST', NavigationKind.TopLevel, [false]), undefined)
+        assert.equal(browser.CookieHeader('GET', NavigationKind.Subresource, [false]), undefined)
+        const forged = await fixture.Send('/api/things', { Method: 'POST', Cookie: flow.FollowUp, Origin: 'https://evil.example', Json: {} })
+        assert.equal(forged.Status, 403)
+        assert.equal((await fixture.Send('/api/things', { Method: 'POST', Cookie: flow.FollowUp, Json: {} })).Status, 201)
     })
 })

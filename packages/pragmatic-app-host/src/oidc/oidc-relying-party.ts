@@ -1,6 +1,6 @@
 import { AuthMethod, AuthenticatedResult, Credential, DelegationDepth, IdentityConfig, PresentedSecret, Realm, RealmKind, RealmRoleClaims } from '@pragmatic-tech-ai/pragmatic-identity'
-import { ClaimsMapper, GenericOidcProfile, JwksCache, OidcAuthenticator, OidcDiscovery, OidcHttpClients, OidcResolvedConfig } from '@pragmatic-tech-ai/pragmatic-identity-source-oidc'
-import type { IHttpClient, IOidcFlowStateStore } from '@pragmatic-tech-ai/pragmatic-identity-source-oidc'
+import { ClaimsMapper, GenericOidcProfile, JwksCache, OidcAuthenticator, OidcDiscovery, OidcHttpClients, OidcResolvedConfig, OidcSignInOutcome } from '@pragmatic-tech-ai/pragmatic-identity-source-oidc'
+import type { IHttpClient, IOidcFlowStateStore, OidcTokenSet } from '@pragmatic-tech-ai/pragmatic-identity-source-oidc'
 import type { IOidcClientConfig } from './oidc-client-config.js'
 import { OidcLoginError } from './oidc-login-error.js'
 import { ClientSecretStore } from './client-secret-store.js'
@@ -81,11 +81,19 @@ export class OidcRelyingParty
 
     public async Complete(client: IOidcClientConfig, code: string, state: string): Promise<SignedInIdentity>
     {
+        return (await this.CompleteWithTokens(client, code, state)).Result
+    }
+
+    /** Complete, also handing back the sign-in's upstream tokens (the verified ID token, the access and refresh tokens
+     *  when issued) for an application that retains them (SessionTokenRetention). */
+    public async CompleteWithTokens(client: IOidcClientConfig, code: string, state: string): Promise<OidcSignInOutcome<SignedInIdentity>>
+    {
         const presented = new PresentedSecret(code)
         try
         {
-            const result = await this.Authenticator(client).Authenticate(new Credential(AuthMethod.Oidc, state), presented, OidcRelyingParty.RealmOf(client))
-            if (!(result instanceof AuthenticatedResult))
+            const outcome = await this.Authenticator(client).AuthenticateWithTokens(new Credential(AuthMethod.Oidc, state), presented, OidcRelyingParty.RealmOf(client))
+            const result = outcome.Result
+            if (!(result instanceof AuthenticatedResult) || outcome.Tokens === null)
             {
                 throw new OidcLoginError()
             }
@@ -102,7 +110,7 @@ export class OidcRelyingParty
             {
                 sessionClaims = sessionClaims.With(name, client.FixedClaims?.Values(name) ?? [])
             }
-            return new SignedInIdentity(principal.Id, sessionClaims)
+            return new OidcSignInOutcome(new SignedInIdentity(principal.Id, sessionClaims), outcome.Tokens)
         }
         catch (err)
         {
@@ -112,6 +120,12 @@ export class OidcRelyingParty
         {
             presented.Clear()
         }
+    }
+
+    /** Redeems `refreshToken` for a fresh token set of `subject` under the client; null when the issuer refuses. */
+    public async Refresh(client: IOidcClientConfig, refreshToken: string, subject: string): Promise<OidcTokenSet | null>
+    {
+        return await this.Authenticator(client).Refresh(refreshToken, subject)
     }
 
     private Authenticator(client: IOidcClientConfig): OidcAuthenticator

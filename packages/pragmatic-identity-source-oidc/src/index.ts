@@ -16,6 +16,7 @@ export { ClaimsMapper } from "./claims/claims-mapper.js";
 export { GroupRoleMapper } from "./claims/group-role-mapper.js";
 export { OidcResolvedConfig } from "./oidc/oidc-resolved-config.js";
 export { OidcAuthenticator } from "./oidc/oidc-authenticator.js";
+export { OidcTokenSet, OidcSignInOutcome } from "./oidc/oidc-token-set.js";
 export type { OidcAuthenticatorOptions } from "./oidc/oidc-authenticator.js";
 export { OidcSettingKeys } from "./pack/oidc-setting-keys.js";
 export { OidcProviderProfile } from "./pack/oidc-provider-profile.js";

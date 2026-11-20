@@ -1,3 +1,4 @@
+import type { OidcTokenSet } from '@pragmatic-tech-ai/pragmatic-identity-source-oidc'
 import type { OidcRelyingParty } from './oidc-relying-party.js'
 import type { IOidcClientProvider } from './oidc-client-config.js'
 import type { SessionGate } from '../session/session-gate.js'
@@ -30,6 +31,8 @@ export interface OidcLoginEndpointOptions
  * cookie, 302 to the application), and the session and logout routes. The client comes from the application's
  * IOidcClientProvider, per request. The token travels only in the Set-Cookie of a successful callback; a failed sign-in
  * is a generic 401 with no cookie; neither the token nor the code is ever logged or echoed. Every answer is no-store.
+ * The session cookie defaults to SameSite=Lax under it (SessionCookie.AdmitCrossSiteSignIn). With a
+ * SessionTokenRetention on the gate the sign-in's upstream tokens are retained beside the session (opt-in).
  */
 export class OidcLoginEndpoint
 {
@@ -52,6 +55,9 @@ export class OidcLoginEndpoint
     public constructor(private readonly rp: OidcRelyingParty, private readonly clients: IOidcClientProvider, private readonly gate: SessionGate, private readonly options: OidcLoginEndpointOptions = {})
     {
         this.afterSignIn = options.AfterSignInPath ?? OidcLoginEndpoint.DefaultAfterSignInPath
+        // The callback arrives as a cross-site redirect from the login page: a Strict cookie would not be sent on the
+        // navigation that follows it, so the session cookie defaults to Lax (a configured mode stays).
+        gate.Cookie.AdmitCrossSiteSignIn()
     }
 
     public Register(table: RouteTable): void
@@ -89,19 +95,37 @@ export class OidcLoginEndpoint
             ctx.WriteJson(OidcLoginEndpoint.StatusBadRequest, { [OidcLoginEndpoint.ErrorField]: OidcLoginEndpoint.BadRequestMessage })
             return
         }
+        const retention = this.gate.Tokens
         let identity: SignedInIdentity
+        let tokens: OidcTokenSet | null = null
+        let policy = this.options.Policy
         try
         {
-            identity = await this.rp.Complete(await this.clients.ClientFor(ctx.Request), code, state)
+            const client = await this.clients.ClientFor(ctx.Request)
+            if (retention === undefined)
+            {
+                identity = await this.rp.Complete(client, code, state)
+            }
+            else
+            {
+                const outcome = await this.rp.CompleteWithTokens(client, code, state)
+                identity = outcome.Result
+                tokens = outcome.Tokens
+                policy = retention.PolicyFor(outcome.Tokens as OidcTokenSet, policy)
+            }
         }
         catch
         {
-            // The relying party collapses every failure to OidcLoginError; a provider that refuses (no such realm) is the
-            // same generic refusal.
+            // The relying party collapses every failure to OidcLoginError; a provider that refuses (no such realm), or
+            // retained tokens already about to expire, is the same generic refusal.
             this.Unauthorized(ctx)
             return
         }
-        const issued = await this.gate.Sessions.Issue(identity.Subject, identity.Claims, this.options.Policy)
+        const issued = await this.gate.Sessions.Issue(identity.Subject, identity.Claims, policy)
+        if (retention !== undefined && tokens !== null)
+        {
+            await retention.Keep(issued, tokens)
+        }
         ctx.Response.writeHead(OidcLoginEndpoint.StatusFound, {
             [OidcLoginEndpoint.LocationHeader]: this.afterSignIn,
             [OidcLoginEndpoint.SetCookieHeader]: this.gate.Cookie.Build(issued.Token, issued.Session.ExpiresAt),

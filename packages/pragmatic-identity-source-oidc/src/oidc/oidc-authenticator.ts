@@ -22,6 +22,7 @@ import type { UpstreamTokenVault } from "../obo/upstream-token-vault.js";
 import { PkceChallenge } from "./pkce-challenge.js";
 import { OidcFlowState } from "./oidc-flow-state.js";
 import { AuthorizationRequest } from "./authorization-request.js";
+import { OidcSignInOutcome, OidcTokenSet } from "./oidc-token-set.js";
 
 export interface OidcAuthenticatorOptions
 {
@@ -45,6 +46,10 @@ export class OidcAuthenticator implements IAuthenticator
     private static readonly RejectionReason = "authentication failed";
     private static readonly GrantTypeParam = "grant_type";
     private static readonly GrantTypeAuthorizationCode = "authorization_code";
+    private static readonly GrantTypeRefreshToken = "refresh_token";
+    private static readonly RefreshTokenParam = "refresh_token";
+    private static readonly ExpiresInField = "expires_in";
+    private static readonly MsPerSecond = 1000;
     private static readonly CodeParam = "code";
     private static readonly CodeVerifierParam = "code_verifier";
     private static readonly RedirectUriParam = "redirect_uri";
@@ -89,12 +94,22 @@ export class OidcAuthenticator implements IAuthenticator
 
     public async Authenticate(credential: Credential, presented: PresentedSecret, realm: Realm): Promise<AuthenticationResult>
     {
+        return (await this.AuthenticateWithTokens(credential, presented, realm)).Result;
+    }
+
+    /**
+     * Authenticate, also handing back the sign-in's upstream tokens (the verified ID token, the access and refresh
+     * tokens when issued) for a relying party that calls downstream services on the subject's behalf. A rejection
+     * carries no tokens.
+     */
+    public async AuthenticateWithTokens(credential: Credential, presented: PresentedSecret, realm: Realm): Promise<OidcSignInOutcome<AuthenticationResult>>
+    {
         try
         {
             const flow = await this.opts.FlowStates.Take(credential.Reference);
             if (flow === null)
             {
-                return this.Reject();
+                return this.Rejected();
             }
 
             const resolved = this.opts.Resolved;
@@ -106,55 +121,126 @@ export class OidcAuthenticator implements IAuthenticator
             fields.set(OidcAuthenticator.CodeVerifierParam, flow.CodeVerifier);
             fields.set(OidcAuthenticator.RedirectUriParam, resolved.RedirectUri);
             fields.set(OidcAuthenticator.ClientIdParam, resolved.ClientId);
-            if (resolved.SecretRef !== null)
-            {
-                const secret = await this.opts.Secrets.Get(resolved.SecretRef);
-                if (secret !== null)
-                {
-                    fields.set(resolved.ClientSecretParam, secret);
-                }
-            }
+            await this.AddClientSecret(fields);
 
             const tokenResponse = await this.opts.Http.PostForm(endpoints.TokenEndpoint, fields);
             const idToken = (tokenResponse as Record<string, unknown> | null)?.[OidcAuthenticator.IdTokenField];
             if (typeof idToken !== "string")
             {
-                return this.Reject();
+                return this.Rejected();
             }
 
-            const verifyOptions = {
-                issuer: resolved.Issuer,
-                audience: resolved.ClientId,
-                algorithms: [...OidcAuthenticator.AllowedAlgs],
-                clockTolerance: OidcAuthenticator.ClockToleranceSec,
-            };
-            let payload: JWTPayload;
-            try
+            const payload = await this.VerifyIdToken(idToken, endpoints.JwksUri);
+            if (payload === null || payload[OidcAuthenticator.NonceClaim] !== flow.Nonce)
             {
-                ({ payload } = await jwtVerify(idToken, await this.opts.Jwks.KeySet(endpoints.JwksUri), verifyOptions));
-            }
-            catch (e)
-            {
-                if (!this.IsNoMatchingKey(e))
-                {
-                    return this.Reject();
-                }
-                ({ payload } = await jwtVerify(idToken, await this.opts.Jwks.Refresh(endpoints.JwksUri), verifyOptions));
-            }
-
-            if (payload[OidcAuthenticator.NonceClaim] !== flow.Nonce)
-            {
-                return this.Reject();
+                return this.Rejected();
             }
 
             const principal = this.opts.Claims.Map(payload as Record<string, unknown>, realm, this.opts.Config);
             await this.StoreUpstream(realm, principal.Id, tokenResponse);
-            return new AuthenticatedResult(principal);
+            return new OidcSignInOutcome<AuthenticationResult>(new AuthenticatedResult(principal), this.TokenSetOf(payload, idToken, tokenResponse, null));
         }
         catch
         {
-            return this.Reject();
+            return this.Rejected();
         }
+    }
+
+    /**
+     * Redeems a refresh token at the issuer's token endpoint for a fresh token set of `subject`. The answer must carry
+     * an ID token that verifies (signature, issuer, audience, expiry; no nonce, which OIDC Core 12.2 leaves out) and
+     * names the same subject. A refresh token the issuer did not rotate is kept. Null for any refusal; never throws.
+     */
+    public async Refresh(refreshToken: string, subject: string): Promise<OidcTokenSet | null>
+    {
+        try
+        {
+            const resolved = this.opts.Resolved;
+            const endpoints = await this.opts.Discovery.Endpoints(resolved.DiscoveryUrl);
+            const fields = new Map<string, string>();
+            fields.set(OidcAuthenticator.GrantTypeParam, OidcAuthenticator.GrantTypeRefreshToken);
+            fields.set(OidcAuthenticator.RefreshTokenParam, refreshToken);
+            fields.set(OidcAuthenticator.ClientIdParam, resolved.ClientId);
+            await this.AddClientSecret(fields);
+            const tokenResponse = await this.opts.Http.PostForm(endpoints.TokenEndpoint, fields);
+            const idToken = (tokenResponse as Record<string, unknown> | null)?.[OidcAuthenticator.IdTokenField];
+            if (typeof idToken !== "string")
+            {
+                return null;
+            }
+            const payload = await this.VerifyIdToken(idToken, endpoints.JwksUri);
+            if (payload === null || payload.sub !== subject)
+            {
+                return null;
+            }
+            return this.TokenSetOf(payload, idToken, tokenResponse, refreshToken);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private async AddClientSecret(fields: Map<string, string>): Promise<void>
+    {
+        const resolved = this.opts.Resolved;
+        if (resolved.SecretRef !== null)
+        {
+            const secret = await this.opts.Secrets.Get(resolved.SecretRef);
+            if (secret !== null)
+            {
+                fields.set(resolved.ClientSecretParam, secret);
+            }
+        }
+    }
+
+    /** The ID token's verified claims (RS256/ES256 on the issuer's keys, refetched once for an unknown kid), or null. */
+    private async VerifyIdToken(idToken: string, jwksUri: string): Promise<JWTPayload | null>
+    {
+        const resolved = this.opts.Resolved;
+        const verifyOptions = {
+            issuer: resolved.Issuer,
+            audience: resolved.ClientId,
+            algorithms: [...OidcAuthenticator.AllowedAlgs],
+            clockTolerance: OidcAuthenticator.ClockToleranceSec,
+        };
+        try
+        {
+            return (await jwtVerify(idToken, await this.opts.Jwks.KeySet(jwksUri), verifyOptions)).payload;
+        }
+        catch (e)
+        {
+            if (!this.IsNoMatchingKey(e))
+            {
+                return null;
+            }
+        }
+        try
+        {
+            return (await jwtVerify(idToken, await this.opts.Jwks.Refresh(jwksUri), verifyOptions)).payload;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private TokenSetOf(payload: JWTPayload, idToken: string, tokenResponse: unknown, keptRefreshToken: string | null): OidcTokenSet | null
+    {
+        const A = OidcAuthenticator;
+        if (typeof payload.sub !== "string" || typeof payload.exp !== "number")
+        {
+            return null;
+        }
+        const body = tokenResponse as Record<string, unknown>;
+        const access = body[A.AccessTokenField];
+        const refresh = body[A.RefreshTokenField];
+        const expiresIn = body[A.ExpiresInField];
+        const accessToken = typeof access === "string" ? access : null;
+        const accessExpiresAt = accessToken !== null && typeof expiresIn === "number" && expiresIn > 0
+            ? new Date(this.now().getTime() + expiresIn * A.MsPerSecond)
+            : null;
+        return new OidcTokenSet(payload.sub, idToken, new Date(payload.exp * A.MsPerSecond), accessToken, accessExpiresAt, typeof refresh === "string" ? refresh : keptRefreshToken);
     }
 
     private async StoreUpstream(realm: Realm, principalId: string, tokenResponse: unknown): Promise<void>
@@ -173,8 +259,8 @@ export class OidcAuthenticator implements IAuthenticator
         return (e as { code?: string } | null)?.code === OidcAuthenticator.NoMatchingKeyCode;
     }
 
-    private Reject(): RejectedResult
+    private Rejected(): OidcSignInOutcome<AuthenticationResult>
     {
-        return new RejectedResult(OidcAuthenticator.RejectionReason);
+        return new OidcSignInOutcome<AuthenticationResult>(new RejectedResult(OidcAuthenticator.RejectionReason), null);
     }
 }

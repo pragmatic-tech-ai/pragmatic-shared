@@ -11,7 +11,7 @@ export interface SessionCookieOptions
     Name?: string
     /** Default true; false only for plain-http local runs. */
     Secure?: boolean
-    /** Default Strict. */
+    /** Default Strict, or Lax once an OIDC sign-in surface is registered (AdmitCrossSiteSignIn). Set it to pin a mode. */
     SameSite?: SameSiteMode
     /** Default `/`. */
     Path?: string
@@ -21,7 +21,11 @@ export interface SessionCookieOptions
 /**
  * The session cookie: `<name>=<token>; HttpOnly; SameSite=<mode>; Path=<path>; Max-Age=<s>[; Secure]`. The token is
  * a secret: never log or echo it. Read accepts exactly one cookie of the name whose value is base64url; a duplicated
- * one (a planted second cookie) or a malformed value reads as none.
+ * one (a planted second cookie) or a malformed value reads as none. SameSite defaults to Strict (password-only
+ * applications); an application that signs in through OIDC gets Lax, because the browser returns from the login page
+ * through a cross-site redirect chain and a Strict cookie set on the callback is not sent on the navigation that
+ * follows it. Lax still keeps the cookie off cross-site subresource requests and cross-site POSTs, and the host's
+ * Origin guard refuses every mutation from a foreign Origin either way. A configured mode always wins.
  */
 export class SessionCookie
 {
@@ -42,7 +46,8 @@ export class SessionCookie
 
     public readonly Name: string
     private readonly secure: boolean
-    private readonly sameSite: SameSiteMode
+    private readonly configuredSameSite: SameSiteMode | undefined
+    private crossSiteSignIn = false
     private readonly path: string
     private readonly now: () => number
 
@@ -50,9 +55,22 @@ export class SessionCookie
     {
         this.Name = options.Name ?? SessionCookie.DefaultName
         this.secure = options.Secure ?? true
-        this.sameSite = options.SameSite ?? SameSiteMode.Strict
+        this.configuredSameSite = options.SameSite
         this.path = options.Path ?? SessionCookie.DefaultPath
         this.now = options.Now ?? Date.now
+    }
+
+    /** The SameSite mode the cookie is issued with. */
+    public get SameSite(): SameSiteMode
+    {
+        return this.configuredSameSite ?? (this.crossSiteSignIn ? SameSiteMode.Lax : SameSiteMode.Strict)
+    }
+
+    /** An OIDC sign-in surface is registered (the callback is a cross-site top-level redirect): the default becomes Lax.
+     *  A configured mode stays. */
+    public AdmitCrossSiteSignIn(): void
+    {
+        this.crossSiteSignIn = true
     }
 
     public Build(token: string, expiresAt: Date): string
@@ -99,7 +117,7 @@ export class SessionCookie
         const parts = [
             this.Name + SessionCookie.Equals + value,
             SessionCookie.HttpOnly,
-            SessionCookie.SameSitePrefix + this.sameSite,
+            SessionCookie.SameSitePrefix + this.SameSite,
             SessionCookie.PathPrefix + this.path,
             SessionCookie.MaxAgePrefix + maxAge,
         ]
