@@ -1,0 +1,72 @@
+// @pragmatic-tech-ai/pragmatic-identity — identity management contracts.
+export { RealmKind, PrincipalKind, Role, Action, ResourceKind, AuthMethod, DelegationDepth } from "./core/identity-enums.js";
+export { Realm } from "./core/realm.js";
+export { Principal } from "./core/principal.js";
+export { SystemPrincipal } from "./core/system-principal.js";
+export { BaseRole } from "./security/base-role.js";
+export { Session } from "./core/session.js";
+export { ResourceRef } from "./core/resource-ref.js";
+export { Grant } from "./core/grant.js";
+export type { EntityView, EntityPredicate } from "./authz/entity-predicate.js";
+export { AccessDecision } from "./authz/access-decision.js";
+export type { IAccessPolicy } from "./authz/access-policy.js";
+export { AccessContext } from "./authz/access-context.js";
+export { Credential } from "./authn/credential.js";
+export {
+    AuthenticationOutcome,
+    AuthenticationResult,
+    AuthenticatedResult,
+    ChallengeResult,
+    RejectedResult,
+} from "./authn/authentication-result.js";
+export type { IAuthenticator } from "./authn/authenticator.js";
+export type { ISessionManager } from "./authn/session-manager.js";
+export type { IPrincipalDirectory } from "./authn/principal-directory.js";
+export { RoleCapabilities } from "./authz/role-capabilities.js";
+export type { IRoleGrantStore } from "./authn/role-grant-store.js";
+export { AuditEvent, AuditEventKind } from "./provider/audit-sink.js";
+export type { IAuditSink } from "./provider/audit-sink.js";
+export { IdentityConfig } from "./provider/identity-config.js";
+export { PrivilegeAction, AccessLevel } from "./security/security-model-config.js";
+export type {
+    IBusinessUnitConfig,
+    IUserPlacementConfig,
+    ITeamConfig,
+    IRoleAssignmentConfig,
+    IProfileAssignmentConfig,
+    IRoleOverrideConfig,
+    IProfileOverrideConfig,
+    ISecurityModelConfig,
+} from "./security/security-model-config.js";
+export { BusinessUnitHierarchy, MalformedBusinessUnitTreeError } from "./security/business-unit-hierarchy.js";
+export { SecurityModelIssueCode, SecurityModelIssue, InvalidSecurityModelError, SecurityModelValidator } from "./security/security-model-validator.js";
+export { RealmConfigStoreKey } from "./provider/realm-config-store.js";
+export type { IRealmConfigStore } from "./provider/realm-config-store.js";
+export type { IRealmResolver } from "./provider/realm-resolver.js";
+export type { IIdentityProviderPack } from "./provider/identity-provider-pack.js";
+export type { IdentityStoreSet } from "./provider/identity-store-set.js";
+export { IdentityProviderRegistryKey } from "./provider/identity-provider-registry.js";
+export type { IIdentityProviderRegistry } from "./provider/identity-provider-registry.js";
+export { ResourceAuthorizationPolicy } from "./authz/resource-authorization-policy.js";
+export { PresentedSecret } from "./authn/presented-secret.js";
+export { SecretStoreKey } from "./authn/secret-store.js";
+export type { ISecretStore } from "./authn/secret-store.js";
+export { PasswordHasherKey } from "./authn/password-hasher.js";
+export type { IPasswordHasher } from "./authn/password-hasher.js";
+export { LocalAccount, LocalAccountNotFoundError } from "./authn/local-account-store.js";
+export type { ILocalAccountStore } from "./authn/local-account-store.js";
+export { ServiceTokenGrant, ServiceTokenSummary } from "./authn/service-token-store.js";
+export type { IServiceTokenStore } from "./authn/service-token-store.js";
+export { IdpUserState, IdpDirectorySnapshot } from "./directory/idp-directory-snapshot.js";
+export { MembershipOrigin, TeamMembershipRow, TeamMembershipRows } from "./directory/team-membership-rows.js";
+export { IdpDirectoryRequest } from "./directory/idp-directory-source.js";
+export type { IIdpDirectorySource } from "./directory/idp-directory-source.js";
+export { IdpDirectoryStoreKey, UnreadableIdpDirectoryRecordError } from "./directory/idp-directory-store.js";
+export { NonAuthoritativeDirectorySource } from "./directory/non-authoritative-directory-source.js";
+export type { IIdpDirectoryStore } from "./directory/idp-directory-store.js";
+export { IdpDirectorySync, IdpDirectorySyncResult } from "./directory/idp-directory-sync.js";
+export { LocalGroup, LocalGroupNotFoundError } from "./authn/local-group-store.js";
+export type { ILocalGroupStore } from "./authn/local-group-store.js";
+export { SourceTokenRequest, SourceToken, SourceTokenFailure, SourceTokenError, SourceTokenProviderKey } from "./authn/source-token-provider.js";
+export type { ISourceTokenProvider } from "./authn/source-token-provider.js";
+export { PerUserSourceTokenCache } from "./authn/per-user-source-token-cache.js";

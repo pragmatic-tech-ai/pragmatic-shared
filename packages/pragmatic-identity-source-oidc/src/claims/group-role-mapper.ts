@@ -1,0 +1,22 @@
+import { Grant, ResourceKind, ResourceRef } from "@pragmatic-tech-ai/pragmatic-identity";
+import type { IRoleGrantStore, Principal, Role, Realm } from "@pragmatic-tech-ai/pragmatic-identity";
+
+export class GroupRoleMapper
+{
+    public constructor(private readonly grants: IRoleGrantStore)
+    {
+    }
+
+    public async ApplyGroups(principal: Principal, realm: Realm, groupRoleMap: ReadonlyMap<string, Role>): Promise<void>
+    {
+        for (const group of principal.Groups)
+        {
+            const role = groupRoleMap.get(group);
+            if (role === undefined)
+            {
+                continue;
+            }
+            await this.grants.Save(new Grant(principal.Id, role, new ResourceRef(ResourceKind.Realm, realm.Id, [])));
+        }
+    }
+}

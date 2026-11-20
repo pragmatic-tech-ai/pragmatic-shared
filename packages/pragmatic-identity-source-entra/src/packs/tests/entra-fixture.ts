@@ -1,0 +1,75 @@
+import { DelegationDepth, IdentityConfig, Realm, RealmKind } from "@pragmatic-tech-ai/pragmatic-identity";
+import type { Role } from "@pragmatic-tech-ai/pragmatic-identity";
+import { FakeAuditSink, FakeRoleGrantStore, FakeSessionManager } from "@pragmatic-tech-ai/pragmatic-identity/testing";
+import { MapSecretStore, OidcSettingKeys, InMemoryOidcFlowStateStore, FakeOidcHttpClient, FakeOidcIdp } from "@pragmatic-tech-ai/pragmatic-identity-source-oidc";
+import { MicrosoftEntraPack } from "../microsoft-entra-pack.js";
+
+export class EntraFixture
+{
+    public static readonly EntraIssuer = "https://login.microsoftonline.com/test-tid/v2.0";
+    public static readonly AadTenant = "test-tid";
+    public static readonly ClientId = "client-1";
+    public static readonly RedirectUri = "https://app.test/cb";
+    public static readonly ConfigPackId = "entra";
+    public static readonly RealmId = "t1";
+    public static readonly RealmName = "Acme";
+    public static readonly Subject = "oid-u1";
+    public static readonly SubClaimValue = "sub-u1";
+    public static readonly ApiScope = "api://app/access";
+    public static readonly Email = "a@x.io";
+    public static readonly Group = "group-ed";
+    public static readonly AuthCode = "auth-code";
+
+    public static Settings(): Map<string, string>
+    {
+        return new Map([
+            [OidcSettingKeys.AadTenantId, EntraFixture.AadTenant],
+            [OidcSettingKeys.ClientId, EntraFixture.ClientId],
+            [OidcSettingKeys.RedirectUri, EntraFixture.RedirectUri],
+        ]);
+    }
+
+    public static Realm(): Realm
+    {
+        return new Realm(EntraFixture.RealmId, RealmKind.Saas, EntraFixture.RealmName);
+    }
+
+    public static async EntraFlow(
+        depth: DelegationDepth = DelegationDepth.AuthnDirectory,
+        groupRoleMap: ReadonlyMap<string, Role> = new Map(),
+        apiScope?: string)
+    {
+        const idp = await FakeOidcIdp.Create(EntraFixture.EntraIssuer);
+        const http = new FakeOidcHttpClient(idp);
+        const sessions = new FakeSessionManager();
+        const grants = new FakeRoleGrantStore();
+        const audit = new FakeAuditSink();
+        const flowStates = new InMemoryOidcFlowStateStore();
+        const settings = EntraFixture.Settings();
+        if (apiScope !== undefined) settings.set(OidcSettingKeys.ApiScope, apiScope);
+        const secrets = new MapSecretStore();
+        const config = new IdentityConfig(EntraFixture.ConfigPackId, depth, settings, groupRoleMap, new Map());
+        const pack = MicrosoftEntraPack.Create({
+            Config: config,
+            Http: http,
+            FlowStates: flowStates,
+            Secrets: secrets,
+            Sessions: sessions,
+            Grants: grants,
+            Audit: audit,
+        });
+        const realm = EntraFixture.Realm();
+        const { State } = await pack.BeginAuthorization(realm);
+        const nonce = flowStates.Peek(State)!.Nonce;
+        const idToken = await idp.MintIdToken({
+            sub: EntraFixture.SubClaimValue,
+            oid: EntraFixture.Subject,
+            aud: EntraFixture.ClientId,
+            nonce,
+            email: EntraFixture.Email,
+            groups: [EntraFixture.Group],
+        });
+        http.NextTokenResponse = idp.TokenResponse(idToken);
+        return { pack, secrets, realm, http, audit, sessions, grants, State, idp, idToken };
+    }
+}

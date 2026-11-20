@@ -1,0 +1,19 @@
+import { Role, Action } from "../core/identity-enums.js";
+
+export class RoleCapabilities
+{
+    private static readonly Capabilities: ReadonlyMap<Role, ReadonlySet<Action>> = new Map<Role, ReadonlySet<Action>>(
+    [
+        [Role.Viewer, new Set([Action.Read])],
+        [Role.Editor, new Set([Action.Read, Action.Write])],
+        [Role.Admin, new Set([Action.Read, Action.Write, Action.Delete, Action.Administer, Action.Contribute])],
+        [Role.Owner, new Set([Action.Read, Action.Write, Action.Delete, Action.Administer, Action.Connect, Action.Contribute])],
+        [Role.Maker, new Set([Action.Contribute])],
+        [Role.Developer, new Set([Action.Read, Action.Write, Action.Contribute])],
+    ]);
+
+    public static Covers(role: Role, action: Action): boolean
+    {
+        return RoleCapabilities.Capabilities.get(role)?.has(action) ?? false;
+    }
+}

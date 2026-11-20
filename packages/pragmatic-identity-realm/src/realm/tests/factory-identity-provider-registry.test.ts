@@ -1,0 +1,64 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { DelegationDepth, IdentityConfig, Principal, PrincipalKind, Realm, RealmKind } from "@pragmatic-tech-ai/pragmatic-identity";
+import type { IIdentityProviderPack } from "@pragmatic-tech-ai/pragmatic-identity";
+import { FakeIdentityProviderPack } from "@pragmatic-tech-ai/pragmatic-identity/testing";
+import { InMemoryRealmConfigStore } from "../in-memory-realm-config-store.js";
+import { FactoryIdentityProviderRegistry } from "../factory-identity-provider-registry.js";
+import type { IIdentityProviderPackFactory } from "../factory-identity-provider-registry.js";
+
+class CountingFactory implements IIdentityProviderPackFactory
+{
+    private static readonly PrincipalId = "u1";
+    private static readonly PrincipalRealmId = "t1";
+
+    public Calls = 0;
+    public async Build(_realm: Realm, _config: IdentityConfig): Promise<IIdentityProviderPack>
+    {
+        this.Calls += 1;
+        return new FakeIdentityProviderPack(DelegationDepth.FullAuthz, new Principal(CountingFactory.PrincipalId, CountingFactory.PrincipalRealmId, PrincipalKind.User, new Map(), []));
+    }
+}
+
+class Configs
+{
+    public static For(packId: string): IdentityConfig
+    {
+        return new IdentityConfig(packId, DelegationDepth.FullAuthz, new Map(), new Map(), new Map());
+    }
+}
+
+test("PackFor builds via the factory and caches per realm", async () =>
+{
+    const store = new InMemoryRealmConfigStore();
+    const t1 = new Realm("t1", RealmKind.Saas, "One");
+    await store.Save(t1.Id, Configs.For("entra"));
+    const factory = new CountingFactory();
+    const registry = new FactoryIdentityProviderRegistry(store, factory);
+    const a = await registry.PackFor(t1);
+    const b = await registry.PackFor(t1);
+    assert.equal(a, b);
+    assert.equal(factory.Calls, 1);
+});
+
+test("two realms sharing a PackId resolve to distinct packs", async () =>
+{
+    const store = new InMemoryRealmConfigStore();
+    const t1 = new Realm("t1", RealmKind.Saas, "One");
+    const t2 = new Realm("t2", RealmKind.Saas, "Two");
+    await store.Save(t1.Id, Configs.For("entra"));
+    await store.Save(t2.Id, Configs.For("entra"));
+    const factory = new CountingFactory();
+    const registry = new FactoryIdentityProviderRegistry(store, factory);
+    const p1 = await registry.PackFor(t1);
+    const p2 = await registry.PackFor(t2);
+    assert.notEqual(p1, p2);
+    assert.equal(factory.Calls, 2);
+});
+
+test("an unconfigured realm fails closed", async () =>
+{
+    const store = new InMemoryRealmConfigStore();
+    const registry = new FactoryIdentityProviderRegistry(store, new CountingFactory());
+    await assert.rejects(() => registry.PackFor(new Realm("missing", RealmKind.Saas, "X")), /No identity configuration for realm: missing/);
+});

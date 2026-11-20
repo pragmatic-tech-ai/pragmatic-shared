@@ -1,0 +1,40 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { randomUUID } from 'node:crypto'
+import { IdentityConfig, DelegationDepth, Role } from '@pragmatic-tech-ai/pragmatic-identity'
+import { SqlTestSessions } from '../../testing/sql-test-sessions.js'
+import { SqlRealmConfigStore } from '../sql-realm-config-store.js'
+
+SqlTestSessions.Describe('SqlRealmConfigStore', (makeSession, backend) =>
+{
+    const config = () => new IdentityConfig('pack-1', DelegationDepth.FullAuthz, new Map([['s', 'v']]), new Map([['grp', Role.Editor]]), new Map([['email', 'email']]))
+
+    test(`${backend}: Save then Get round-trips all map fields; Get missing is null`, async () =>
+    {
+        const tid = `cfg-${randomUUID()}`
+        const store = await SqlRealmConfigStore.Open(await makeSession())
+        assert.equal(await store.Get(tid), null)
+        await store.Save(tid, config())
+        const got = (await store.Get(tid))!
+        assert.equal(got.PackId, 'pack-1')
+        assert.equal(got.DelegationDepth, DelegationDepth.FullAuthz)
+        assert.equal(got.ProviderSettings.get('s'), 'v')
+        assert.equal(got.GroupRoleMap.get('grp'), Role.Editor)
+        assert.equal(got.ClaimsMapping.get('email'), 'email')
+    })
+
+    test(`${backend}: Save upserts and List returns saved realm ids`, async () =>
+    {
+        const tid = `cfg-${randomUUID()}`
+        const store = await SqlRealmConfigStore.Open(await makeSession())
+        await store.Save(tid, config())
+        await store.Save(tid, new IdentityConfig('pack-2', DelegationDepth.AuthnDirectory, new Map(), new Map(), new Map()))
+        const got = (await store.Get(tid))!
+        assert.equal(got.PackId, 'pack-2')
+        assert.equal(got.DelegationDepth, DelegationDepth.AuthnDirectory)
+        assert.equal(got.ProviderSettings.size, 0)
+        assert.equal(got.GroupRoleMap.size, 0)
+        assert.equal(got.ClaimsMapping.size, 0)
+        assert.ok((await store.List()).includes(tid))
+    })
+})

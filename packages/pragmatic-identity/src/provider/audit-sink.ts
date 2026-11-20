@@ -1,0 +1,26 @@
+export enum AuditEventKind
+{
+    Authentication,
+    AccessDecision,
+    AdminAction,
+    ResolutionMerge,
+    DirectorySync,
+}
+
+export class AuditEvent
+{
+    public constructor(
+        public readonly Kind: AuditEventKind,
+        public readonly RealmId: string,
+        public readonly PrincipalId: string | null,
+        public readonly At: Date,
+        public readonly Detail: ReadonlyMap<string, string>,
+    )
+    {
+    }
+}
+
+export interface IAuditSink
+{
+    Record(event: AuditEvent): Promise<void>;
+}

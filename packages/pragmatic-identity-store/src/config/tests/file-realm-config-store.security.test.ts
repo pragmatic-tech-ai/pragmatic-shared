@@ -1,0 +1,107 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { IdentityConfig, DelegationDepth, InvalidSecurityModelError } from '@pragmatic-tech-ai/pragmatic-identity'
+import type { ISecurityModelConfig } from '@pragmatic-tech-ai/pragmatic-identity'
+import { FakeStorage } from '@pragmatic-tech-ai/todl-runtime'
+import { FileRealmConfigStore } from '../file-realm-config-store.js'
+import { JsonFile } from '../../storage/json-file.js'
+import { InvalidRealmConfigError } from '../invalid-realm-config-error.js'
+import { SecurityModelMigration } from '../security-model-migration.js'
+
+class Fixture
+{
+    public static SecurityModel(): ISecurityModelConfig
+    {
+        return {
+            businessUnits: [{ id: 'root', name: 'Root' }, { id: 'eng', name: 'Eng', parent: 'root' }],
+            users: [{ principalId: 'u1', businessUnitId: 'eng' }],
+            teams: [{ id: 't-web', name: 'Web', businessUnitId: 'eng', idpGroups: ['web'], manualMembers: ['u1'] }],
+            roleAssignments: [{ role: 'Reader', principalIds: ['u1'], teamIds: ['t-web'] }],
+            profileAssignments: [],
+            roleOverrides: [],
+            profileOverrides: [],
+        }
+    }
+
+    public static ConfigWith(model: ISecurityModelConfig | undefined): IdentityConfig
+    {
+        return new IdentityConfig('server-pack', DelegationDepth.FullAuthz, new Map(), new Map(), new Map(), model)
+    }
+
+    public static LegacyRecord(): Record<string, unknown>
+    {
+        return {
+            packId: 'server-pack',
+            delegationDepth: DelegationDepth.FullAuthz,
+            providerSettings: [],
+            groupRoleMap: [],
+            claimsMapping: [],
+            securityModel: {
+                businessUnits: [{ id: 'hr', name: 'HR' }],
+                teams: [{ id: 'hr', name: 'HR team', owningBusinessUnit: 'hr' }],
+                membership: {
+                    claimsMapping: [{ claim: 'group', value: 'hr-staff', teams: ['hr'] }],
+                    overrides: [{ principalId: 'dana', homeBusinessUnit: 'hr', teams: ['hr'] }],
+                },
+                ownershipRules: [],
+                fieldSecurity: [],
+            },
+        }
+    }
+}
+
+test('a C5 SecurityModel round-trips through Save/Get and a reopen', async () =>
+{
+    const storage = new FakeStorage()
+    const store = await FileRealmConfigStore.Open(storage)
+    await store.Save('t1', Fixture.ConfigWith(Fixture.SecurityModel()))
+
+    const reopened = await FileRealmConfigStore.Open(storage)
+    assert.deepEqual((await reopened.Get('t1'))?.SecurityModel, Fixture.SecurityModel())
+})
+
+test('Save rejects an invalid model and writes nothing', async () =>
+{
+    const storage = new FakeStorage()
+    const store = await FileRealmConfigStore.Open(storage)
+    await store.Save('t1', Fixture.ConfigWith(Fixture.SecurityModel()))
+    const bad: ISecurityModelConfig = { ...Fixture.SecurityModel(), teams: [{ id: 'x', name: 'X', businessUnitId: 'nowhere', idpGroups: [], manualMembers: [] }] }
+    await assert.rejects(store.Save('t1', Fixture.ConfigWith(bad)), InvalidSecurityModelError)
+
+    const reopened = await FileRealmConfigStore.Open(storage)
+    assert.deepEqual((await reopened.Get('t1'))?.SecurityModel, Fixture.SecurityModel())
+})
+
+test('a legacy record is migrated on open and rewritten once', async () =>
+{
+    const storage = new FakeStorage()
+    await new JsonFile(storage, 'tenant-config.json').Write({ configs: { t1: Fixture.LegacyRecord() } })
+    const store = await FileRealmConfigStore.Open(storage)
+    const model = (await store.Get('t1'))?.SecurityModel
+    assert.deepEqual(model?.teams, [{ id: 'hr', name: 'HR team', businessUnitId: 'hr', idpGroups: ['hr-staff'], manualMembers: ['dana'] }])
+    assert.deepEqual(model?.users, [{ principalId: 'dana', businessUnitId: 'hr' }])
+
+    // The upgrade is written to realm-config.json; the legacy file the record came from is gone.
+    assert.equal(await storage.Exists('tenant-config.json'), false)
+    const raw = JSON.parse(await storage.ReadText('realm-config.json')) as { configs: Record<string, { securityModel: Record<string, unknown> }> }
+    const keys = Object.keys(raw.configs.t1.securityModel)
+    for (const retired of ['ownershipRules', 'fieldSecurity', 'membership', 'roles', 'roleAssignment'])
+    {
+        assert.equal(keys.includes(retired), false)
+    }
+    assert.equal(SecurityModelMigration.NeedsUpgrade(raw.configs.t1.securityModel), false)
+})
+
+test('a null stored securityModel is invalid for that realm only and does not crash Open', async () =>
+{
+    const storage = new FakeStorage()
+    const bad = { ...Fixture.LegacyRecord(), securityModel: null }
+    const badSettings = { ...Fixture.LegacyRecord(), providerSettings: 'oops' }
+    const badDepth = { ...Fixture.LegacyRecord(), delegationDepth: 'FullAuthz' }
+    await new JsonFile(storage, 'tenant-config.json').Write({ configs: { bad, badSettings, badDepth, good: Fixture.LegacyRecord() } })
+    const store = await FileRealmConfigStore.Open(storage)
+    await assert.rejects(store.Get('bad'), InvalidSecurityModelError)
+    await assert.rejects(store.Get('badSettings'), (e: unknown) => e instanceof InvalidRealmConfigError && e.RealmId === 'badSettings')
+    await assert.rejects(store.Get('badDepth'), InvalidRealmConfigError)
+    assert.equal((await store.Get('good'))?.SecurityModel?.teams.length, 1)
+})

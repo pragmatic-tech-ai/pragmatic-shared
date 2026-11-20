@@ -1,0 +1,38 @@
+{
+  "name": "@pragmatic-tech-ai/pragmatic-identity-source-entra",
+  "version": "0.1.0",
+  "description": "Microsoft Entra identity source: its profile and the Microsoft Graph directory sync; builds on pragmatic-identity-source-oidc.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pragmatic-tech-ai/pragmatic-shared.git",
+    "directory": "packages/pragmatic-identity-source-entra"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "tsx --test \"src/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@pragmatic-tech-ai/pragmatic-identity": "0.1.0",
+    "@pragmatic-tech-ai/pragmatic-identity-source-oidc": "0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "tsx": "^4.0.0",
+    "typescript": "^5.5.0"
+  }
+}

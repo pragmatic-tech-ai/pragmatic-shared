@@ -1,0 +1,39 @@
+{
+  "name": "@pragmatic-tech-ai/pragmatic-realm-custom",
+  "version": "0.1.0",
+  "description": "Adapters for the custom realm option (self-hosted, Node).",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pragmatic-tech-ai/pragmatic-shared.git",
+    "directory": "packages/pragmatic-realm-custom"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "tsx --test \"src/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@pragmatic-tech-ai/todl": "file:../../../TODL",
+    "@pragmatic-tech-ai/todl-runtime": "file:../../../todl-runtime"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "tsx": "^4.0.0",
+    "typescript": "^5.5.0"
+  }
+}

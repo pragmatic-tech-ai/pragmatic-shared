@@ -1,0 +1,13 @@
+// pragmatic-realm-aws: AWS-backed platform adapters.
+export { S3ObjectStore } from './storage/s3-object-store.js'
+export type { IS3Bucket } from './storage/s3-bucket.js'
+export { S3StorageProviderRegistry } from './storage/s3-storage-provider-registry.js'
+export { RealS3Bucket } from './storage/real-s3-bucket.js'
+export { AwsSecretsManagerSecretStore } from './secrets/aws-secrets-manager-secret-store.js'
+export { SecretRefEncoding } from './secrets/secret-ref-encoding.js'
+export type { ISecretManagerClient } from './secrets/secret-manager-client.js'
+export { RealSecretsManagerClient } from './secrets/real-secrets-manager-client.js'
+export { RdsPoolFactory, RdsAuthMode } from './sql/rds-pool-factory.js'
+export type { IRdsPoolOptions, IRdsPoolHandle, IRdsSigner, IRdsPool } from './sql/rds-pool-factory.js'
+export { AwsCloudBackends } from './platform/aws-cloud-backends.js'
+export type { IAwsCloudBackendsConfig, IAwsCloudBackendsFactories } from './platform/aws-cloud-backends.js'
