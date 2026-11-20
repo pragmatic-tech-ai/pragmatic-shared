@@ -52,9 +52,9 @@ describe('workspace manifests', () =>
 {
     const packages = Workspace.Packages();
 
-    it('lists the thirteen packages', () =>
+    it('lists the fourteen packages', () =>
     {
-        assert.equal(packages.length, 13);
+        assert.equal(packages.length, 14);
     });
 
     it('takes todl and todl-runtime as peer dependencies linked to the sibling checkout, never as dependencies', () =>
@@ -96,6 +96,7 @@ describe('workspace manifests', () =>
             'pragmatic-realm-gcp': ['@pragmatic-tech-ai/todl', '@pragmatic-tech-ai/todl-runtime'],
             'pragmatic-realm-aws': ['@pragmatic-tech-ai/todl', '@pragmatic-tech-ai/todl-runtime'],
             'pragmatic-realm-azure': ['@pragmatic-tech-ai/todl', '@pragmatic-tech-ai/todl-runtime'],
+            'pragmatic-app-host': ['@pragmatic-tech-ai/todl', '@pragmatic-tech-ai/todl-runtime'],
         };
         for (const [name, singletons] of Object.entries(expected))
         {

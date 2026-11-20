@@ -19,6 +19,7 @@ The platform packages shared by the Pragmatic containers, under their `pragmatic
 | `pragmatic-realm-aws` | `todl-platform-aws` | adapters for the AWS realm option |
 | `pragmatic-realm-azure` | `todl-platform-azure` | adapters for the Azure realm option |
 | `pragmatic-component` | (new) | component descriptors: what a released container supports (options, settings and which are secret, application roles, storage, endpoints), its configuration JSON Schema, the configuration validator and secret references |
+| `pragmatic-app-host` | (new) | the server of a Mural application: the ordered request pipeline, declared routes, the UI bundle, JSON API limits, OIDC and password sign-in sessions, claims authorization, audit (Postgres repositories) |
 
 The cross-provider tests of the old `todl-identity-cloud` (Entra and Google side by side) live in
 `pragmatic-identity-source-google`, which has a dev dependency on `pragmatic-identity-source-entra`.

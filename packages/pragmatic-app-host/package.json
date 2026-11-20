@@ -1,0 +1,49 @@
+{
+  "name": "@pragmatic-tech-ai/pragmatic-app-host",
+  "version": "0.4.0",
+  "license": "Apache-2.0",
+  "description": "The server of a Mural application: one ordered request pipeline, declared routes, the UI bundle, JSON API limits, OIDC sign-in sessions, claims authorization and audit.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pragmatic-tech-ai/pragmatic-shared.git",
+    "directory": "packages/pragmatic-app-host"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "tsx --test \"src/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@pragmatic-tech-ai/pragmatic-identity": "0.4.0",
+    "@pragmatic-tech-ai/pragmatic-identity-source-oidc": "0.4.0",
+    "@pragmatic-tech-ai/pragmatic-realm-adapters": "0.4.0",
+    "ws": "^8.18.0"
+  },
+  "peerDependencies": {
+    "@pragmatic-tech-ai/todl": "file:../../../TODL",
+    "@pragmatic-tech-ai/todl-runtime": "file:../../../todl-runtime"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "@types/ws": "^8.5.10",
+    "pg-mem": "^3.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.5.0"
+  }
+}
