@@ -1,6 +1,6 @@
 {
   "name": "@pragmatic-tech-ai/pragmatic-identity-source-oidc",
-  "version": "0.16.0",
+  "version": "0.16.1",
   "license": "Apache-2.0",
   "description": "The OIDC base every upstream identity source builds on, and the generic OIDC source.",
   "repository": {
@@ -32,7 +32,7 @@
     "test": "tsx --test \"src/**/*.test.ts\""
   },
   "dependencies": {
-    "@pragmatic-tech-ai/pragmatic-identity": "0.16.0",
+    "@pragmatic-tech-ai/pragmatic-identity": "0.16.1",
     "jose": "^6.0.0"
   },
   "devDependencies": {
