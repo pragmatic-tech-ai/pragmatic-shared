@@ -13,6 +13,8 @@ The platform packages shared by the Pragmatic containers, under their `pragmatic
 | `pragmatic-identity-source-oidc` | `todl-identity-cloud` (split per source) | the OIDC base every upstream source builds on (discovery, PKCE, JWKS, flow state, HTTP client, claims and group-role mapping, on-behalf-of tokens, the source-pack base) and the generic OIDC source |
 | `pragmatic-identity-source-entra` | `todl-identity-cloud` (split per source) | Microsoft Entra source: its profile and the Microsoft Graph directory sync; builds on `pragmatic-identity-source-oidc` |
 | `pragmatic-identity-source-google` | `todl-identity-cloud` (split per source) | Google source: its profile; builds on `pragmatic-identity-source-oidc` |
+| `pragmatic-identity-source-identity-platform` | (new) | Google Identity Platform source: ID-token verification (securetoken JWKS, issuer, audience, sign-in age, verified email), realm-account mapping, the login page's client config, a browser-safe REST client (`./client`) and a fake Identity Platform (`./testing`) |
+| `pragmatic-identity-source-pragmatic` | (new) | "Sign in with Pragmatic": a generic-OIDC profile preset to the central realm's issuer `https://login.pragmatic-tech.ai/realms/central`; builds on `pragmatic-identity-source-oidc` |
 | `pragmatic-realm-adapters` | `todl-platform-cloud` | shared base of the per-realm adapters (storage, secrets, SQL) |
 | `pragmatic-realm-custom` | `todl-platform-node` | adapters for the custom realm option (self-hosted, Node) |
 | `pragmatic-realm-gcp` | `todl-platform-gcp` | adapters for the GCP realm option |

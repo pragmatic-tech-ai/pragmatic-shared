@@ -15,6 +15,8 @@
     "packages/pragmatic-identity-source-oidc",
     "packages/pragmatic-identity-source-entra",
     "packages/pragmatic-identity-source-google",
+    "packages/pragmatic-identity-source-identity-platform",
+    "packages/pragmatic-identity-source-pragmatic",
     "packages/pragmatic-realm-adapters",
     "packages/pragmatic-realm-custom",
     "packages/pragmatic-realm-gcp",
@@ -27,7 +29,7 @@
     "packages/pragmatic-app-shell"
   ],
   "scripts": {
-    "build": "npm run build -w packages/pragmatic-identity && npm run build -w packages/pragmatic-component && npm run build -w packages/pragmatic-identity-source-local && npm run build -w packages/pragmatic-identity-realm && npm run build -w packages/pragmatic-identity-store && npm run build -w packages/pragmatic-identity-source-oidc && npm run build -w packages/pragmatic-identity-source-entra && npm run build -w packages/pragmatic-identity-source-google && npm run build -w packages/pragmatic-realm-adapters && npm run build -w packages/pragmatic-realm-custom && npm run build -w packages/pragmatic-realm-gcp && npm run build -w packages/pragmatic-realm-aws && npm run build -w packages/pragmatic-realm-azure && npm run build -w packages/pragmatic-app-host && npm run build -w packages/pragmatic-entitlements-contract && npm run build -w packages/pragmatic-ledger-contract && npm run build -w packages/pragmatic-customer-api-contract && npm run build -w packages/pragmatic-app-shell",
+    "build": "npm run build -w packages/pragmatic-identity && npm run build -w packages/pragmatic-component && npm run build -w packages/pragmatic-identity-source-local && npm run build -w packages/pragmatic-identity-realm && npm run build -w packages/pragmatic-identity-store && npm run build -w packages/pragmatic-identity-source-oidc && npm run build -w packages/pragmatic-identity-source-entra && npm run build -w packages/pragmatic-identity-source-google && npm run build -w packages/pragmatic-identity-source-identity-platform && npm run build -w packages/pragmatic-identity-source-pragmatic && npm run build -w packages/pragmatic-realm-adapters && npm run build -w packages/pragmatic-realm-custom && npm run build -w packages/pragmatic-realm-gcp && npm run build -w packages/pragmatic-realm-aws && npm run build -w packages/pragmatic-realm-azure && npm run build -w packages/pragmatic-app-host && npm run build -w packages/pragmatic-entitlements-contract && npm run build -w packages/pragmatic-ledger-contract && npm run build -w packages/pragmatic-customer-api-contract && npm run build -w packages/pragmatic-app-shell",
     "test": "npm test --workspaces && npm run test:tools",
     "pretest": "npm run build",
     "test:tools": "tsx --test \"tools/tests/*.test.ts\"",

@@ -1,6 +1,6 @@
 {
   "name": "@pragmatic-tech-ai/pragmatic-customer-api-contract",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "license": "Apache-2.0",
   "description": "The personal cabinet's operational calls through the platform edge to the platform admin console: tenants, hive enrolment and levels, hives and health, email domains, leaving; DTOs, typed client, edge relay, route definitions, error codes.",
   "repository": {
@@ -33,8 +33,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@pragmatic-tech-ai/pragmatic-app-host": "0.6.0",
-    "@pragmatic-tech-ai/pragmatic-entitlements-contract": "0.6.0"
+    "@pragmatic-tech-ai/pragmatic-app-host": "0.7.0",
+    "@pragmatic-tech-ai/pragmatic-entitlements-contract": "0.7.0"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",

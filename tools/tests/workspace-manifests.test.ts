@@ -56,9 +56,9 @@ describe('workspace manifests', () =>
 {
     const packages = Workspace.Packages();
 
-    it('lists the eighteen packages', () =>
+    it('lists the twenty packages', () =>
     {
-        assert.equal(packages.length, 18);
+        assert.equal(packages.length, 20);
     });
 
     it('takes todl, todl-runtime and mural as peer dependencies linked to the sibling checkout, never as dependencies', () =>
@@ -105,6 +105,8 @@ describe('workspace manifests', () =>
             'pragmatic-ledger-contract': [],
             'pragmatic-customer-api-contract': [],
             'pragmatic-app-shell': ['@pragmatic-tech-ai/mural', '@pragmatic-tech-ai/todl-runtime'],
+            'pragmatic-identity-source-identity-platform': [],
+            'pragmatic-identity-source-pragmatic': [],
         };
         for (const [name, singletons] of Object.entries(expected))
         {
