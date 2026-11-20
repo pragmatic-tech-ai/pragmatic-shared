@@ -133,6 +133,21 @@ export class AppSessionService extends ServiceBase
         return this.session?.HasAnyRole(roles) ?? false
     }
 
+    public get AppRoles(): readonly string[]
+    {
+        return this.session?.AppRoles ?? []
+    }
+
+    public HasAppRole(role: string): boolean
+    {
+        return this.session?.HasAppRole(role) ?? false
+    }
+
+    public HasAnyAppRole(roles: readonly string[]): boolean
+    {
+        return this.session?.HasAnyAppRole(roles) ?? false
+    }
+
     /** Why the last logout failed; '' when none. A failed logout keeps the page. */
     public get LogoutError(): string
     {

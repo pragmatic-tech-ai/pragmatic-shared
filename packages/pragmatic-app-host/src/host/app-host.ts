@@ -32,7 +32,7 @@ export interface AppHostModules
     Routes: RouteTable
     /** Authentication: needed by Session routes (without it every Session route answers 401). */
     Sessions?: SessionGate
-    /** Default: a ClaimsAuthorizer on the `roles` claim. */
+    /** Default: a ClaimsAuthorizer on the `roles` and `app_roles` claims. */
     Authorizer?: ClaimsAuthorizer
     /** Without it nothing is audited. */
     Audit?: AuditTrail
@@ -397,7 +397,7 @@ export class AppHost
         {
             return undefined
         }
-        const outcome = this.authorizer.Authorize({ Method: HttpMethod.Get, Auth: route.Definition.Auth, Role: route.Definition.Role }, session)
+        const outcome = this.authorizer.Authorize({ Method: HttpMethod.Get, Auth: route.Definition.Auth, Role: route.Definition.Role, AppRole: route.Definition.AppRole }, session)
         return outcome === AuthorizationOutcome.Allowed ? session : undefined
     }
 

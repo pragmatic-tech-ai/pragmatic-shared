@@ -18,3 +18,8 @@ export { InMemoryAuditCheckpointStore } from "./audit/in-memory-audit-checkpoint
 export { AuditAnchor } from "./audit/audit-anchor.js";
 export { AuditAnchoring } from "./audit/audit-anchoring.js";
 export { InMemoryIdpDirectoryStore } from "./directory/in-memory-idp-directory-store.js";
+export { TenantRoleDeclaration, TenantRoleRegistry, DuplicateTenantRoleError } from "./roles/tenant-role-registry.js";
+export { InMemoryRoleMappingStore } from "./roles/in-memory-role-mapping-store.js";
+export { InMemoryApplicationCatalogue } from "./roles/in-memory-application-catalogue.js";
+export { RoleMappingService, RoleMappingError, RoleMappingErrorReason, AssignableRole } from "./roles/role-mapping-service.js";
+export { RealmRoleResolver, RealmRoleScope, SignInFacts } from "./roles/realm-role-resolver.js";

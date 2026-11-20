@@ -34,8 +34,10 @@ export interface AppShellOptions
     readonly MinPasswordLength?: number
     /** The session claim that carries the email. Default `email`. */
     readonly EmailClaim?: string
-    /** The session claim that carries the roles. Default `roles` (the host's `ClaimsAuthorizer` default). */
+    /** The session claim that carries the tenant roles. Default `roles` (the host's `ClaimsAuthorizer` default). */
     readonly RolesClaim?: string
+    /** The session claim that carries this application's roles. Default `app_roles` (the `ClaimsAuthorizer` default). */
+    readonly AppRolesClaim?: string
 }
 
 /**
@@ -55,6 +57,7 @@ export class AppShellConfig
     public static readonly DefaultMinPasswordLength = 12
     public static readonly DefaultEmailClaim = 'email'
     public static readonly DefaultRolesClaim = 'roles'
+    public static readonly DefaultAppRolesClaim = 'app_roles'
 
     private static readonly NoBasePath = ''
     private static readonly PathPrefix = '/'
@@ -74,6 +77,7 @@ export class AppShellConfig
     public readonly MinPasswordLength: number
     public readonly EmailClaim: string
     public readonly RolesClaim: string
+    public readonly AppRolesClaim: string
     private readonly redirect: boolean | undefined
 
     public constructor(options: AppShellOptions)
@@ -113,6 +117,7 @@ export class AppShellConfig
         this.MinPasswordLength = minLength
         this.EmailClaim = options.EmailClaim ?? AppShellConfig.DefaultEmailClaim
         this.RolesClaim = options.RolesClaim ?? AppShellConfig.DefaultRolesClaim
+        this.AppRolesClaim = options.AppRolesClaim ?? AppShellConfig.DefaultAppRolesClaim
         this.redirect = options.RedirectWhenSignedOut
     }
 

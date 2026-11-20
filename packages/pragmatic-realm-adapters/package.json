@@ -1,6 +1,6 @@
 {
   "name": "@pragmatic-tech-ai/pragmatic-realm-adapters",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "license": "Apache-2.0",
   "description": "Shared base of the per-realm adapters (storage, secrets, SQL).",
   "repository": {
@@ -33,9 +33,9 @@
     "test": "tsx --test \"src/**/*.test.ts\""
   },
   "dependencies": {
-    "@pragmatic-tech-ai/pragmatic-identity": "0.7.0",
-    "@pragmatic-tech-ai/pragmatic-identity-realm": "0.7.0",
-    "@pragmatic-tech-ai/pragmatic-identity-source-oidc": "0.7.0",
+    "@pragmatic-tech-ai/pragmatic-identity": "0.8.0",
+    "@pragmatic-tech-ai/pragmatic-identity-realm": "0.8.0",
+    "@pragmatic-tech-ai/pragmatic-identity-source-oidc": "0.8.0",
     "pg": "^8.13.0"
   },
   "peerDependencies": {

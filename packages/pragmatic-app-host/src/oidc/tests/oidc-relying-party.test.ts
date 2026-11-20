@@ -56,7 +56,7 @@ test('Complete exchanges the code and maps the id token to the subject, its mapp
     await RpFixture.Answer(idp, http, RpFixture.NonceOf(begun.Url))
     const identity = await rp.Complete({ ...client, FixedClaims: SessionClaims.From({ tenant: 'acme' }) }, 'the-code', begun.State)
     assert.equal(identity.Subject, 'user-1')
-    assert.deepEqual(identity.Claims.ToJson(), { email: ['u@x'], roles: ['tenant.admin', 'app.reader'], tenant: ['acme'] })
+    assert.deepEqual(identity.Claims.ToJson(), { email: ['u@x'], roles: ['app.reader', 'tenant.admin'], tenant: ['acme'] })
     const posted = http.PostedFields[0]
     assert.equal(posted?.get('code'), 'the-code')
     assert.equal(posted?.get('client_secret'), RpFixture.Secret)
@@ -74,6 +74,35 @@ test('a public client (no secret) posts no client_secret; the roles and claim ma
     assert.equal(http.PostedFields[0]?.has('client_secret'), false)
     assert.deepEqual(identity.Claims.Values('app_roles'), ['g1'])
     assert.equal(identity.Claims.First('name'), 'uu')
+})
+
+test('the realm role claims: tenant roles into roles, the application roles into app_roles, other applications dropped', async () =>
+{
+    const { Idp: idp, Http: http, Client: client } = await RpFixture.Make()
+    const rp = new OidcRelyingParty(new InMemoryOidcFlowStateStore())
+    const ledger: IOidcClientConfig = { ...client, Application: 'ledger' }
+    const begun = await rp.Begin(ledger)
+    await RpFixture.Answer(idp, http, RpFixture.NonceOf(begun.Url), { roles: ['admin', 'Not A Role'], app_roles: { ledger: ['sales', 'finance'], crm: ['viewer'] } })
+    const identity = await rp.Complete(ledger, 'c', begun.State)
+    assert.deepEqual(identity.Claims.Values('roles'), ['admin'])
+    assert.deepEqual(identity.Claims.Values('app_roles'), ['finance', 'sales'])
+})
+
+test('a client without an application keeps no application roles; a token without role claims gives empty roles', async () =>
+{
+    const { Idp: idp, Http: http, Client: client } = await RpFixture.Make()
+    const rp = new OidcRelyingParty(new InMemoryOidcFlowStateStore())
+    const begun = await rp.Begin(client)
+    await RpFixture.Answer(idp, http, RpFixture.NonceOf(begun.Url), { roles: ['admin'], app_roles: { ledger: ['sales'] } })
+    const identity = await rp.Complete(client, 'c', begun.State)
+    assert.deepEqual(identity.Claims.Values('roles'), ['admin'])
+    assert.equal(identity.Claims.Names().includes('app_roles'), false)
+    const ledger: IOidcClientConfig = { ...client, Application: 'ledger' }
+    const second = await rp.Begin(ledger)
+    await RpFixture.Answer(idp, http, RpFixture.NonceOf(second.Url), { roles: undefined })
+    const bare = await rp.Complete(ledger, 'c', second.State)
+    assert.deepEqual(bare.Claims.Values('roles'), [])
+    assert.deepEqual(bare.Claims.Values('app_roles'), [])
 })
 
 test('a wrong nonce, a replayed state, a failed token call or an unknown state is a generic OidcLoginError that leaks nothing', async () =>

@@ -1,18 +1,21 @@
-import { AuthMethod, AuthenticatedResult, Credential, DelegationDepth, IdentityConfig, PresentedSecret, Realm, RealmKind } from '@pragmatic-tech-ai/pragmatic-identity'
-import { ClaimArrayGroupStrategy, ClaimsMapper, FetchHttpClient, GenericOidcProfile, JwksCache, OidcAuthenticator, OidcDiscovery, OidcResolvedConfig } from '@pragmatic-tech-ai/pragmatic-identity-source-oidc'
+import { AuthMethod, AuthenticatedResult, Credential, DelegationDepth, IdentityConfig, PresentedSecret, Realm, RealmKind, RealmRoleClaims } from '@pragmatic-tech-ai/pragmatic-identity'
+import { ClaimsMapper, FetchHttpClient, GenericOidcProfile, JwksCache, OidcAuthenticator, OidcDiscovery, OidcResolvedConfig } from '@pragmatic-tech-ai/pragmatic-identity-source-oidc'
 import type { IHttpClient, IOidcFlowStateStore } from '@pragmatic-tech-ai/pragmatic-identity-source-oidc'
 import type { IOidcClientConfig } from './oidc-client-config.js'
 import { OidcLoginError } from './oidc-login-error.js'
 import { ClientSecretStore } from './client-secret-store.js'
 import { SessionClaims } from '../session/session-claims.js'
 import { SignedInIdentity } from '../session/signed-in-identity.js'
+import { RealmRoleGroupStrategy } from './realm-role-group-strategy.js'
 
 export interface OidcRelyingPartyOptions
 {
     /** The HTTP client of a config that brings none; default fetch (https only). */
     Http?: IHttpClient
-    /** The session claim the subject's roles go under; default `roles` (the ClaimsAuthorizer's default). */
+    /** The session claim the subject's tenant roles go under; default `roles` (the ClaimsAuthorizer's default). */
     SessionRoleClaim?: string
+    /** The session claim this application's roles go under; default `app_roles` (the ClaimsAuthorizer's default). */
+    SessionAppRoleClaim?: string
     Now?: () => Date
 }
 
@@ -34,28 +37,30 @@ class OidcCaches
  * pragmatic-identity-source-oidc's primitives (discovery, JWKS, the code exchange and id-token checks). The pending
  * flows live in an IOidcFlowStateStore (SqlOidcFlowStateStore in production, so a sign-in begun on one replica completes
  * on another). Begin answers the authorize URL; Complete exchanges the code and maps the id token to the subject, its
- * mapped claims, its roles and the client's fixed claims. Every failure is a generic OidcLoginError; the code is held
- * only as a transient PresentedSecret, cleared in a finally.
+ * mapped claims, its roles and the client's fixed claims. Roles are read as the realm issues them (RealmRoleClaims): the
+ * tenant roles into the session's `roles` claim, and this application's roles (client.Application) by bare name into
+ * its `app_roles` claim; other applications' roles are not kept. Every failure is a generic OidcLoginError; the code
+ * is held only as a transient PresentedSecret, cleared in a finally.
  */
 export class OidcRelyingParty
 {
     private static readonly PackId = 'app-host-oidc'
     private static readonly DefaultScopes: readonly string[] = ['openid', 'email', 'profile']
-    private static readonly DefaultRolesClaim = 'roles'
-    private static readonly DefaultSessionRoleClaim = 'roles'
     private static readonly EmailClaim = 'email'
     private static readonly ClientSecretParam = 'client_secret'
     private static readonly DefaultClaimsMapping: ReadonlyMap<string, string> = new Map([[OidcRelyingParty.EmailClaim, OidcRelyingParty.EmailClaim]])
 
     private readonly http: IHttpClient
     private readonly sessionRoleClaim: string
+    private readonly sessionAppRoleClaim: string
     private readonly now: (() => Date) | undefined
     private readonly caches = new WeakMap<IHttpClient, OidcCaches>()
 
     public constructor(private readonly flowStates: IOidcFlowStateStore, options: OidcRelyingPartyOptions = {})
     {
         this.http = options.Http ?? new FetchHttpClient()
-        this.sessionRoleClaim = options.SessionRoleClaim ?? OidcRelyingParty.DefaultSessionRoleClaim
+        this.sessionRoleClaim = options.SessionRoleClaim ?? RealmRoleClaims.RolesClaim
+        this.sessionAppRoleClaim = options.SessionAppRoleClaim ?? RealmRoleClaims.AppRolesClaim
         this.now = options.Now
     }
 
@@ -83,7 +88,12 @@ export class OidcRelyingParty
             }
             const principal = result.Principal
             const claims: Record<string, string | readonly string[]> = Object.fromEntries(principal.Claims)
-            claims[this.sessionRoleClaim] = principal.Groups
+            const roles = RealmRoleClaims.FromQualified(principal.Groups)
+            claims[this.sessionRoleClaim] = roles.TenantRoles
+            if (client.Application !== undefined)
+            {
+                claims[this.sessionAppRoleClaim] = roles.RolesOf(client.Application)
+            }
             let sessionClaims = SessionClaims.From(claims)
             for (const name of client.FixedClaims?.Names() ?? [])
             {
@@ -112,7 +122,7 @@ export class OidcRelyingParty
         }
         const scopes = client.Scopes ?? OidcRelyingParty.DefaultScopes
         const mapping = client.ClaimsMapping ?? OidcRelyingParty.DefaultClaimsMapping
-        const profile = new GenericOidcProfile(client.Issuer, client.DiscoveryUrl, scopes, mapping, new ClaimArrayGroupStrategy(client.RolesClaim ?? OidcRelyingParty.DefaultRolesClaim), OidcRelyingParty.ClientSecretParam)
+        const profile = new GenericOidcProfile(client.Issuer, client.DiscoveryUrl, scopes, mapping, new RealmRoleGroupStrategy(client.RolesClaim ?? RealmRoleClaims.RolesClaim), OidcRelyingParty.ClientSecretParam)
         const hasSecret = client.ClientSecret !== undefined && client.ClientSecret.length > 0
         // A public client has no secret reference, so the authenticator never reads the store.
         const secrets = new ClientSecretStore(hasSecret ? client.ClientSecret as string : '')

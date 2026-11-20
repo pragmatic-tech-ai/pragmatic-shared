@@ -23,6 +23,8 @@ describe('AppSessionService', () =>
         assert.equal(service.IsSignedIn, false)
         assert.equal(service.Email, '')
         assert.deepEqual(service.Roles, [])
+        assert.deepEqual(service.AppRoles, [])
+        assert.equal(service.HasAnyAppRole(['x']), false)
         assert.equal(service.ChangePasswordCommand.CanExecute(), false)
         assert.throws(() => service.Client, /before Initialize/)
     })

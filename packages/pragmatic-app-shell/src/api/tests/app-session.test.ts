@@ -29,6 +29,18 @@ describe('AppSession', () =>
         assert.equal(session.Email, 'm@x.test')
     })
 
+    it('reads tenant roles from roles and the application roles from app_roles by default', () =>
+    {
+        const session = AppSession.FromWire({ subject: 's', claims: { roles: ['admin'], app_roles: ['finance'] } }, config)
+        assert.deepEqual(session.Roles, ['admin'])
+        assert.deepEqual(session.AppRoles, ['finance'])
+        assert.equal(session.HasAppRole('finance'), true)
+        assert.equal(session.HasAppRole('admin'), false)
+        assert.equal(session.HasAnyAppRole(['sales', 'finance']), true)
+        assert.equal(session.HasAnyAppRole([]), false)
+        assert.equal(config.AppRolesClaim, AppShellConfig.DefaultAppRolesClaim)
+    })
+
     it('has no email when the claim is absent, and tolerates a reply without claims', () =>
     {
         const session = AppSession.FromWire({ subject: 's' } as never, config)

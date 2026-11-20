@@ -34,7 +34,7 @@ describe('InternalApiGuard', () =>
     it('answers 401 unauthorized without it, or with another link bearer', async () =>
     {
         const other = InternalApiCredential.FromSecret(Buffer.alloc(32, 3), 'other-link/v1')
-        for (const headers of [{}, { authorization: other.AuthorizationValue() }, { authorization: credential.Bearer() }])
+        for (const headers of [{} as Record<string, string>, { authorization: other.AuthorizationValue() }, { authorization: credential.Bearer() }])
         {
             const answer = await fixture.Send('/internal/thing', { Method: 'POST', Origin: null, Json: {}, Headers: headers })
             assert.equal(answer.Status, 401)

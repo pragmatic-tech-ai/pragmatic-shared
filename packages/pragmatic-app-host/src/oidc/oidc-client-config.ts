@@ -18,8 +18,11 @@ export interface IOidcClientConfig
     ClientSecret?: string
     /** Session claim <- id-token claim; default `email <- email`. */
     ClaimsMapping?: ReadonlyMap<string, string>
-    /** The id-token array claim holding the subject's roles; default `roles`. */
+    /** The id-token array claim holding the subject's tenant roles; default `roles`. */
     RolesClaim?: string
+    /** The application's name as its realm knows it (its component name): the session keeps this application's roles
+     *  from the id token's `app_roles` claim. Absent: the session carries no application roles. */
+    Application?: string
     /** Claims every session of this client carries (e.g. the tenant whose realm signed the subject in). */
     FixedClaims?: SessionClaims
     /** The HTTP client for discovery, keys and the code exchange (e.g. a CaTrustingHttpClient); default fetch. */

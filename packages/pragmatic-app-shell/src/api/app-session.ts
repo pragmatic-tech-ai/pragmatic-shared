@@ -9,7 +9,8 @@ export interface AppSessionWire
 
 /**
  * The signed-in session as the host reported it: a generic subject plus claims (email, roles, the tenant, ...).
- * Roles are read from the configured roles claim, the one the host's `ClaimsAuthorizer` checks. The browser only
+ * Roles are read from the configured claims the host's `ClaimsAuthorizer` checks: the tenant roles (`roles`) and this
+ * application's roles (`app_roles`). The browser only
  * uses them to explain and pre-disable; the host stays the gate.
  */
 export class AppSession
@@ -65,6 +66,23 @@ export class AppSession
     public HasAnyRole(roles: readonly string[]): boolean
     {
         return roles.some(role => this.HasRole(role))
+    }
+
+    /** This application's roles, by bare name. */
+    public get AppRoles(): readonly string[]
+    {
+        return this.Values(this.config.AppRolesClaim)
+    }
+
+    public HasAppRole(role: string): boolean
+    {
+        return this.AppRoles.includes(role)
+    }
+
+    /** True when the session holds at least one of this application's `roles`. */
+    public HasAnyAppRole(roles: readonly string[]): boolean
+    {
+        return roles.some(role => this.HasAppRole(role))
     }
 
     private static CleanClaims(claims: unknown): Record<string, readonly string[]>

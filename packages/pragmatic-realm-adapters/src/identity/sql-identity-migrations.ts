@@ -128,3 +128,33 @@ export class SqlAuditCheckpointMigrations extends SqlMigrationModule
         return [SqlAuditCheckpointMigrations.V1]
     }
 }
+
+/** The realm's role mappings: one row per (role, member); the role is its qualified text (`admin`, `ledger:finance`). */
+export class SqlRoleMappingMigrations extends SqlMigrationModule
+{
+    private static readonly V1 = new SqlMigration(1, [
+        'CREATE TABLE identity_role_mappings (realm_id text NOT NULL, role text NOT NULL, member_kind text NOT NULL, member_source text NOT NULL, member_value text NOT NULL, PRIMARY KEY (realm_id, role, member_kind, member_source, member_value))',
+    ])
+
+    public readonly Name = 'identity.role_mappings'
+
+    public Migrations(): readonly SqlMigration[]
+    {
+        return [SqlRoleMappingMigrations.V1]
+    }
+}
+
+/** The realm's application catalogue: one row per application, its declared roles as a JSON array of [name, description]. */
+export class SqlApplicationCatalogueMigrations extends SqlMigrationModule
+{
+    private static readonly V1 = new SqlMigration(1, [
+        'CREATE TABLE identity_applications (realm_id text NOT NULL, application text NOT NULL, roles text NOT NULL, PRIMARY KEY (realm_id, application))',
+    ])
+
+    public readonly Name = 'identity.applications'
+
+    public Migrations(): readonly SqlMigration[]
+    {
+        return [SqlApplicationCatalogueMigrations.V1]
+    }
+}

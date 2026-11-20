@@ -72,6 +72,7 @@ export { SqlAuditRepository, SqlAuditMigrations } from './audit/sql-audit-reposi
 
 export { OidcRelyingParty } from './oidc/oidc-relying-party.js'
 export type { OidcRelyingPartyOptions } from './oidc/oidc-relying-party.js'
+export { RealmRoleGroupStrategy } from './oidc/realm-role-group-strategy.js'
 export { OidcLoginEndpoint } from './oidc/oidc-login-endpoint.js'
 export type { OidcLoginEndpointOptions } from './oidc/oidc-login-endpoint.js'
 export type { IOidcClientConfig, IOidcClientProvider } from './oidc/oidc-client-config.js'
