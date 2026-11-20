@@ -37,4 +37,6 @@ Application [ ... ] {
 
 `@pragmatic-tech-ai/mural` and `@pragmatic-tech-ai/todl-runtime` are peers (one copy of each in the application).
 `npm run build` compiles the `.mu` views with the mural CLI (the generated `.mu.js` is committed), runs `tsc`, and
-copies each `.mu.js` and its hand-written `.mu.d.ts` into `dist` beside the view models it imports.
+copies each `.mu.js` and its hand-written `.mu.d.ts` into `dist` beside the view models it imports. `npm test`
+runs against the committed `.mu.js` and the built `dist` (the consumer fixture imports the package entry), so build
+first; it does not recompile, which would leave `dist` older than `src` for the publish tool.

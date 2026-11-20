@@ -28,7 +28,7 @@
   "scripts": {
     "compile:mu": "node scripts/mu-build.mjs compile",
     "build": "node scripts/mu-build.mjs compile && tsc -p tsconfig.build.json && node scripts/mu-build.mjs copy",
-    "test": "node scripts/mu-build.mjs compile && tsx --test \"src/**/tests/*.test.ts\""
+    "test": "tsx --test \"src/**/tests/*.test.ts\""
   },
   "peerDependencies": {
     "@pragmatic-tech-ai/mural": "file:../../../Mural",
