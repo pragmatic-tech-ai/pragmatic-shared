@@ -1,6 +1,6 @@
 {
   "name": "@pragmatic-tech-ai/pragmatic-ledger-contract",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "license": "Apache-2.0",
   "description": "The clients ledger's internal API the personal cabinet calls over the mesh: register a client, my client and subscription, plans, checkout, cancel; DTOs, typed client, route definitions.",
   "repository": {
@@ -33,8 +33,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@pragmatic-tech-ai/pragmatic-app-host": "0.15.0",
-    "@pragmatic-tech-ai/pragmatic-entitlements-contract": "0.15.0"
+    "@pragmatic-tech-ai/pragmatic-app-host": "0.16.0",
+    "@pragmatic-tech-ai/pragmatic-entitlements-contract": "0.16.0"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",

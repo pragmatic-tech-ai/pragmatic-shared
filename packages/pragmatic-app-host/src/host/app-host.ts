@@ -1,5 +1,6 @@
 import { createServer } from 'node:http'
 import type { IncomingMessage, Server, ServerResponse } from 'node:http'
+import { createServer as createHttpsServer } from 'node:https'
 import type { AddressInfo } from 'node:net'
 import type { Duplex } from 'node:stream'
 import { WebSocketServer } from 'ws'
@@ -7,7 +8,7 @@ import type { WebSocket } from 'ws'
 import type { AppHostConfig } from './app-host-config.js'
 import { HealthEndpoint } from './health-endpoint.js'
 import type { RouteTable, Route, SocketRoute } from '../routing/route-table.js'
-import { RouteAuth } from '../routing/route.js'
+import { RouteAuth, RouteBody } from '../routing/route.js'
 import { RequestContext } from '../routing/request-context.js'
 import { SocketContext } from '../routing/socket-context.js'
 import { OriginGuard } from '../guards/origin-guard.js'
@@ -125,10 +126,12 @@ export class AppHost
 
     public async Listen(port: number, host?: string): Promise<void>
     {
-        const server = createServer((req, res) =>
+        const handler = (req: IncomingMessage, res: ServerResponse): void =>
         {
             void this.Handle(req, res)
-        })
+        }
+        const tls = this.config.Tls
+        const server: Server = tls === undefined ? createServer(handler) : createHttpsServer({ key: tls.Key, cert: tls.Cert }, handler)
         server.on(AppHost.UpgradeEvent, (req: IncomingMessage, socket: Duplex, head: Buffer) =>
         {
             void this.Upgrade(req, socket, head)
@@ -204,14 +207,14 @@ export class AppHost
                 this.Refuse(req, res, AppHost.StatusForbidden, AppHost.ForbiddenHostMessage)
                 return
             }
-            if (JsonApi.HasBody(req) && !JsonApi.IsJson(req))
+            const match = this.modules.Routes.Match(method, path)
+            if (JsonApi.HasBody(req) && !AppHost.AcceptsBody(req, match.Route?.Definition.Body ?? RouteBody.Json))
             {
                 this.Refuse(req, res, AppHost.StatusUnsupported, AppHost.UnsupportedMediaMessage)
                 return
             }
             const address = this.addresses.Of(req)
             const mutating = HttpMethods.IsMutating(method)
-            const match = this.modules.Routes.Match(method, path)
             const isApi = path.startsWith(this.config.ApiPrefix) || match.Route !== undefined || match.AllowedMethods.length > 0
             if (isApi && this.modules.ApiLimiter !== undefined)
             {
@@ -288,6 +291,12 @@ export class AppHost
                 await this.Record(audited.Actor, audited.Method, audited.Path, res.statusCode, audited.Context.AuditNote)
             }
         }
+    }
+
+    /** Whether the request's body is of the type the route accepts (JSON unless it declares a form body). */
+    private static AcceptsBody(req: IncomingMessage, body: RouteBody): boolean
+    {
+        return body === RouteBody.Form ? JsonApi.IsForm(req) : JsonApi.IsJson(req)
     }
 
     /** A matched route is audited when it says so (mutations by default) and there is someone to name; a public route

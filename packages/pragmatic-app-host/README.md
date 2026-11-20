@@ -6,11 +6,13 @@ authorization from claims, and audit. Design: `dev-kit/docs/superpowers/specs/20
 
 ## Pipeline
 
-`AppHost` is a node:http server with WebSocket upgrade dispatch. Every request runs, in order:
+`AppHost` is a node:http server (node:https with `Tls: { Key, Cert }` in its config: a service that terminates its own
+TLS, WebSockets then over WSS) with WebSocket upgrade dispatch. Every request runs, in order:
 
 1. **health**: `/healthz`, `/readyz` (any Host, no session);
 2. **allowed Host** (`HostAllowList`, loopback always allowed): 403 otherwise;
-3. **body type**: a body that is not `application/json` is 415;
+3. **body type**: a body that is not `application/json` is 415, except on a route that declares `Body: RouteBody.Form`,
+   which accepts `application/x-www-form-urlencoded` only (the OAuth token and revocation endpoints);
 4. **Origin** (`OriginGuard`): a mutation from another origin is 403, audited as anonymous under the denial
    `RateLimiter` (429 with `Retry-After` once locked);
 5. **authentication** (`SessionGate`: the session cookie names a server-side session);
@@ -27,8 +29,9 @@ else is a generic 500).
 
 ## Pieces
 
-- `RouteTable`: `{ Method, Pattern, Auth: Public | Session, Role, Audited, BodyLimit, Handler }` routes and socket
-  routes; handlers get a `RequestContext` (params, query, session, client address, `ReadJson`, `WriteJson`).
+- `RouteTable`: `{ Method, Pattern, Auth: Public | Session, Role, Audited, BodyLimit, Body: Json | Form, Handler }`
+  routes and socket routes; handlers get a `RequestContext` (params, query, session, client address, `ReadJson`,
+  `ReadForm`, `WriteJson`).
 - `MuralBundle`: an explicit root read at load; SPA fallback; `immutable` hashed assets, `no-cache` index; traversal
   guard.
 - `JsonApi`, `ProblemMapper`, `HttpProblem` (optional `Code` and `Fields()`, written beside `error`; `BadRequestProblem`

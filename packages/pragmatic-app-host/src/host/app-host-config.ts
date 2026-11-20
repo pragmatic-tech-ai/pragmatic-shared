@@ -2,6 +2,13 @@ import { HostAllowList } from '../guards/host-allow-list.js'
 import { SecurityHeaders } from '../bundle/security-headers.js'
 import type { SecurityHeadersOptions } from '../bundle/security-headers.js'
 
+/** The key and certificate (PEM) an AppHost serves HTTPS with. */
+export interface AppHostTls
+{
+    readonly Key: string | Buffer
+    readonly Cert: string | Buffer
+}
+
 export interface AppHostConfigOptions
 {
     /** Host names the application answers on, besides the loopback names (always allowed). */
@@ -15,6 +22,9 @@ export interface AppHostConfigOptions
     /** The session claim an audit entry names its actor by (falling back to the subject). Default `email`. */
     AuditActorClaim?: string
     Security?: SecurityHeadersOptions
+    /** Serve HTTPS (and WSS) with this key and certificate instead of plain HTTP (a service that terminates its own TLS,
+     *  e.g. behind an ssl-passthrough ingress). Default: plain HTTP. */
+    Tls?: AppHostTls
 }
 
 /** The plain settings of an AppHost (its collaborators are AppHostModules). */
@@ -30,6 +40,7 @@ export class AppHostConfig
     public readonly DefaultBodyLimit: number
     public readonly AuditActorClaim: string
     public readonly Security: SecurityHeaders
+    public readonly Tls: AppHostTls | undefined
 
     public constructor(options: AppHostConfigOptions = {})
     {
@@ -39,5 +50,6 @@ export class AppHostConfig
         this.DefaultBodyLimit = options.DefaultBodyLimit ?? AppHostConfig.DefaultBodyLimit
         this.AuditActorClaim = options.AuditActorClaim ?? AppHostConfig.DefaultAuditActorClaim
         this.Security = new SecurityHeaders(options.Security)
+        this.Tls = options.Tls
     }
 }

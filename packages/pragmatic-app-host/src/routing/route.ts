@@ -14,6 +14,16 @@ export enum RouteAuth
     Session = 'session',
 }
 
+/** The request body a route accepts. */
+export enum RouteBody
+{
+    /** application/json (the default): read with ReadJson / ReadJsonObject. */
+    Json = 'json',
+    /** application/x-www-form-urlencoded (the OAuth token and revocation endpoints, RFC 6749 §3.2 / RFC 7009): read
+     *  with ReadForm. */
+    Form = 'form',
+}
+
 /** One declared API route. */
 export interface RouteDefinition
 {
@@ -31,6 +41,8 @@ export interface RouteDefinition
     Audited?: boolean
     /** Body limit in bytes (default: the host's DefaultBodyLimit). */
     BodyLimit?: number
+    /** The body type the route accepts (default Json); a body of any other type is 415 before the route runs. */
+    Body?: RouteBody
     Handler: (context: RequestContext) => Promise<void>
 }
 

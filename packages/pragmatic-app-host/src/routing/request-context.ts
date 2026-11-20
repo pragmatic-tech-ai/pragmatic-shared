@@ -67,6 +67,12 @@ export class RequestContext
         return JsonApi.ReadJsonObject(this.Request, this.BodyLimit)
     }
 
+    /** The decoded form body of a RouteBody.Form route, within the route's body limit. */
+    public ReadForm(): Promise<URLSearchParams>
+    {
+        return JsonApi.ReadForm(this.Request, this.BodyLimit)
+    }
+
     public WriteJson(status: number, body: unknown): void
     {
         JsonApi.WriteJson(this.Response, status, body)

@@ -11,6 +11,7 @@ export class JsonApi
     public static readonly ContentTypeHeader = 'Content-Type'
     public static readonly JsonType = 'application/json; charset=utf-8'
     private static readonly JsonMediaType = 'application/json'
+    private static readonly FormMediaType = 'application/x-www-form-urlencoded'
     private static readonly ContentLengthHeader = 'content-length'
     private static readonly TransferEncodingHeader = 'transfer-encoding'
     private static readonly RequestContentTypeHeader = 'content-type'
@@ -114,8 +115,25 @@ export class JsonApi
 
     public static IsJson(req: IncomingMessage): boolean
     {
+        return JsonApi.MediaTypeOf(req) === JsonApi.JsonMediaType
+    }
+
+    /** Whether the body is application/x-www-form-urlencoded (parameters such as charset aside). */
+    public static IsForm(req: IncomingMessage): boolean
+    {
+        return JsonApi.MediaTypeOf(req) === JsonApi.FormMediaType
+    }
+
+    /** Reads a form body (at most maxBytes; BodyTooLargeError beyond) as its decoded parameters. */
+    public static async ReadForm(req: IncomingMessage, maxBytes: number): Promise<URLSearchParams>
+    {
+        return new URLSearchParams(await JsonApi.ReadText(req, maxBytes))
+    }
+
+    private static MediaTypeOf(req: IncomingMessage): string
+    {
         const type = req.headers[JsonApi.RequestContentTypeHeader] ?? ''
-        return (type.split(JsonApi.ParameterSeparator)[0] ?? '').trim().toLowerCase() === JsonApi.JsonMediaType
+        return (type.split(JsonApi.ParameterSeparator)[0] ?? '').trim().toLowerCase()
     }
 
     /** The declared Content-Length, or undefined when absent or not a non-negative integer. */
