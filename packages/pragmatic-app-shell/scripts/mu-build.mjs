@@ -5,7 +5,7 @@
 // workspace hoists the file: link to the root node_modules) and realpath'd: the CLI only runs when its own resolved
 // URL equals process.argv[1].
 import { execFileSync } from 'node:child_process'
-import { copyFileSync, existsSync, globSync, mkdirSync, realpathSync } from 'node:fs'
+import { copyFileSync, existsSync, globSync, mkdirSync, realpathSync, utimesSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -68,6 +68,9 @@ class MuBuild
                 const target = join(MuBuild.OutputDir, relative(MuBuild.SourceDir, file))
                 mkdirSync(dirname(target), { recursive: true })
                 copyFileSync(file, target)
+                // A copy keeps the source's time on Windows; stamp it as built now, like every other dist file.
+                const now = new Date()
+                utimesSync(target, now, now)
             }
         }
     }
