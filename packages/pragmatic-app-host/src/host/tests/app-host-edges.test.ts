@@ -52,6 +52,17 @@ describe('AppHost request edges', () =>
             },
         })
         fixture.Routes.AddSocket({ Pattern: '/plain', Auth: RouteAuth.Public, Handler: ws => ws.send('plain') })
+        fixture.Routes.AddSocket({
+            Pattern: '/reset',
+            Auth: RouteAuth.Public,
+            // The client's connection fails while the refusal is written (a reset): an error on the raw socket after Admit.
+            Admit: async req =>
+            {
+                setImmediate(() => req.socket.emit('error', new Error('read ECONNRESET')))
+                return new UpgradeRefusal(503, { error: 'unavailable' })
+            },
+            Handler: () => undefined,
+        })
         await fixture.Start()
     })
 
@@ -72,6 +83,13 @@ describe('AppHost request edges', () =>
         assert.match(answer, /content-type: application\/json/i)
         assert.ok(answer.endsWith('{"error":"relay refused"}'), answer)
         assert.deepEqual(handled, [])
+    })
+
+    it('a client connection failing during an upgrade is handled by the host (the process does not crash)', async () =>
+    {
+        await RawExchange.Send(fixture.Port, RawExchange.Upgrade('/reset', 'localhost:' + fixture.Port))
+        await new Promise(resolve => setImmediate(resolve))
+        assert.equal((await fixture.Send('/api/ping')).Status, 200)
     })
 
     it('an admitted upgrade proceeds to the handler; a route without Admit is unchanged', async () =>

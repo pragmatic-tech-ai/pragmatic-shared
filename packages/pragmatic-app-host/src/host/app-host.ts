@@ -364,6 +364,9 @@ export class AppHost
      *  ticket (the lone subprotocol) naming a live session that the route's role admits; anything else destroys it. */
     private async Upgrade(req: IncomingMessage, socket: Duplex, head: Buffer): Promise<void>
     {
+        // Node hands the upgrade's raw socket over without an error listener: a client reset while it is checked or
+        // refused would otherwise be an uncaught error.
+        socket.on(AppHost.ErrorEvent, () => socket.destroy())
         try
         {
             const url = AppHost.ParseTarget(req)
