@@ -1,0 +1,100 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { randomUUID } from 'node:crypto'
+import { OidcFlowState } from '@pragmatic-tech-ai/pragmatic-identity-source-oidc'
+import { SqlTestSessions } from '../../testing/sql-test-sessions.js'
+import { SqlOidcFlowStateStore } from '../sql-oidc-flow-state-store.js'
+
+class FlowClock
+{
+    public At = new Date('2026-11-20T10:00:00.000Z')
+
+    public readonly Now = (): Date => this.At
+
+    public Advance(ms: number): void
+    {
+        this.At = new Date(this.At.getTime() + ms)
+    }
+
+    public State(ttlMs: number): OidcFlowState
+    {
+        return new OidcFlowState(`st-${randomUUID()}`, 'nonce-1', 'verifier-1', 'https://app.example/callback', new Date(this.At.getTime() + ttlMs))
+    }
+}
+
+SqlTestSessions.Describe('SqlOidcFlowStateStore', (makeSession, backend) =>
+{
+    test(`${backend}: Put then Take returns every field`, async () =>
+    {
+        const clock = new FlowClock()
+        const store = await SqlOidcFlowStateStore.Open(await makeSession(), clock.Now)
+        const state = clock.State(60_000)
+        await store.Put(state)
+        const taken = await store.Take(state.State)
+        assert.deepEqual(taken, state)
+    })
+
+    test(`${backend}: a state is single use`, async () =>
+    {
+        const clock = new FlowClock()
+        const store = await SqlOidcFlowStateStore.Open(await makeSession(), clock.Now)
+        const state = clock.State(60_000)
+        await store.Put(state)
+        assert.notEqual(await store.Take(state.State), null)
+        assert.equal(await store.Take(state.State), null)
+    })
+
+    test(`${backend}: an unknown state is null`, async () =>
+    {
+        const store = await SqlOidcFlowStateStore.Open(await makeSession())
+        assert.equal(await store.Take('nope'), null)
+    })
+
+    test(`${backend}: an expired state is null and consumed`, async () =>
+    {
+        const clock = new FlowClock()
+        const session = await makeSession()
+        const store = await SqlOidcFlowStateStore.Open(session, clock.Now)
+        const state = clock.State(1_000)
+        await store.Put(state)
+        clock.Advance(1_000)
+        assert.equal(await store.Take(state.State), null)
+        assert.equal((await session.Query('SELECT state FROM oidc_flow_states WHERE state = $1', [state.State])).length, 0)
+    })
+
+    test(`${backend}: Put sweeps expired states left behind by abandoned sign-ins`, async () =>
+    {
+        const clock = new FlowClock()
+        const session = await makeSession()
+        const store = await SqlOidcFlowStateStore.Open(session, clock.Now)
+        const abandoned = clock.State(1_000)
+        await store.Put(abandoned)
+        clock.Advance(5_000)
+        await store.Put(clock.State(60_000))
+        assert.equal((await session.Query('SELECT state FROM oidc_flow_states WHERE state = $1', [abandoned.State])).length, 0)
+    })
+
+    test(`${backend}: a state survives a restart (another store over the same database)`, async () =>
+    {
+        const clock = new FlowClock()
+        const session = await makeSession()
+        const state = clock.State(60_000)
+        await (await SqlOidcFlowStateStore.Open(session, clock.Now)).Put(state)
+        assert.deepEqual(await (await SqlOidcFlowStateStore.Open(session, clock.Now)).Take(state.State), state)
+    })
+})
+
+SqlTestSessions.DescribeLive('SqlOidcFlowStateStore', makeDatabase =>
+{
+    test('SqlOidcFlowStateStore [live]: concurrent Takes of one state - exactly one wins', async () =>
+    {
+        const database = await makeDatabase()
+        const clock = new FlowClock()
+        const store = await SqlOidcFlowStateStore.Open(database.Session(), clock.Now)
+        const state = clock.State(60_000)
+        await store.Put(state)
+        const racers = await Promise.all(Array.from({ length: 8 }, async () => (await SqlOidcFlowStateStore.Open(database.Session(), clock.Now)).Take(state.State)))
+        assert.equal(racers.filter(r => r !== null).length, 1)
+        await database.Dispose()
+    })
+})

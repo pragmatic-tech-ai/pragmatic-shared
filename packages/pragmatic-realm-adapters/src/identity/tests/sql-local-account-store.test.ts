@@ -152,23 +152,6 @@ SqlTestSessions.Describe('SqlLocalAccountStore', (makeSession, backend) =>
         assert.equal((await reopened.ListGroups(other)).length, 1)
     })
 
-    test(`${backend}: legacy account groups become group rows on open`, async () =>
-    {
-        const realm = new Realm(`acct-${randomUUID()}`, RealmKind.SelfHosted, 'T1')
-        const session = await makeSession()
-        const store = await SqlLocalAccountStore.Open(session)
-        await store.CreateAccount(realm, 'a@x.io', 'p1', 'r1')
-        await session.Execute('UPDATE identity_accounts SET groups = $1 WHERE realm_id = $2 AND principal_id = $3', [JSON.stringify(['g1']), realm.Id, 'p1'])
-        const reopened = await SqlLocalAccountStore.Open(session)
-        assert.deepEqual((await reopened.Lookup('p1', realm))?.Groups, ['g1'])
-        const groups = await reopened.ListGroups(realm)
-        assert.deepEqual(groups.map(g => [g.GroupId, g.Name, g.MemberIds]), [['g1', 'g1', ['p1']]])
-        const raw = await session.Query('SELECT groups FROM identity_accounts WHERE realm_id = $1 AND principal_id = $2', [realm.Id, 'p1'])
-        assert.equal(raw[0]!.groups, '[]')
-        await SqlLocalAccountStore.Open(session)
-        assert.equal((await reopened.ListGroups(realm)).length, 1)
-    })
-
     test(`${backend}: reserved system principal ids are refused`, async () =>
     {
         const realm = new Realm(`acct-${randomUUID()}`, RealmKind.SelfHosted, 'T1')

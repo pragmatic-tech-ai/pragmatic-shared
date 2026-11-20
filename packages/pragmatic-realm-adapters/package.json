@@ -1,6 +1,6 @@
 {
   "name": "@pragmatic-tech-ai/pragmatic-realm-adapters",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "license": "Apache-2.0",
   "description": "Shared base of the per-realm adapters (storage, secrets, SQL).",
   "repository": {
@@ -15,6 +15,10 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./testing": {
+      "import": "./dist/testing/index.js",
+      "types": "./dist/testing/index.d.ts"
     }
   },
   "files": [
@@ -29,13 +33,20 @@
     "test": "tsx --test \"src/**/*.test.ts\""
   },
   "dependencies": {
-    "@pragmatic-tech-ai/pragmatic-identity": "0.1.1",
-    "@pragmatic-tech-ai/pragmatic-identity-realm": "0.1.1",
+    "@pragmatic-tech-ai/pragmatic-identity": "0.2.0",
+    "@pragmatic-tech-ai/pragmatic-identity-realm": "0.2.0",
+    "@pragmatic-tech-ai/pragmatic-identity-source-oidc": "0.2.0",
     "pg": "^8.13.0"
   },
   "peerDependencies": {
     "@pragmatic-tech-ai/todl": "file:../../../TODL",
-    "@pragmatic-tech-ai/todl-runtime": "file:../../../todl-runtime"
+    "@pragmatic-tech-ai/todl-runtime": "file:../../../todl-runtime",
+    "pg-mem": "^3.0.0"
+  },
+  "peerDependenciesMeta": {
+    "pg-mem": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@types/node": "^22.20.1",

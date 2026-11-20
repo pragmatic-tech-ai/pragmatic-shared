@@ -22,6 +22,17 @@ class SiblingReader implements IManifestReader
 }
 
 /** The workspace's package manifests, read from the root package.json's `workspaces`. */
+/** Peers only a package's ./testing entry loads (pg-mem behind SqlTestSessions); never installed for production. */
+class OptionalPeers
+{
+    private static readonly ByPackage: Record<string, string[]> = { 'pragmatic-realm-adapters': ['pg-mem'] };
+
+    public static Of(name: string): string[]
+    {
+        return OptionalPeers.ByPackage[name] ?? [];
+    }
+}
+
 class Workspace
 {
     public static readonly Root = path.resolve(__dirname, '..', '..');
@@ -74,7 +85,7 @@ describe('workspace manifests', () =>
         }
     });
 
-    it('declares every singleton a package imports as a peer', () =>
+    it('declares every singleton a package imports as a required peer; test-only peers are optional', () =>
     {
         const expected: Record<string, string[]> = {
             'pragmatic-identity': ['@pragmatic-tech-ai/todl-runtime'],
@@ -89,7 +100,10 @@ describe('workspace manifests', () =>
         {
             const manifest = packages.find(candidate => candidate.Name === Workspace.Scope + name);
             assert.ok(manifest !== undefined, name);
-            assert.deepEqual(Object.keys(manifest.Data.peerDependencies ?? {}).sort(), singletons, name);
+            const optional = manifest.Data.peerDependenciesMeta ?? {};
+            const peers = Object.keys(manifest.Data.peerDependencies ?? {});
+            assert.deepEqual(peers.filter(peer => optional[peer]?.optional !== true).sort(), singletons, name);
+            assert.deepEqual(peers.filter(peer => optional[peer]?.optional === true).sort(), OptionalPeers.Of(name), name);
         }
     });
 

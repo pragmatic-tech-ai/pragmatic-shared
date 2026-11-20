@@ -1,6 +1,8 @@
 import type { ISqlSession, SqlRow } from '@pragmatic-tech-ai/todl'
 import { Principal, PrincipalKind, LocalAccount, LocalAccountNotFoundError, LocalGroup, LocalGroupNotFoundError, SystemPrincipal } from '@pragmatic-tech-ai/pragmatic-identity'
 import type { Realm, ILocalAccountStore, ILocalGroupStore, IPrincipalDirectory } from '@pragmatic-tech-ai/pragmatic-identity'
+import { SqlMigrationRunner } from '../sql/sql-migration-runner.js'
+import { SqlLocalAccountMigrations } from './sql-identity-migrations.js'
 
 /** Postgres-backed local account store (+ principal directory + local groups). One account row per
  *  (realm_id, principal_id); email is unique within a realm. Mirrors FileAccountStore: duplicate email OR
@@ -8,13 +10,12 @@ import type { Realm, ILocalAccountStore, ILocalGroupStore, IPrincipalDirectory }
  *  by reference (secret_ref). Local groups live in their own table keyed by (realm_id, group_id) (the
  *  composite key keeps groups of different realms collision-free) with the member ids as a JSON array in
  *  insertion order. Group mutators only read for the existence check; CreateGroup is the only path that adds a
- *  group. A legacy (pre-S3) account row's `groups` JSON is migrated once on Open into group rows (name = group
- *  id) and then cleared. */
+ *  group. The schema comes from SqlLocalAccountMigrations (v2 retired the pre-S3 per-account groups column). */
 export class SqlLocalAccountStore implements ILocalAccountStore, IPrincipalDirectory, ILocalGroupStore
 {
     private static readonly Table = 'identity_accounts'
     private static readonly GroupTable = 'identity_groups'
-    private static readonly EmptyGroups = '[]'
+    private static readonly EmptyMembers = '[]'
     private static readonly DuplicateEmailMessage = 'email already registered'
     private static readonly DuplicatePrincipalMessage = 'principal already registered'
     private static readonly ReservedPrincipalMessage = 'principal id uses the reserved system prefix'
@@ -29,12 +30,8 @@ export class SqlLocalAccountStore implements ILocalAccountStore, IPrincipalDirec
 
     public static async Open(session: ISqlSession): Promise<SqlLocalAccountStore>
     {
-        await session.Execute(`CREATE TABLE IF NOT EXISTS ${SqlLocalAccountStore.Table} (realm_id text, principal_id text, email text, secret_ref text, groups text, disabled boolean NOT NULL DEFAULT false, PRIMARY KEY (realm_id, principal_id), UNIQUE (realm_id, email))`, [])
-        await session.Execute(`ALTER TABLE ${SqlLocalAccountStore.Table} ADD COLUMN IF NOT EXISTS disabled boolean NOT NULL DEFAULT false`, [])
-        await session.Execute(`CREATE TABLE IF NOT EXISTS ${SqlLocalAccountStore.GroupTable} (realm_id text NOT NULL, group_id text NOT NULL, name text NOT NULL, member_ids text NOT NULL, PRIMARY KEY (realm_id, group_id))`, [])
-        const store = new SqlLocalAccountStore(session)
-        await store.MigrateLegacyGroups()
-        return store
+        await SqlMigrationRunner.Run(session, new SqlLocalAccountMigrations())
+        return new SqlLocalAccountStore(session)
     }
 
     public async CreateAccount(realm: Realm, email: string, principalId: string, secretRef: string): Promise<LocalAccount>
@@ -51,7 +48,7 @@ export class SqlLocalAccountStore implements ILocalAccountStore, IPrincipalDirec
         {
             throw new Error(SqlLocalAccountStore.DuplicatePrincipalMessage)
         }
-        await this.session.Execute(`INSERT INTO ${SqlLocalAccountStore.Table} (realm_id, principal_id, email, secret_ref, groups, disabled) VALUES ($1, $2, $3, $4, $5, $6)`, [realm.Id, principalId, email, secretRef, SqlLocalAccountStore.EmptyGroups, false])
+        await this.session.Execute(`INSERT INTO ${SqlLocalAccountStore.Table} (realm_id, principal_id, email, secret_ref, disabled) VALUES ($1, $2, $3, $4, $5)`, [realm.Id, principalId, email, secretRef, false])
         return new LocalAccount(principalId, realm.Id, email, secretRef, false)
     }
 
@@ -148,36 +145,6 @@ export class SqlLocalAccountStore implements ILocalAccountStore, IPrincipalDirec
         return rows.map(row => SqlLocalAccountStore.MapGroup(row))
     }
 
-    /** One-shot, idempotent: folds every non-empty legacy account `groups` array into group rows, then clears it. */
-    private async MigrateLegacyGroups(): Promise<void>
-    {
-        const rows = await this.session.Query(`SELECT realm_id, principal_id, groups FROM ${SqlLocalAccountStore.Table} WHERE groups IS NOT NULL AND groups <> $1`, [SqlLocalAccountStore.EmptyGroups])
-        for (const row of rows)
-        {
-            const realmId = String(row.realm_id)
-            const principalId = String(row.principal_id)
-            for (const groupId of JSON.parse(String(row.groups)) as readonly string[])
-            {
-                await this.JoinLegacyGroup(realmId, groupId, principalId)
-            }
-            await this.session.Execute(`UPDATE ${SqlLocalAccountStore.Table} SET groups = $1 WHERE realm_id = $2 AND principal_id = $3`, [SqlLocalAccountStore.EmptyGroups, realmId, principalId])
-        }
-    }
-
-    private async JoinLegacyGroup(realmId: string, groupId: string, principalId: string): Promise<void>
-    {
-        let group = await this.FindGroup(realmId, groupId)
-        if (group === null)
-        {
-            await this.InsertGroup(realmId, groupId, groupId)
-            group = new LocalGroup(groupId, realmId, groupId, [])
-        }
-        if (!group.MemberIds.includes(principalId))
-        {
-            await this.WriteMembers(realmId, groupId, [...group.MemberIds, principalId])
-        }
-    }
-
     private async RequireGroup(realm: Realm, groupId: string): Promise<LocalGroup>
     {
         const group = await this.FindGroup(realm.Id, groupId)
@@ -196,7 +163,7 @@ export class SqlLocalAccountStore implements ILocalAccountStore, IPrincipalDirec
 
     private async InsertGroup(realmId: string, groupId: string, name: string): Promise<void>
     {
-        await this.session.Execute(`INSERT INTO ${SqlLocalAccountStore.GroupTable} (realm_id, group_id, name, member_ids) VALUES ($1, $2, $3, $4)`, [realmId, groupId, name, SqlLocalAccountStore.EmptyGroups])
+        await this.session.Execute(`INSERT INTO ${SqlLocalAccountStore.GroupTable} (realm_id, group_id, name, member_ids) VALUES ($1, $2, $3, $4)`, [realmId, groupId, name, SqlLocalAccountStore.EmptyMembers])
     }
 
     private async WriteMembers(realmId: string, groupId: string, memberIds: readonly string[]): Promise<void>

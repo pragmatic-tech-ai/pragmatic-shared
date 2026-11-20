@@ -11,3 +11,5 @@ export {
     FakeIdpDirectorySource,
 } from "./fakes.js";
 export { IdentityPackConformance } from "./provider-pack-conformance.js";
+export { SecretStoreConformance } from "./secret-store-conformance.js";
+export type { ISecretStoreConformanceFixture } from "./secret-store-conformance.js";

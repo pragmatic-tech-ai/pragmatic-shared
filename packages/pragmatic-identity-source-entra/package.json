@@ -1,6 +1,6 @@
 {
   "name": "@pragmatic-tech-ai/pragmatic-identity-source-entra",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "license": "Apache-2.0",
   "description": "Microsoft Entra identity source: its profile and the Microsoft Graph directory sync; builds on pragmatic-identity-source-oidc.",
   "repository": {
@@ -28,8 +28,8 @@
     "test": "tsx --test \"src/**/*.test.ts\""
   },
   "dependencies": {
-    "@pragmatic-tech-ai/pragmatic-identity": "0.1.1",
-    "@pragmatic-tech-ai/pragmatic-identity-source-oidc": "0.1.1"
+    "@pragmatic-tech-ai/pragmatic-identity": "0.2.0",
+    "@pragmatic-tech-ai/pragmatic-identity-source-oidc": "0.2.0"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",

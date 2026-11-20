@@ -2,6 +2,8 @@ import { randomBytes, createHash } from 'node:crypto'
 import type { ISqlSession } from '@pragmatic-tech-ai/todl'
 import { Session, AuthMethod } from '@pragmatic-tech-ai/pragmatic-identity'
 import type { Principal, ISessionManager, Realm } from '@pragmatic-tech-ai/pragmatic-identity'
+import { SqlMigrationRunner } from '../sql/sql-migration-runner.js'
+import { SqlSessionMigrations } from './sql-identity-migrations.js'
 
 /** Postgres-backed session manager. Mirrors FileSessionStore: a 32-byte base64url token stored by its
  *  sha256(base64url) hash (Session.Id is the raw token, never stored); TTL default 3_600_000 ms, injectable
@@ -28,7 +30,7 @@ export class SqlSessionStore implements ISessionManager
 
     public static async Open(session: ISqlSession, ttlMs: number = SqlSessionStore.DefaultTtlMs, now: () => Date = () => new Date()): Promise<SqlSessionStore>
     {
-        await session.Execute(`CREATE TABLE IF NOT EXISTS ${SqlSessionStore.Table} (hash text PRIMARY KEY, principal_id text NOT NULL, realm_id text NOT NULL, issued_at text NOT NULL, expires_at text NOT NULL)`, [])
+        await SqlMigrationRunner.Run(session, new SqlSessionMigrations())
         return new SqlSessionStore(session, ttlMs, now)
     }
 

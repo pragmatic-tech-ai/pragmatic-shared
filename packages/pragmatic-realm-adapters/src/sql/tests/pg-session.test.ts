@@ -42,3 +42,56 @@ test('Dispose resolves without throwing', async () =>
     const session = SessionFixture.Mem()
     await session.Dispose()
 })
+
+test('Transaction commits the work and returns its result', async () =>
+{
+    const session = SessionFixture.Mem()
+    await session.Execute('CREATE TABLE t (id text primary key)', [])
+    const result = await session.Transaction(async tx =>
+    {
+        await tx.Execute('INSERT INTO t (id) VALUES ($1)', ['a'])
+        return 7
+    })
+    assert.equal(result, 7)
+    assert.equal((await session.Query('SELECT id FROM t', [])).length, 1)
+})
+
+test('Transaction rethrows the work failure', async () =>
+{
+    const session = SessionFixture.Mem()
+    await assert.rejects(() => session.Transaction(async () =>
+    {
+        throw new Error('boom')
+    }), /boom/)
+})
+
+test('a nested Transaction joins the outer transaction', async () =>
+{
+    const session = SessionFixture.Mem()
+    await session.Execute('CREATE TABLE t (id text primary key)', [])
+    await session.Transaction(async tx =>
+    {
+        await tx.Transaction!(async inner =>
+        {
+            await inner.Execute('INSERT INTO t (id) VALUES ($1)', ['n'])
+        })
+    })
+    assert.equal((await session.Query('SELECT id FROM t', [])).length, 1)
+})
+
+SqlTestSessions.DescribeLive('PgSession', makeDatabase =>
+{
+    test('PgSession [live]: a failed Transaction rolls its work back', async () =>
+    {
+        const database = await makeDatabase()
+        const session = database.Session()
+        await session.Execute('CREATE TABLE t (id text primary key)', [])
+        await assert.rejects(() => session.Transaction(async tx =>
+        {
+            await tx.Execute('INSERT INTO t (id) VALUES ($1)', ['a'])
+            throw new Error('boom')
+        }), /boom/)
+        assert.equal((await session.Query('SELECT id FROM t', [])).length, 0)
+        await database.Dispose()
+    })
+})

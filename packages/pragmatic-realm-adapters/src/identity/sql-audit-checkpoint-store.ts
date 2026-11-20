@@ -1,6 +1,8 @@
 import type { ISqlSession, SqlRow } from '@pragmatic-tech-ai/todl'
 import { AuditCheckpoint } from '@pragmatic-tech-ai/pragmatic-identity-realm'
 import type { IAuditCheckpointStore } from '@pragmatic-tech-ai/pragmatic-identity-realm'
+import { SqlMigrationRunner } from '../sql/sql-migration-runner.js'
+import { SqlAuditCheckpointMigrations } from './sql-identity-migrations.js'
 
 /** Append-only store of signed audit checkpoints in a table SEPARATE from the event log
  *  (identity_audit_anchor). Independence from identity_audit is what lets SqlAuditStore.Open detect
@@ -22,8 +24,7 @@ export class SqlAuditCheckpointStore implements IAuditCheckpointStore
 
     public static async Open(session: ISqlSession): Promise<SqlAuditCheckpointStore>
     {
-        await session.Execute(`CREATE TABLE IF NOT EXISTS ${SqlAuditCheckpointStore.Table} (realm_id text, seq integer, head_hash text, at text, signature text)`, [])
-        await session.Execute(`CREATE UNIQUE INDEX IF NOT EXISTS ${SqlAuditCheckpointStore.Table}_pk ON ${SqlAuditCheckpointStore.Table} (realm_id, seq)`, [])
+        await SqlMigrationRunner.Run(session, new SqlAuditCheckpointMigrations())
         return new SqlAuditCheckpointStore(session)
     }
 

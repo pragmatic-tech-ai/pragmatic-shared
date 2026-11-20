@@ -3,6 +3,8 @@ import { AuditEvent } from '@pragmatic-tech-ai/pragmatic-identity'
 import type { AuditEventKind, IAuditSink } from '@pragmatic-tech-ai/pragmatic-identity'
 import { AuditTamperDetected, HashChainedAuditSink } from '@pragmatic-tech-ai/pragmatic-identity-realm'
 import type { AuditAnchoring, ChainedAuditRecord } from '@pragmatic-tech-ai/pragmatic-identity-realm'
+import { SqlMigrationRunner } from '../sql/sql-migration-runner.js'
+import { SqlAuditMigrations } from './sql-identity-migrations.js'
 
 /** Postgres-backed audit sink. Persists each event's chain hash and prev_hash alongside the raw event and VERIFIES
  *  them on Open: the chain is recomputed from the persisted events and compared with the persisted hashes. Any
@@ -38,28 +40,9 @@ export class SqlAuditStore implements IAuditSink
         this.anchoring = anchoring
     }
 
-    private static AddColumnSql(column: string): string
-    {
-        return `ALTER TABLE ${SqlAuditStore.Table} ADD COLUMN ${column} text`
-    }
-
     public static async Open(session: ISqlSession, anchoring?: AuditAnchoring): Promise<SqlAuditStore>
     {
-        await session.Execute(`CREATE TABLE IF NOT EXISTS ${SqlAuditStore.Table} (realm_id text, seq integer, kind integer, principal_id text, at text, detail text)`, [])
-        await session.Execute(`CREATE UNIQUE INDEX IF NOT EXISTS ${SqlAuditStore.Table}_pk ON ${SqlAuditStore.Table} (realm_id, seq)`, [])
-        for (const column of [SqlAuditStore.HashColumn, SqlAuditStore.PrevHashColumn])
-        {
-            try
-            {
-                await session.Execute(SqlAuditStore.AddColumnSql(column), [])
-            }
-            catch
-            {
-                // Idempotent migration: the expected case is a duplicate-column error on reopen. This catch
-                // swallows ANY ALTER failure by design (no portable error code across pg drivers); a genuine
-                // schema/connectivity failure is not hidden — it surfaces on the SELECT/INSERT that follow.
-            }
-        }
+        await SqlMigrationRunner.Run(session, new SqlAuditMigrations())
         const chain = new HashChainedAuditSink()
         const hashedRealms = new Set<string>()
         const realms = new Set<string>()

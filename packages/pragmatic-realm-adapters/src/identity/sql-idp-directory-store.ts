@@ -1,6 +1,8 @@
 import type { ISqlSession, SqlRow } from '@pragmatic-tech-ai/todl'
 import { IdpDirectorySnapshot, IdpUserState, UnreadableIdpDirectoryRecordError } from '@pragmatic-tech-ai/pragmatic-identity'
 import type { IIdpDirectoryStore } from '@pragmatic-tech-ai/pragmatic-identity'
+import { SqlMigrationRunner } from '../sql/sql-migration-runner.js'
+import { SqlIdpDirectoryMigrations } from './sql-identity-migrations.js'
 
 /** Postgres-backed IdP directory snapshots, one row per realm (realm_id is the primary key, so realms never
  *  collide): taken_at (ISO text), authoritative, user states and group member ids as JSON [key, value] pair
@@ -26,7 +28,7 @@ export class SqlIdpDirectoryStore implements IIdpDirectoryStore
 
     public static async Open(session: ISqlSession): Promise<SqlIdpDirectoryStore>
     {
-        await session.Execute(`CREATE TABLE IF NOT EXISTS ${SqlIdpDirectoryStore.Table} (realm_id text PRIMARY KEY, taken_at text NOT NULL, authoritative boolean NOT NULL, users text NOT NULL, groups text NOT NULL)`, [])
+        await SqlMigrationRunner.Run(session, new SqlIdpDirectoryMigrations())
         return new SqlIdpDirectoryStore(session)
     }
 

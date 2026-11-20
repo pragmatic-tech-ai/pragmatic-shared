@@ -2,6 +2,8 @@ import { randomBytes, createHash } from 'node:crypto'
 import type { ISqlSession } from '@pragmatic-tech-ai/todl'
 import { ServiceTokenGrant, ServiceTokenSummary } from '@pragmatic-tech-ai/pragmatic-identity'
 import type { Realm, PresentedSecret, IServiceTokenStore } from '@pragmatic-tech-ai/pragmatic-identity'
+import { SqlMigrationRunner } from '../sql/sql-migration-runner.js'
+import { SqlServiceTokenMigrations } from './sql-identity-migrations.js'
 
 /** Postgres-backed service-token store. Mirrors FileServiceTokenStore: a 32-byte base64url token, stored by
  *  its sha256(base64url) hash (the raw token never persists); tokenRef = realmId + '/svctok/' + hash;
@@ -27,7 +29,7 @@ export class SqlServiceTokenStore implements IServiceTokenStore
 
     public static async Open(session: ISqlSession, now: () => Date = () => new Date()): Promise<SqlServiceTokenStore>
     {
-        await session.Execute(`CREATE TABLE IF NOT EXISTS ${SqlServiceTokenStore.Table} (hash text PRIMARY KEY, token_ref text NOT NULL, principal_id text NOT NULL, realm_id text NOT NULL, scopes text NOT NULL, expires_at text, revoked boolean NOT NULL)`, [])
+        await SqlMigrationRunner.Run(session, new SqlServiceTokenMigrations())
         return new SqlServiceTokenStore(session, now)
     }
 

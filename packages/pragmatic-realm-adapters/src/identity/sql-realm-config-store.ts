@@ -1,6 +1,8 @@
 import type { ISqlSession } from '@pragmatic-tech-ai/todl'
 import { IdentityConfig } from '@pragmatic-tech-ai/pragmatic-identity'
 import type { DelegationDepth, Role, IRealmConfigStore } from '@pragmatic-tech-ai/pragmatic-identity'
+import { SqlMigrationRunner } from '../sql/sql-migration-runner.js'
+import { SqlRealmConfigMigrations } from './sql-identity-migrations.js'
 
 
 /** Postgres-backed realm-config store. Mirrors FileRealmConfigStore: the three ReadonlyMap fields persist
@@ -18,7 +20,7 @@ export class SqlRealmConfigStore implements IRealmConfigStore
 
     public static async Open(session: ISqlSession): Promise<SqlRealmConfigStore>
     {
-        await session.Execute(`CREATE TABLE IF NOT EXISTS ${SqlRealmConfigStore.Table} (realm_id text PRIMARY KEY, pack_id text NOT NULL, delegation_depth integer NOT NULL, provider_settings text NOT NULL, group_role_map text NOT NULL, claims_mapping text NOT NULL)`, [])
+        await SqlMigrationRunner.Run(session, new SqlRealmConfigMigrations())
         return new SqlRealmConfigStore(session)
     }
 

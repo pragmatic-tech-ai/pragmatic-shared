@@ -7,3 +7,5 @@ export { PackageEngine, type PackageEngineDeps } from './platform/package-engine
 export { NodeAesGcmEncryptor } from './platform/node-aes-gcm-encryptor.js'
 export { NodeStorageProviderRegistry } from './platform/node-storage-provider-registry.js'
 export { HeadlessPromptService } from './platform/headless-prompt-service.js'
+export { PostgresPoolFactory } from './sql/postgres-pool-factory.js'
+export type { PostgresPoolOptions } from './sql/postgres-pool-factory.js'

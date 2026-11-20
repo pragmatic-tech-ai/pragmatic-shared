@@ -1,0 +1,133 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import type { Pool, PoolConfig } from 'pg'
+import { PostgresPoolFactory } from '../postgres-pool-factory.js'
+
+class UrlFile
+{
+    public static readonly Password = 's3cr3t-pw-a1b2'
+
+    public static async With(content: string, body: (path: string, dir: string) => Promise<void>): Promise<void>
+    {
+        const dir = await mkdtemp(join(tmpdir(), 'pg-pool-factory-'))
+        try
+        {
+            const path = join(dir, 'database-url')
+            await writeFile(path, content)
+            await body(path, dir)
+        }
+        finally
+        {
+            await rm(dir, { recursive: true, force: true })
+        }
+    }
+}
+
+class CapturingPool
+{
+    public static Last: PoolConfig | undefined
+
+    public static readonly Create = (config: PoolConfig): Pool =>
+    {
+        CapturingPool.Last = config
+        return { end: async () => undefined } as unknown as Pool
+    }
+}
+
+test('reads the URL from the secret file (trailing newline trimmed) and sizes the pool from the options', async () =>
+{
+    await UrlFile.With(`postgres://app:${UrlFile.Password}@db.internal:5433/appdb\n`, async path =>
+    {
+        await new PostgresPoolFactory({ UrlFile: path, MaxConnections: 4, ApplicationName: 'platform-admin' }, CapturingPool.Create).Create()
+        const config = CapturingPool.Last!
+        assert.equal(config.host, 'db.internal')
+        assert.equal(Number(config.port), 5433)
+        assert.equal(config.user, 'app')
+        assert.equal(config.password, UrlFile.Password)
+        assert.equal(config.database, 'appdb')
+        assert.equal(config.max, 4)
+        assert.equal(config.application_name, 'platform-admin')
+        assert.ok(!config.ssl)
+    })
+})
+
+test('the pool size defaults to 10', async () =>
+{
+    await UrlFile.With('postgresql://app:pw@db/appdb', async path =>
+    {
+        await new PostgresPoolFactory({ UrlFile: path }, CapturingPool.Create).Create()
+        assert.equal(CapturingPool.Last!.max, 10)
+    })
+})
+
+test('TLS comes from the URL: sslmode=require turns it on, sslmode=disable keeps it off', async () =>
+{
+    await UrlFile.With('postgres://app:pw@db/appdb?sslmode=require', async path =>
+    {
+        await new PostgresPoolFactory({ UrlFile: path }, CapturingPool.Create).Create()
+        assert.ok(CapturingPool.Last!.ssl)
+    })
+    await UrlFile.With('postgres://app:pw@db/appdb?sslmode=disable', async path =>
+    {
+        await new PostgresPoolFactory({ UrlFile: path }, CapturingPool.Create).Create()
+        assert.ok(!CapturingPool.Last!.ssl)
+    })
+})
+
+test('a private CA comes from sslrootcert (a file path in the URL)', async () =>
+{
+    await UrlFile.With('', async (_path, dir) =>
+    {
+        const ca = join(dir, 'ca.pem')
+        await writeFile(ca, '-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n')
+        const urlPath = join(dir, 'url')
+        await writeFile(urlPath, `postgres://app:pw@db/appdb?sslmode=verify-full&sslrootcert=${encodeURIComponent(ca)}`)
+        await new PostgresPoolFactory({ UrlFile: urlPath }, CapturingPool.Create).Create()
+        const ssl = CapturingPool.Last!.ssl as { ca?: string }
+        assert.match(String(ssl.ca), /BEGIN CERTIFICATE/)
+    })
+})
+
+test('a missing, empty or non-postgres secret file is refused without echoing its content', async () =>
+{
+    await assert.rejects(() => new PostgresPoolFactory({ UrlFile: join(tmpdir(), 'definitely-missing-url-file') }, CapturingPool.Create).Create(), /database URL file/)
+    await UrlFile.With('  \n', async path =>
+    {
+        await assert.rejects(() => new PostgresPoolFactory({ UrlFile: path }, CapturingPool.Create).Create(), /empty/)
+    })
+    await UrlFile.With(`mysql://app:${UrlFile.Password}@db/appdb`, async path =>
+    {
+        await assert.rejects(() => new PostgresPoolFactory({ UrlFile: path }, CapturingPool.Create).Create(), (err: unknown) =>
+            err instanceof Error && /postgres/.test(err.message) && !err.message.includes(UrlFile.Password))
+    })
+})
+
+test('a pool size below 1 is refused', () =>
+{
+    assert.throws(() => new PostgresPoolFactory({ UrlFile: 'x', MaxConnections: 0 }), /pool size/)
+})
+
+class LiveDatabase
+{
+    public static readonly Url = process.env.PRAGMATIC_TEST_PG_URL ?? ''
+}
+
+test('[live] a pool from the URL file reaches the database', { skip: LiveDatabase.Url === '' }, async () =>
+{
+    await UrlFile.With(LiveDatabase.Url, async path =>
+    {
+        const pool = await new PostgresPoolFactory({ UrlFile: path, MaxConnections: 2 }).Create()
+        try
+        {
+            const result = await pool.query('SELECT 1 AS one')
+            assert.equal(result.rows[0].one, 1)
+        }
+        finally
+        {
+            await pool.end()
+        }
+    })
+})

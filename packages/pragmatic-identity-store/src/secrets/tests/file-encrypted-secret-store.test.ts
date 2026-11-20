@@ -2,6 +2,9 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { randomBytes } from 'node:crypto'
 import { FakeStorage } from '@pragmatic-tech-ai/todl-runtime'
+import { SecretStoreConformance } from '@pragmatic-tech-ai/pragmatic-identity/testing'
+import type { ISecretStoreConformanceFixture } from '@pragmatic-tech-ai/pragmatic-identity/testing'
+import type { ISecretStore } from '@pragmatic-tech-ai/pragmatic-identity'
 import { FileEncryptedSecretStore } from '../file-encrypted-secret-store.js'
 
 const SecretsFile = 'secrets.json'
@@ -46,3 +49,20 @@ test('Get on an unknown reference returns null', async () =>
     const store = await FileEncryptedSecretStore.Open(new FakeStorage(), randomBytes(32))
     assert.equal(await store.Get('missing'), null)
 })
+
+class FileSecretFixture implements ISecretStoreConformanceFixture
+{
+    private readonly storage = new FakeStorage()
+
+    public Open(masterKey: Buffer): Promise<ISecretStore>
+    {
+        return FileEncryptedSecretStore.Open(this.storage, masterKey)
+    }
+
+    public async RawContents(): Promise<string>
+    {
+        return await this.storage.Exists(SecretsFile) ? this.storage.ReadText(SecretsFile) : ''
+    }
+}
+
+SecretStoreConformance.Describe('FileEncryptedSecretStore', async () => new FileSecretFixture())

@@ -1,6 +1,8 @@
 import type { ISqlSession, SqlRow } from '@pragmatic-tech-ai/todl'
 import { Grant, ResourceRef } from '@pragmatic-tech-ai/pragmatic-identity'
 import type { Role, ResourceKind, Realm, IRoleGrantStore } from '@pragmatic-tech-ai/pragmatic-identity'
+import { SqlMigrationRunner } from '../sql/sql-migration-runner.js'
+import { SqlRoleGrantMigrations } from './sql-identity-migrations.js'
 
 /** Postgres-backed role-grant store. Mirrors FileRoleGrantStore: GrantsFor filters by SUBJECT only (realm
  *  ignored), Save APPENDS with no dedup. Role and ResourceKind persist as their integer enum values; the
@@ -19,7 +21,7 @@ export class SqlRoleGrantStore implements IRoleGrantStore
 
     public static async Open(session: ISqlSession): Promise<SqlRoleGrantStore>
     {
-        await session.Execute(`CREATE TABLE IF NOT EXISTS ${SqlRoleGrantStore.Table} (subject text NOT NULL, role integer NOT NULL, resource_kind integer NOT NULL, resource_realm_id text NOT NULL, resource_path text NOT NULL)`, [])
+        await SqlMigrationRunner.Run(session, new SqlRoleGrantMigrations())
         return new SqlRoleGrantStore(session)
     }
 
