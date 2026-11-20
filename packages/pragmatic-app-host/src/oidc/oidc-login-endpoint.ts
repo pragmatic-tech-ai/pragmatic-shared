@@ -24,6 +24,10 @@ export interface OidcLoginEndpointOptions
     /** The path prefixes a begin's `return` may name (ReturnPathPolicy: relative, same-origin, segment-boundary
      *  prefix match). Default none: `return` is ignored. */
     ReturnPaths?: readonly string[]
+    /** Where a failed sign-in (begin or callback refused) lands instead of the generic 401: a plain same-origin path,
+     *  e.g. `/?sign_in=failed`, the marker pragmatic-app-shell's boot shows as a failed sign-in with Try again. A
+     *  malformed callback (no code or state) stays 400. Default none: 401. */
+    SignInFailedPath?: string
     /** The policy of the sessions it issues; default the store's. */
     Policy?: SessionPolicy
     /** The session and logout paths, or false when another endpoint registers them. */
@@ -56,6 +60,7 @@ export class OidcLoginEndpoint
     private static readonly ErrorField = 'error'
     private static readonly BadRequestMessage = 'code and state are required'
     private static readonly UnauthorizedMessage = 'Sign-in failed'
+    private static readonly BadFailedPathMessage = 'OidcLoginEndpoint: SignInFailedPath must be a plain same-origin path: '
     private static readonly PromptParam = 'prompt'
     private static readonly PromptCreate = 'create'
     private static readonly LoginHintParam = 'login_hint'
@@ -66,11 +71,17 @@ export class OidcLoginEndpoint
 
     private readonly afterSignIn: string
     private readonly returnPaths: ReturnPathPolicy
+    private readonly signInFailed: string | undefined
 
     public constructor(private readonly rp: OidcRelyingParty, private readonly clients: IOidcClientProvider, private readonly gate: SessionGate, private readonly options: OidcLoginEndpointOptions = {})
     {
         this.afterSignIn = options.AfterSignInPath ?? OidcLoginEndpoint.DefaultAfterSignInPath
         this.returnPaths = new ReturnPathPolicy(options.ReturnPaths ?? [])
+        this.signInFailed = options.SignInFailedPath
+        if (this.signInFailed !== undefined && !ReturnPathPolicy.IsPlain(this.signInFailed))
+        {
+            throw new Error(OidcLoginEndpoint.BadFailedPathMessage + JSON.stringify(this.signInFailed))
+        }
         // The callback arrives as a cross-site redirect from the login page: a Strict cookie would not be sent on the
         // navigation that follows it, so the session cookie defaults to Lax (a configured mode stays).
         gate.Cookie.AdmitCrossSiteSignIn()
@@ -172,6 +183,12 @@ export class OidcLoginEndpoint
 
     private Unauthorized(ctx: RequestContext): void
     {
+        if (this.signInFailed !== undefined)
+        {
+            ctx.Response.writeHead(OidcLoginEndpoint.StatusFound, { [OidcLoginEndpoint.LocationHeader]: this.signInFailed })
+            ctx.Response.end()
+            return
+        }
         ctx.WriteJson(OidcLoginEndpoint.StatusUnauthorized, { [OidcLoginEndpoint.ErrorField]: OidcLoginEndpoint.UnauthorizedMessage })
     }
 }

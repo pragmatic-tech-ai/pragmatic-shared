@@ -39,6 +39,11 @@ class FlakyRepository implements ISessionRepository
         return this.Write(() => this.Inner.DeleteSubject(subject))
     }
 
+    public DeleteSubjectWithClaim(subject: string, claim: string, value: string): Promise<number>
+    {
+        return this.Write(() => this.Inner.DeleteSubjectWithClaim(subject, claim, value))
+    }
+
     public ReplaceSubject(subject: string, fresh: SessionRecord): Promise<number>
     {
         return this.Write(() => this.Inner.ReplaceSubject(subject, fresh))
@@ -126,6 +131,33 @@ test('RevokeSubject ends every session of the subject, and only those', async ()
     assert.equal(await store.Validate(a1.Token), null)
     assert.equal(await store.Validate(a2.Token), null)
     assert.notEqual(await store.Validate(b1.Token), null)
+})
+
+test('RevokeSubjectWithClaim ends only the subject\'s sessions that carry the claim value (one tenant\'s)', async () =>
+{
+    const store = Fixture.Store(new Clock())
+    const acme = await store.Issue('alice', SessionClaims.From({ tenant: 'acme' }))
+    const acme2 = await store.Issue('alice', SessionClaims.From({ tenant: ['other', 'acme'] }))
+    const other = await store.Issue('alice', SessionClaims.From({ tenant: 'other' }))
+    const none = await store.Issue('alice', Fixture.Claims)
+    const bob = await store.Issue('bob', SessionClaims.From({ tenant: 'acme' }))
+    assert.equal(await store.RevokeSubjectWithClaim('alice', 'tenant', 'acme'), 2)
+    assert.equal(await store.Validate(acme.Token), null)
+    assert.equal(await store.Validate(acme2.Token), null)
+    assert.notEqual(await store.Validate(other.Token), null)
+    assert.notEqual(await store.Validate(none.Token), null)
+    assert.notEqual(await store.Validate(bob.Token), null)
+})
+
+test('a scoped revocation whose write fails refuses every session of the subject issued until then (fail closed, wider)', async () =>
+{
+    const clock = new Clock()
+    const repository = new FlakyRepository()
+    const store = Fixture.Store(clock, repository)
+    const other = await store.Issue('alice', SessionClaims.From({ tenant: 'other' }))
+    repository.FailWrites = true
+    await assert.rejects(store.RevokeSubjectWithClaim('alice', 'tenant', 'acme'), /disk full/)
+    assert.equal(await store.Validate(other.Token), null)
 })
 
 test('Rotate ends every session of the subject (the caller\'s too) and issues one fresh session with the caller\'s claims', async () =>

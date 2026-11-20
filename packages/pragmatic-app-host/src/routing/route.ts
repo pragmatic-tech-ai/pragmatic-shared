@@ -2,6 +2,8 @@ import type { WebSocket } from 'ws'
 import type { HttpMethod } from '../http/http-method.js'
 import type { RequestContext } from './request-context.js'
 import type { SocketContext } from './socket-context.js'
+import type { IncomingMessage } from 'node:http'
+import type { UpgradeRefusal } from './upgrade-refusal.js'
 
 /** Whether a route needs a signed-in session. */
 export enum RouteAuth
@@ -39,5 +41,9 @@ export interface SocketRouteDefinition
     Auth: RouteAuth
     Role?: string | readonly string[]
     AppRole?: string | readonly string[]
+    /** The route's own admission, asked after the Host and Origin checks and before the ticket is redeemed: an
+     *  UpgradeRefusal is written as plain HTTP before any handshake (the handler never runs); null lets the upgrade
+     *  proceed. Throwing destroys the socket. */
+    Admit?: (req: IncomingMessage) => Promise<UpgradeRefusal | null>
     Handler: (socket: WebSocket, context: SocketContext) => void
 }

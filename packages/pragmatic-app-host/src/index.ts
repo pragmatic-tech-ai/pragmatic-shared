@@ -5,6 +5,7 @@ export type { AppHostConfigOptions } from './host/app-host-config.js'
 export { HealthEndpoint, HealthResult } from './host/health-endpoint.js'
 
 export { RouteTable, Route, SocketRoute, RouteMatch } from './routing/route-table.js'
+export { UpgradeRefusal } from './routing/upgrade-refusal.js'
 export { RouteAuth } from './routing/route.js'
 export type { RouteDefinition, SocketRouteDefinition } from './routing/route.js'
 export { RoutePattern } from './routing/route-pattern.js'

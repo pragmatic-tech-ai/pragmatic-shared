@@ -31,6 +31,7 @@ export class SqlSessionRepository implements ISessionRepository
     private static readonly FindSql = `SELECT ${SqlSessionRepository.Columns} FROM app_host_sessions WHERE id = $1`
     private static readonly DeleteSql = 'DELETE FROM app_host_sessions WHERE id = $1'
     private static readonly DeleteSubjectSql = 'DELETE FROM app_host_sessions WHERE subject = $1'
+    private static readonly SubjectClaimsSql = 'SELECT id, claims FROM app_host_sessions WHERE subject = $1'
     private static readonly ExtendSql = 'UPDATE app_host_sessions SET expires_at = $2, kept_at = $3 WHERE id = $1'
     private static readonly DeleteExpiredSql = 'DELETE FROM app_host_sessions WHERE expires_at <= $1'
     private static readonly TransactionRequiredMessage = 'SqlSessionRepository needs a session that supports transactions'
@@ -64,6 +65,21 @@ export class SqlSessionRepository implements ISessionRepository
     public async DeleteSubject(subject: string): Promise<number>
     {
         return await this.session.Execute(SqlSessionRepository.DeleteSubjectSql, [subject])
+    }
+
+    /** The subject's rows are read and matched on their claims here (claims are stored as JSON text), then deleted by id. */
+    public async DeleteSubjectWithClaim(subject: string, claim: string, value: string): Promise<number>
+    {
+        const R = SqlSessionRepository
+        let ended = 0
+        for (const row of await this.session.Query(R.SubjectClaimsSql, [subject]))
+        {
+            if (SessionClaims.FromJson(String(row.claims)).Has(claim, value) && await this.session.Execute(R.DeleteSql, [String(row.id)]) > 0)
+            {
+                ended++
+            }
+        }
+        return ended
     }
 
     public async ReplaceSubject(subject: string, fresh: SessionRecord): Promise<number>

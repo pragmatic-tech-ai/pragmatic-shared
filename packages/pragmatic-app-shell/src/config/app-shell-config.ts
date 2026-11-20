@@ -61,6 +61,10 @@ export class AppShellConfig
     public static readonly DefaultEmailClaim = 'email'
     public static readonly DefaultRolesClaim = 'roles'
     public static readonly DefaultAppRolesClaim = 'app_roles'
+    /** The query parameter and value the host's OidcLoginEndpoint lands a failed sign-in on (its SignInFailedPath,
+     *  e.g. `/?sign_in=failed`). */
+    public static readonly SignInFailedParam = 'sign_in'
+    public static readonly SignInFailedValue = 'failed'
 
     private static readonly NoBasePath = ''
     private static readonly PathPrefix = '/'
@@ -72,6 +76,12 @@ export class AppShellConfig
     private static readonly BadBasePath = 'AppShellConfig: the base path must be empty or an own-origin path prefix like /console: '
     private static readonly BadPath = 'AppShellConfig: a route path must be an absolute own-origin path: '
     private static readonly BadMinLength = 'AppShellConfig: the minimum password length must be at least 1'
+
+    /** Whether the page query `search` carries the failed-sign-in marker. */
+    public static IsSignInFailure(search: string): boolean
+    {
+        return new URLSearchParams(search).get(AppShellConfig.SignInFailedParam) === AppShellConfig.SignInFailedValue
+    }
 
     public readonly ProductName: string
     public readonly SignInMethods: readonly SignInMethod[]

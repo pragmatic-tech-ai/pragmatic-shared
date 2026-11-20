@@ -112,6 +112,22 @@ export class SessionStore
         }
     }
 
+    /** Ends the subject's sessions that carry `value` in claim `claim` (e.g. one tenant's sessions, when several
+     *  applications or tenants share the table); returns how many. Fails closed wider: when the write fails, every
+     *  session of the subject issued until then is refused, as RevokeSubject would. */
+    public async RevokeSubjectWithClaim(subject: string, claim: string, value: string): Promise<number>
+    {
+        try
+        {
+            return await this.repository.DeleteSubjectWithClaim(subject, claim, value)
+        }
+        catch (err)
+        {
+            this.refusedSubjects.set(subject, this.now().getTime())
+            throw err
+        }
+    }
+
     /**
      * After the subject changed its own credential: ends EVERY session of the subject (the caller's too, so a stolen
      * copy is useless) and issues the caller one fresh session with its claims (or `claims`), in one atomic step.

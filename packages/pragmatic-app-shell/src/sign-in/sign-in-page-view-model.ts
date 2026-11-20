@@ -22,7 +22,9 @@ export interface ISignInPage extends IPageReloader, IPageNavigator
  * sign-in reloads the page, which boots into the shell with the new session cookie; a failed one shows why and clears
  * the password so it is not kept around. Busy stays set once the page is leaving (redirect or reload), so nothing
  * submits twice. Enter in either box submits the form: the form's KeyDown trigger runs SubmitKeyCommand with the key
- * args. ShowError says why the shell could not start (the session probe failed); Try again reloads.
+ * args. ShowError says why the shell could not start (the session probe failed); Try again reloads. ShowSignInFailed
+ * says the last OIDC sign-in did not complete (the host sent the browser back with the failure marker); Try again then
+ * begins the sign-in again, since reloading would only show the failure again.
  */
 export class SignInPageViewModel extends Observable
 {
@@ -39,6 +41,7 @@ export class SignInPageViewModel extends Observable
     private password = SignInPageViewModel.NoText
     private errorText = SignInPageViewModel.NoText
     private isBusy = false
+    private retrySignsIn = false
     private readonly signInCommand: RelayCommand
     private readonly passwordSignInCommand: RelayCommand
     private readonly submitKeyCommand: RelayCommand
@@ -144,6 +147,14 @@ export class SignInPageViewModel extends Observable
 
     public ShowError(text: string): void
     {
+        this.retrySignsIn = false
+        this.SetErrorText(text)
+    }
+
+    /** The last OIDC sign-in failed: says so, and Try again begins a new one. */
+    public ShowSignInFailed(text: string): void
+    {
+        this.retrySignsIn = this.OffersOidc
         this.SetErrorText(text)
     }
 
@@ -185,6 +196,11 @@ export class SignInPageViewModel extends Observable
     {
         if (this.isBusy)
         {
+            return
+        }
+        if (this.retrySignsIn)
+        {
+            this.SignIn()
             return
         }
         this.SetBusy(true)

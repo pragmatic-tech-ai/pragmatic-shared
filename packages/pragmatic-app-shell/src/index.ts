@@ -17,3 +17,6 @@ export { OneTimeSecretPageViewModel, type IClipboardSource, type IClipboardWrite
 export { AppShellBoot, BootOutcome, type IShellApplications } from './boot/app-shell-boot.js'
 export { BrowserShellMount } from './boot/browser-shell-mount.js'
 export { AppShellResources } from './app-shell.resources.mu.js'
+export { NameConfirmDialogViewModel, type NameConfirmRequest } from './dialogs/name-confirm-dialog-view-model.js'
+export { OptionViewModel } from './helpers/option-view-model.js'
+export { LiveUpdateBridge } from './helpers/live-update-bridge.js'

@@ -67,6 +67,7 @@ export class AppHost
     private static readonly UnauthenticatedMessage = 'Not signed in'
     private static readonly ForbiddenMessage = 'Forbidden'
     private static readonly NotFoundMessage = 'Not found'
+    private static readonly BadRequestMessage = 'Bad request'
     private static readonly MethodNotAllowedMessage = 'Method not allowed'
     private static readonly TooManyRequestsMessage = 'Too many requests'
     private static readonly NotListeningMessage = 'AppHost is not listening'
@@ -81,6 +82,7 @@ export class AppHost
     private static readonly ErrorEvent = 'error'
     private static readonly CloseEvent = 'close'
     private static readonly StatusNoContent = 204
+    private static readonly StatusBadRequest = 400
     private static readonly StatusUnauthorized = 401
     private static readonly StatusForbidden = 403
     private static readonly StatusNotFound = 404
@@ -182,7 +184,12 @@ export class AppHost
         {
             this.config.Security.Apply(res)
             const method = (req.method ?? HttpMethod.Get).toUpperCase()
-            const url = new URL(req.url ?? AppHost.RootPath, AppHost.BaseUrl)
+            const url = AppHost.ParseTarget(req)
+            if (url === null)
+            {
+                this.Refuse(req, res, AppHost.StatusBadRequest, AppHost.BadRequestMessage)
+                return
+            }
             const path = url.pathname
             const probe = this.health.Handle(method, path, this.ready)
             if (probe !== null)
@@ -350,11 +357,17 @@ export class AppHost
     {
         try
         {
-            const path = new URL(req.url ?? AppHost.RootPath, AppHost.BaseUrl).pathname
-            const match = this.modules.Routes.MatchSocket(path)
+            const url = AppHost.ParseTarget(req)
+            const match = url === null ? undefined : this.modules.Routes.MatchSocket(url.pathname)
             if (match === undefined || !this.config.AllowedHosts.Allows(req) || !this.origins.Allows(req))
             {
                 socket.destroy()
+                return
+            }
+            const refusal = await match.Route.Definition.Admit?.(req) ?? null
+            if (refusal !== null)
+            {
+                refusal.WriteTo(socket)
                 return
             }
             const session = await this.SocketSession(match.Route, req)
@@ -399,6 +412,19 @@ export class AppHost
         }
         const outcome = this.authorizer.Authorize({ Method: HttpMethod.Get, Auth: route.Definition.Auth, Role: route.Definition.Role, AppRole: route.Definition.AppRole }, session)
         return outcome === AuthorizationOutcome.Allowed ? session : undefined
+    }
+
+    /** The request target against the own origin, or null when it does not parse (e.g. `//`). */
+    private static ParseTarget(req: IncomingMessage): URL | null
+    {
+        try
+        {
+            return new URL(req.url ?? AppHost.RootPath, AppHost.BaseUrl)
+        }
+        catch
+        {
+            return null
+        }
     }
 
     /** The lone Sec-WebSocket-Protocol value (the ticket), or undefined when absent, empty or multi-valued. */

@@ -37,6 +37,11 @@ class FakeApplications implements IShellApplications<FakeApp>
         this.Steps.push(`error on ${app.Name}: ${message}`)
     }
 
+    public ShowSignInFailed(app: FakeApp, message: string): void
+    {
+        this.Steps.push(`failed on ${app.Name}: ${message}`)
+    }
+
     public async StartShell(app: FakeApp, session: AppSession, _client: AppSessionClient): Promise<void>
     {
         this.Session = session
@@ -54,10 +59,10 @@ class Kit
     public readonly Apps = new FakeApplications()
     public readonly Page = new FakePage()
 
-    public Boot(fetch: FetchStub, methods: SignInMethod[] = [SignInMethod.Oidc]): AppShellBoot<FakeApp>
+    public Boot(fetch: FetchStub, methods: SignInMethod[] = [SignInMethod.Oidc], search = ''): AppShellBoot<FakeApp>
     {
         const client = new AppSessionClient(new AppShellConfig({ ProductName: 'Tenant Admin', SignInMethods: methods }), fetch.Fetch)
-        return new AppShellBoot(client, this.Apps, this.Page)
+        return new AppShellBoot(client, this.Apps, this.Page, search)
     }
 }
 
@@ -79,6 +84,23 @@ describe('AppShellBoot', () =>
         assert.equal(outcome, BootOutcome.Redirected)
         assert.deepEqual(kit.Page.Assigned, ['/auth/oidc/begin'])
         assert.deepEqual(kit.Apps.Steps, [])
+    })
+
+    it('back from a failed sign-in (?sign_in=failed) an OIDC-only application shows the sign-in page saying so, not the identity provider again', async () =>
+    {
+        const kit = new Kit()
+        const outcome = await kit.Boot(new FetchStub().Json(401, {}), [SignInMethod.Oidc], '?sign_in=failed').Run()
+        assert.equal(outcome, BootOutcome.SignInFailed)
+        assert.deepEqual(kit.Apps.Steps, ['load sign-in', "failed on sign-in: Signing in to Tenant Admin didn't complete.", 'mount sign-in'])
+        assert.deepEqual(kit.Page.Assigned, [])
+    })
+
+    it('the failure marker is ignored with a session, and another query does not stop the redirect', async () =>
+    {
+        const signedIn = new Kit()
+        assert.equal(await signedIn.Boot(new FetchStub().Json(200, { subject: 's', claims: {} }), [SignInMethod.Oidc], '?sign_in=failed').Run(), BootOutcome.Shell)
+        const other = new Kit()
+        assert.equal(await other.Boot(new FetchStub().Json(401, {}), [SignInMethod.Oidc], '?sign_in=ok').Run(), BootOutcome.Redirected)
     })
 
     it('without a session shows the sign-in page when the application offers a password', async () =>

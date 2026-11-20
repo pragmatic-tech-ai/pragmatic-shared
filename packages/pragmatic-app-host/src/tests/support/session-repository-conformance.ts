@@ -48,6 +48,26 @@ export class SessionRepositoryConformance
             assert.notEqual(await repository.Find('b1'), null)
         })
 
+        test(`${label}: DeleteSubjectWithClaim ends the subject's sessions carrying the claim value, and only those`, async () =>
+        {
+            const repository = await open()
+            const at = C.At
+            const scoped = (id: string, subject: string, tenants: string[]): SessionRecord => new SessionRecord(id, subject, SessionClaims.From({ tenant: tenants }), at, new Date(at.getTime() + 60_000), at, new SessionPolicy(60_000, 1000, 600_000))
+            await repository.Insert(scoped('a1', 'alice', ['acme']))
+            await repository.Insert(scoped('a2', 'alice', ['other', 'acme']))
+            await repository.Insert(scoped('a3', 'alice', ['other']))
+            await repository.Insert(C.Record('a4', 'alice'))
+            await repository.Insert(scoped('b1', 'bob', ['acme']))
+            assert.equal(await repository.DeleteSubjectWithClaim('alice', 'tenant', 'acme'), 2)
+            assert.equal(await repository.Find('a1'), null)
+            assert.equal(await repository.Find('a2'), null)
+            for (const kept of ['a3', 'a4', 'b1'])
+            {
+                assert.notEqual(await repository.Find(kept), null, kept)
+            }
+            assert.equal(await repository.DeleteSubjectWithClaim('alice', 'tenant', 'acme'), 0)
+        })
+
         test(`${label}: ReplaceSubject ends the subject's sessions and stores the fresh one`, async () =>
         {
             const repository = await open()

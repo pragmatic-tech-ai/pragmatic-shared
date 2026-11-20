@@ -10,6 +10,8 @@ export interface ISessionRepository
     Delete(id: string): Promise<boolean>
     /** Ends every session of the subject; returns how many. */
     DeleteSubject(subject: string): Promise<number>
+    /** Ends the subject's sessions whose claim `claim` holds `value` (e.g. one tenant's); returns how many. */
+    DeleteSubjectWithClaim(subject: string, claim: string, value: string): Promise<number>
     /** Ends every session of the subject and stores `fresh`, in one step; returns how many ended. */
     ReplaceSubject(subject: string, fresh: SessionRecord): Promise<number>
     /** Moves a session's expiry and kept time; whether it was there. */
@@ -41,6 +43,11 @@ export class InMemorySessionRepository implements ISessionRepository
     public async DeleteSubject(subject: string): Promise<number>
     {
         return this.DeleteWhere(record => record.Subject === subject)
+    }
+
+    public async DeleteSubjectWithClaim(subject: string, claim: string, value: string): Promise<number>
+    {
+        return this.DeleteWhere(record => record.Subject === subject && record.Claims.Has(claim, value))
     }
 
     public async ReplaceSubject(subject: string, fresh: SessionRecord): Promise<number>

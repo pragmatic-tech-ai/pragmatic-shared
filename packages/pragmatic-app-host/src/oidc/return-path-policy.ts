@@ -39,6 +39,12 @@ export class ReturnPathPolicy
         return this.prefixes.some(prefix => ReturnPathPolicy.Under(plain.pathname, prefix)) ? plain.pathname + plain.search : null
     }
 
+    /** Whether `raw` is a plain path (with an optional query) on the own origin, whatever the prefixes. */
+    public static IsPlain(raw: string): boolean
+    {
+        return ReturnPathPolicy.Plain(raw) !== null
+    }
+
     private static Under(path: string, prefix: string): boolean
     {
         const S = ReturnPathPolicy.Slash

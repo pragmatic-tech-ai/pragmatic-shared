@@ -128,6 +128,25 @@ describe('OidcLoginEndpoint begin options: sign-up, login hint, return path', ()
         assert.ok(!(await journey.Authorize('?return=' + encodeURIComponent('/register/secret-step'))).toString().includes('secret-step'))
     })
 
+    it('with SignInFailedPath a failed callback answers 302 there (no cookie) instead of the 401', async () =>
+    {
+        await journey.Start({ SignInFailedPath: '/?sign_in=failed' })
+        const failed = await journey.Fixture.Send('/auth/oidc/callback?code=c&state=unknown')
+        assert.equal(failed.Status, 302)
+        assert.equal(failed.Header('location'), '/?sign_in=failed')
+        assert.equal(failed.Header('set-cookie'), undefined)
+        assert.equal(failed.Header('cache-control'), 'no-store')
+        assert.equal((await journey.Fixture.Send('/auth/oidc/callback?code=c')).Status, 400, 'a malformed callback stays 400')
+    })
+
+    it('SignInFailedPath must be a plain same-origin path', () =>
+    {
+        for (const bad of ['https://evil.example/', '//evil.example', 'failed'])
+        {
+            assert.throws(() => new OidcLoginEndpoint(new OidcRelyingParty(new InMemoryOidcFlowStateStore()), journey.Clients, journey.Fixture.Gate, { SignInFailedPath: bad }), /SignInFailedPath/, bad)
+        }
+    })
+
     it('the client config can require claims: a token without them is a generic 401', async () =>
     {
         journey.Clients.RequiredClaims = ['iat', 'email']

@@ -43,8 +43,11 @@ else is a generic 500).
 - `RateLimiter`, `LoginThrottle` over `IThrottleRepository` (in memory, or `SqlThrottleRepository`, shared by
   replicas).
 - `SessionCookie`, `SessionStore` over `ISessionRepository` (opaque token stored as its SHA-256 digest; subject and
-  claims; fixed or sliding `SessionPolicy`; revocation fails closed; `Rotate`), `SessionGate`.
-- `WsTicketStore` over `ITicketRepository`: single-use WebSocket tickets in the subprotocol.
+  claims; fixed or sliding `SessionPolicy`; revocation fails closed; `Rotate`; `RevokeSubjectWithClaim` ends only
+  the subject's sessions carrying one claim value, e.g. one tenant's), `SessionGate`.
+- `WsTicketStore` over `ITicketRepository`: single-use WebSocket tickets in the subprotocol. A socket route's `Admit`
+  runs after the Host and Origin checks and before the ticket: an `UpgradeRefusal` (status and JSON body) is written
+  as plain HTTP before any handshake, so a client reads the refusal status. An unparseable request target is 400.
 - `OidcRelyingParty` + `OidcLoginEndpoint` (begin, callback, session, logout) with an application-supplied
   `IOidcClientProvider`; flow state in any `IOidcFlowStateStore` (`SqlOidcFlowStateStore` in production);
   a realm on a private CA through a CA bundle file (`CaBundleFile` on the relying party or per client; the

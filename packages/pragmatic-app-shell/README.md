@@ -20,7 +20,13 @@ the clients ledger), speaking the routes of `@pragmatic-tech-ai/pragmatic-app-ho
 - `AppSessionService`: the signed-in session in the shell: expiry on 401 (one reload back to sign-in), the access
   notice on 403, Log out, Change password, expiry suspended while the own password changes.
 - `SignInPageViewModel` + `SignInHostService`, `ShellDialogViewModel`, `ChangePasswordDialogViewModel`,
-  `OneTimeSecretPageViewModel`, `PendingSecret` / `PendingWork`, `AppShellBoot` + `BrowserShellMount`.
+  `OneTimeSecretPageViewModel`, `PendingSecret` / `PendingWork`, `AppShellBoot` + `BrowserShellMount`. Pass the
+  page query to `AppShellBoot` (`window.location.search`): back from a failed sign-in (`?sign_in=failed`, the host's
+  `OidcLoginEndpoint` `SignInFailedPath`) it shows the sign-in page saying so instead of redirecting again, and Try
+  again begins a new sign-in.
+- App-level helpers: `OptionViewModel` (a ComboBox choice), `NameConfirmDialogViewModel` (type the name to confirm;
+  optional reason; the application overrides `IsPermitted`), `LiveUpdateBridge` (an application derives one naming
+  its section type and what a section does with a live update).
 - `AppShellResources`: the compiled views (`app-shell.resources.mu`). Merge into the application's resources:
 
 ```

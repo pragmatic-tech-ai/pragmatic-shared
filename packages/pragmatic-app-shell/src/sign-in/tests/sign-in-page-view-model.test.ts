@@ -162,4 +162,16 @@ describe('SignInPageViewModel', () =>
         assert.equal(kit.Page.Reloads, 1)
         assert.equal(kit.Vm.RetryCommand.CanExecute(), false)
     })
+
+    it('after a failed OIDC sign-in, Try again begins the sign-in again instead of reloading the failure', () =>
+    {
+        const kit = new Kit([SignInMethod.Oidc])
+        kit.Vm.ShowSignInFailed('Sign-in did not complete.')
+        assert.equal(kit.Vm.ErrorText, 'Sign-in did not complete.')
+        assert.equal(kit.Vm.RetryCommand.CanExecute(), true)
+        kit.Vm.RetryCommand.Execute()
+        assert.equal(kit.Client.Begun, 1)
+        assert.equal(kit.Page.Reloads, 0)
+        assert.equal(kit.Vm.IsBusy, true)
+    })
 })
