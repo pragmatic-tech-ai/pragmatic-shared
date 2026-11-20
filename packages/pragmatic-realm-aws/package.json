@@ -1,6 +1,6 @@
 {
   "name": "@pragmatic-tech-ai/pragmatic-realm-aws",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "license": "Apache-2.0",
   "description": "Adapters for the AWS realm option.",
   "repository": {
@@ -36,8 +36,8 @@
     "@aws-sdk/client-s3": "3.1151.0",
     "@aws-sdk/client-secrets-manager": "3.1151.0",
     "@aws-sdk/rds-signer": "3.1151.0",
-    "@pragmatic-tech-ai/pragmatic-identity": "0.14.0",
-    "@pragmatic-tech-ai/pragmatic-realm-adapters": "0.14.0",
+    "@pragmatic-tech-ai/pragmatic-identity": "0.15.0",
+    "@pragmatic-tech-ai/pragmatic-realm-adapters": "0.15.0",
     "pg": "8.23.1"
   },
   "peerDependencies": {

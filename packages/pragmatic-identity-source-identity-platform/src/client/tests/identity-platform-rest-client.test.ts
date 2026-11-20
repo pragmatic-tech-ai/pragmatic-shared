@@ -10,6 +10,7 @@ import { IdentityPlatformKeySet } from "../../token/identity-platform-key-set.js
 import { IdentityPlatformTokenVerifier } from "../../token/identity-platform-token-verifier.js";
 import { IdentityPlatformRejection } from "../../token/identity-platform-rejection.js";
 import { IdentityPlatformRestClient } from "../identity-platform-rest-client.js";
+import { FetchIdentityPlatformHttp } from "../fetch-identity-platform-http.js";
 import { IdentityPlatformRestError } from "../identity-platform-rest-error.js";
 import { IdentityPlatformPageConfig } from "../identity-platform-page-config.js";
 import { IdentityPlatformProvider } from "../identity-platform-provider.js";
@@ -117,7 +118,7 @@ class RestClientTests
         test("a wrong API key is refused", async () =>
         {
             const { platform, rest } = await Fixture.Make();
-            const client = new IdentityPlatformRestClient(Fixture.WrongKey, null, rest.Fetch);
+            const client = new IdentityPlatformRestClient(Fixture.WrongKey, null, new FetchIdentityPlatformHttp(rest.Fetch));
             assert.ok(platform.ProjectId.length > 0);
             assert.equal(await Fixture.Code(client.SignUp(Fixture.Email, Fixture.Password)), Fixture.KeyInvalid);
         });

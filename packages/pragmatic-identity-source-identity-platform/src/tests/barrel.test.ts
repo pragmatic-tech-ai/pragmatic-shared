@@ -4,8 +4,8 @@ import * as assert from "node:assert/strict";
 /** The test helpers ship from the `./testing` subpath only; the login page's helpers from `./client`. */
 class Barrel
 {
-    public static readonly Helpers = ["FakeIdentityPlatform", "FakeIdentityPlatformHttp", "FakeIdentityPlatformRest"];
-    public static readonly ClientExports = ["IdentityPlatformRestClient", "IdentityPlatformRestError", "IdentityPlatformPageConfig", "IdentityPlatformSession", "IdentityPlatformUser"];
+    public static readonly Helpers = ["FakeIdentityPlatform", "FakeIdentityPlatformHttp", "FakeIdentityPlatformRest", "FakeFederatedPerson"];
+    public static readonly ClientExports = ["IdentityPlatformRestClient", "IdentityPlatformRestError", "IdentityPlatformPageConfig", "IdentityPlatformSession", "IdentityPlatformUser", "IdentityPlatformIdpSession", "IdentityPlatformAuthUri", "IdentityPlatformHttpResponse", "FetchIdentityPlatformHttp"];
     public static readonly MainExports = ["IdentityPlatformPack", "IdentityPlatformTokenVerifier", "IdentityPlatformKeySet", "IdentityPlatformSettings", "IdentityPlatformClientConfig", "IdentityPlatformPageConfig"];
     public static readonly Main = "@pragmatic-tech-ai/pragmatic-identity-source-identity-platform";
     public static readonly Client = "@pragmatic-tech-ai/pragmatic-identity-source-identity-platform/client";
