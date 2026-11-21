@@ -68,7 +68,6 @@ class TemplateFixture
     public static readonly Placeholder = /\{\{[A-Za-z0-9]+\}\}/
     /** pragmatic-env-server's npm workspaces, as ContainerWorkspaces reads them from its root package.json. */
     public static readonly EnvServerWorkspaces: readonly string[] = ['server', 'packages/pragmatic-connectors-host', 'packages/pragmatic-identity-engine-binding']
-    public static readonly TodlApps: readonly ReleaseApp[] = [ReleaseApp.PlatformAdmin, ReleaseApp.TenantAdmin, ReleaseApp.EnvServer, ReleaseApp.TenantIdp]
 
     /** The plan's (dev-kit A3, Tasks 6-11) render of each container repository. */
     public static readonly Renders: ReadonlyMap<ReleaseApp, ContainerTemplateOptions> = new Map([
@@ -263,24 +262,13 @@ describe('ContainerTemplate', () =>
         assert.equal(dockerfile.Stage('build').some(line => line.startsWith('RUN mkdir -p')), false)
     })
 
-    it('every app whose closure reaches TODL keeps esbuild and typescript across the prune', () =>
+    it('prunes dev dependencies plainly: TODL (0.66.4 on) declares esbuild and typescript as runtime dependencies', () =>
     {
         for (const app of ReleaseApps.NodeApps)
         {
             const build = TemplateFixture.Dockerfile(app).Stage('build').join('\n')
-            const prune = build.indexOf('npm prune --omit=dev')
-            assert.ok(prune > 0, app)
-            if (TemplateFixture.TodlApps.includes(app))
-            {
-                const stash = build.indexOf('for pkg in esbuild @esbuild typescript; do cp -a "node_modules/$pkg" "/runtime-dev-stash/$pkg"')
-                const restore = build.indexOf('for pkg in esbuild @esbuild typescript; do rm -rf "node_modules/$pkg"; cp -a "/runtime-dev-stash/$pkg" "node_modules/$pkg"')
-                assert.ok(stash > 0 && stash < prune && prune < restore, app)
-                assert.ok(build.includes('set -e;'), app)
-            }
-            else
-            {
-                assert.ok(!build.includes('runtime-dev-stash'), app)
-            }
+            assert.ok(build.includes('npm prune --omit=dev'), app)
+            assert.ok(!build.includes('runtime-dev-stash'), app)
         }
     })
 

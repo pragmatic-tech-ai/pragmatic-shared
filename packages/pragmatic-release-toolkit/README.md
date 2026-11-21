@@ -38,12 +38,12 @@ The platform release toolkit, lifted from pragmatic-server by the container spli
   field) and the command `pragmatic-container-template render --app <app> --entry <path> [--ui <dir>]... [--copy <path>]...
   [--asset <from>=<to>]... [--dockerignore <line>]... --out <dir>` (`DockerIgnore`: lines appended to the common
   `.dockerignore`, such as local secrets), filled from `templates/container` with the per-app facts of `ContainerProfiles`
-  (ports, health check, apt packages, environment, multi-arch, image test, start smoke, Helm chart, the dev packages
-  TODL imports at runtime, the closure check, the manifest the release version comes from). The command reads the npm workspaces from
+  (ports, health check, apt packages, environment, multi-arch, image test, start smoke, Helm chart, the closure
+  check, the manifest the release version comes from). The command reads the npm workspaces from
   `<out>/package.json` (`ContainerWorkspaces`: folders and `<dir>/*`) and merges the `pragmaticClosureCheck` field into
   it (printing it while there is no package.json). It renders `Dockerfile` (stages `deps` (the manifests and lock, then
   `npm ci`) → `compile` (the tree, the build, the assets, the UIs, the closure check) → `component-set` / `components` →
-  `component` → `build` (`npm prune --omit=dev`, keeping esbuild and typescript where TODL is reached) → `runtime` →
+  `component` → `build` (`npm prune --omit=dev`; TODL from 0.66.4 on declares the esbuild and typescript it loads as runtime dependencies) → `runtime` →
   `<app>`; every package from GitHub Packages through the lock, the npmrc only as the BuildKit secret `npmrc`, the
   runtime as user 10001 under `/workspace/<app>`, the layout `pragmatic-closure-check` reads), `docker-bake.hcl`
   (targets `components` and `<app>`), `.npmrc` (token from `NODE_AUTH_TOKEN`), `.dockerignore`, the tsconfigs,

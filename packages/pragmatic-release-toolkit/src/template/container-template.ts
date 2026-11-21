@@ -89,7 +89,6 @@ export class ContainerTemplate
     private static readonly AssetSnippet = 'snippets/asset.Dockerfile'
     private static readonly ClosureCheckSnippet = 'snippets/closure-check.Dockerfile'
     private static readonly PruneSnippet = 'snippets/prune.Dockerfile'
-    private static readonly PruneKeepingSnippet = 'snippets/prune-keeping.Dockerfile'
     private static readonly ModuleDirsSnippet = 'snippets/module-dirs.Dockerfile'
     private static readonly AptSnippet = 'snippets/apt.Dockerfile'
     private static readonly EnvSnippet = 'snippets/env.Dockerfile'
@@ -159,9 +158,7 @@ export class ContainerTemplate
             Assets: (options.Assets ?? []).map(asset => T.Snippet(T.AssetSnippet, { From: asset.From, To: asset.To, ToParent: T.ParentOf(asset.To) })).join(T.Newline),
             UiBuilds: options.UiDirs.map(dir => T.Snippet(T.UiBuildSnippet, { Dir: dir })).join(T.Newline),
             ClosureCheckStep: profile.ClosureCheck ? T.Snippet(T.ClosureCheckSnippet, {}) : '',
-            Prune: profile.RuntimeDevPackages.length === 0
-                ? T.Snippet(T.PruneSnippet, {})
-                : T.Snippet(T.PruneKeepingSnippet, { Packages: profile.RuntimeDevPackages.join(T.Space) }),
+            Prune: T.Snippet(T.PruneSnippet, {}),
             ModuleDirs: workspaces.length === 0 ? '' : T.Snippet(T.ModuleDirsSnippet, { Dirs: workspaces.map(path => path + T.Slash + T.NodeModules).join(T.Space) }),
             ToolsStage: profile.ProvisioningTools ? T.Snippet(T.ToolsStageSnippet, {}) : '',
             RuntimeSetup: T.RuntimeSetup(profile),

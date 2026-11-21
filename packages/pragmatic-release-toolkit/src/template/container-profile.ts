@@ -34,12 +34,6 @@ export interface IContainerProfile
     AptPackages: readonly string[]
     /** The pinned kubectl, kind and docker CLI stage (the platform admin console until C5.3). */
     ProvisioningTools: boolean
-    /**
-     * node_modules entries kept across `npm prune --omit=dev`: TODL imports esbuild and typescript at module load
-     * although they are its dev dependencies, so every app whose closure reaches TODL keeps them (and esbuild's native
-     * binary package).
-     */
-    RuntimeDevPackages: readonly string[]
     Env: ReadonlyArray<readonly [string, string]>
     Ports: readonly number[]
     Healthcheck?: IContainerHealthcheck
@@ -63,7 +57,6 @@ export class ContainerProfiles
 {
     private static readonly None: readonly string[] = []
     private static readonly OpenSsl: readonly string[] = ['openssl']
-    private static readonly TodlRuntimeDevPackages: readonly string[] = ['esbuild', '@esbuild', 'typescript']
     private static readonly NoChart = ''
     private static readonly EnvServerChart = 'helm/pragmatic-env-server'
     private static readonly RootManifest = 'package.json'
@@ -86,7 +79,6 @@ export class ContainerProfiles
     private static readonly Profiles: ReadonlyMap<ReleaseApp, IContainerProfile> = new Map<ReleaseApp, IContainerProfile>([
         [ReleaseApp.PlatformAdmin, {
             Kind: ContainerKind.Node, MultiArch: true, AptPackages: ContainerProfiles.OpenSsl, ProvisioningTools: true,
-            RuntimeDevPackages: ContainerProfiles.TodlRuntimeDevPackages,
             Env: [[ContainerProfiles.RoleVariable, ContainerProfiles.AdminRole]],
             Ports: [ContainerProfiles.AdminPort, ContainerProfiles.AdminInternalPort],
             Healthcheck: { Scheme: HealthScheme.Http, PortVariable: ContainerProfiles.AdminPortVariable, DefaultPort: ContainerProfiles.AdminPort },
@@ -94,7 +86,6 @@ export class ContainerProfiles
         }],
         [ReleaseApp.PlatformEdge, {
             Kind: ContainerKind.Node, MultiArch: true, AptPackages: ContainerProfiles.None, ProvisioningTools: false,
-            RuntimeDevPackages: ContainerProfiles.None,
             Env: [
                 [ContainerProfiles.AgentChannelPortVariable, String(ContainerProfiles.AgentChannelPort)],
                 [ContainerProfiles.AgentChannelBindVariable, ContainerProfiles.AllInterfaces],
@@ -105,43 +96,36 @@ export class ContainerProfiles
         }],
         [ReleaseApp.EnvServer, {
             Kind: ContainerKind.Node, MultiArch: false, AptPackages: ContainerProfiles.None, ProvisioningTools: false,
-            RuntimeDevPackages: ContainerProfiles.TodlRuntimeDevPackages,
             Env: [], Ports: [ContainerProfiles.HttpPort],
             Healthcheck: { Scheme: HealthScheme.Http, PortVariable: ContainerProfiles.HttpPortVariable, DefaultPort: ContainerProfiles.HttpPort },
             ImageTest: true, StartSmoke: true, HelmChart: ContainerProfiles.EnvServerChart, ClosureCheck: true, VersionManifest: ContainerProfiles.EnvServerManifest,
         }],
         [ReleaseApp.EnvGateway, {
             Kind: ContainerKind.Node, MultiArch: false, AptPackages: ContainerProfiles.None, ProvisioningTools: false,
-            RuntimeDevPackages: ContainerProfiles.None,
             Env: [], Ports: [ContainerProfiles.HttpPort],
             Healthcheck: { Scheme: HealthScheme.Http, PortVariable: ContainerProfiles.HttpPortVariable, DefaultPort: ContainerProfiles.HttpPort },
             ImageTest: false, StartSmoke: true, HelmChart: ContainerProfiles.NoChart, ClosureCheck: true, VersionManifest: ContainerProfiles.RootManifest,
         }],
         [ReleaseApp.HiveAgent, {
-            Kind: ContainerKind.Node, MultiArch: false, AptPackages: ContainerProfiles.None, ProvisioningTools: false,
-            RuntimeDevPackages: ContainerProfiles.None, Env: [], Ports: [],
+            Kind: ContainerKind.Node, MultiArch: false, AptPackages: ContainerProfiles.None, ProvisioningTools: false, Env: [], Ports: [],
             ImageTest: false, StartSmoke: true, HelmChart: ContainerProfiles.NoChart, ClosureCheck: true, VersionManifest: ContainerProfiles.RootManifest,
         }],
         [ReleaseApp.TenantAdmin, {
-            Kind: ContainerKind.Node, MultiArch: false, AptPackages: ContainerProfiles.None, ProvisioningTools: false,
-            RuntimeDevPackages: ContainerProfiles.TodlRuntimeDevPackages, Env: [], Ports: [],
+            Kind: ContainerKind.Node, MultiArch: false, AptPackages: ContainerProfiles.None, ProvisioningTools: false, Env: [], Ports: [],
             Healthcheck: { Scheme: HealthScheme.Http, PortVariable: ContainerProfiles.TenantAdminPortVariable },
             ImageTest: true, StartSmoke: true, HelmChart: ContainerProfiles.NoChart, ClosureCheck: true, VersionManifest: ContainerProfiles.RootManifest,
         }],
         [ReleaseApp.TenantIdp, {
-            Kind: ContainerKind.Node, MultiArch: true, AptPackages: ContainerProfiles.OpenSsl, ProvisioningTools: false,
-            RuntimeDevPackages: ContainerProfiles.TodlRuntimeDevPackages, Env: [], Ports: [ContainerProfiles.IdpPort],
+            Kind: ContainerKind.Node, MultiArch: true, AptPackages: ContainerProfiles.OpenSsl, ProvisioningTools: false, Env: [], Ports: [ContainerProfiles.IdpPort],
             Healthcheck: { Scheme: HealthScheme.Https, PortVariable: ContainerProfiles.IdpPortVariable, DefaultPort: ContainerProfiles.IdpPort, Insecure: true },
             ImageTest: false, StartSmoke: true, HelmChart: ContainerProfiles.NoChart, ClosureCheck: true, VersionManifest: ContainerProfiles.RootManifest,
         }],
         [ReleaseApp.UiUnpack, {
-            Kind: ContainerKind.Node, MultiArch: false, AptPackages: ContainerProfiles.None, ProvisioningTools: false,
-            RuntimeDevPackages: ContainerProfiles.None, Env: [], Ports: [],
+            Kind: ContainerKind.Node, MultiArch: false, AptPackages: ContainerProfiles.None, ProvisioningTools: false, Env: [], Ports: [],
             ImageTest: false, StartSmoke: true, HelmChart: ContainerProfiles.NoChart, ClosureCheck: true, VersionManifest: ContainerProfiles.RootManifest,
         }],
         [ReleaseApp.Postgres, {
-            Kind: ContainerKind.ExternalDockerfile, MultiArch: true, AptPackages: ContainerProfiles.None, ProvisioningTools: false,
-            RuntimeDevPackages: ContainerProfiles.None, Env: [], Ports: [],
+            Kind: ContainerKind.ExternalDockerfile, MultiArch: true, AptPackages: ContainerProfiles.None, ProvisioningTools: false, Env: [], Ports: [],
             ImageTest: true, StartSmoke: false, HelmChart: ContainerProfiles.NoChart, ClosureCheck: false, VersionManifest: ContainerProfiles.RootManifest,
         }],
     ])
