@@ -1,0 +1,89 @@
+# Publishes every package of the workspace to GitHub Packages (tools/publish-packages.ts) with this run's GITHUB_TOKEN:
+# on a pushed tag v<version> (the version every package carries, committed before the tag) or on demand. The
+# workspace is built and tested first, in the layout ci.yml uses (todl-runtime and TODL cloned and built beside it,
+# Mural unpacked from GitHub Packages, one todl-runtime). Packages are published in the root build order (a package
+# after the ones it depends on); a version already on the registry is skipped, so a re-run finishes a partial publish.
+# No other secret is read; a 403 from GitHub Packages means the package does not grant this repository write access
+# (package settings, Manage Actions access).
+name: publish
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: pragmatic-shared
+          persist-credentials: false
+      - name: The tag names the workspace version
+        working-directory: ${{ github.workspace }}/pragmatic-shared
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          version="$(node -p "require('./packages/pragmatic-component/package.json').version")"
+          if [ "$REF_TYPE" = tag ] && [ "$REF_NAME" != "v$version" ]; then
+            echo "::error::tag $REF_NAME does not name the workspace version $version"
+            exit 1
+          fi
+          echo "publishing $version"
+      - name: Clone siblings
+        working-directory: ${{ github.workspace }}
+        run: |
+          for pair in todl-runtime:todl-runtime todl:TODL; do
+            git clone --depth 1 "https://github.com/pragmatic-tech-ai/${pair%%:*}.git" "${pair#*:}"
+          done
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Configure GitHub Packages auth
+        env:
+          PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          (umask 077 && printf 'registry=https://registry.npmjs.org/\n@pragmatic-tech-ai:registry=https://npm.pkg.github.com\n//npm.pkg.github.com/:_authToken=%s\n' "$PACKAGES_TOKEN" > ~/.npmrc)
+      - name: Build siblings in dependency order
+        working-directory: ${{ github.workspace }}
+        run: |
+          for pkg in todl-runtime TODL; do
+            (cd "$pkg" && npm install --no-audit --no-fund && npm run build)
+          done
+      - name: Mural from GitHub Packages
+        working-directory: ${{ github.workspace }}
+        run: |
+          version=$(npm view @pragmatic-tech-ai/mural version)
+          npm pack "@pragmatic-tech-ai/mural@$version" --silent
+          mkdir Mural
+          tar -xzf pragmatic-tech-ai-mural-"$version".tgz -C Mural --strip-components=1
+          (cd Mural && npm install --omit=dev --ignore-scripts --no-package-lock --no-audit --no-fund)
+      - name: One todl-runtime in the workspace
+        working-directory: ${{ github.workspace }}
+        run: |
+          for consumer in TODL Mural; do
+            rm -rf "$consumer/node_modules/@pragmatic-tech-ai/todl-runtime"
+            mkdir -p "$consumer/node_modules/@pragmatic-tech-ai"
+            ln -s ../../../todl-runtime "$consumer/node_modules/@pragmatic-tech-ai/todl-runtime"
+          done
+      - name: Install
+        working-directory: ${{ github.workspace }}/pragmatic-shared
+        run: npm ci --no-audit --no-fund
+      - name: Build
+        working-directory: ${{ github.workspace }}/pragmatic-shared
+        run: npm run build
+      - name: Test
+        working-directory: ${{ github.workspace }}/pragmatic-shared
+        run: npm test --workspaces && npm run test:tools
+      - name: Publish in build order
+        working-directory: ${{ github.workspace }}/pragmatic-shared
+        run: |
+          order="$(node -e "const s = require('./package.json').scripts.build; console.log([...s.matchAll(/-w (packages\/[a-z0-9-]+)/g)].map(m => m[1]).join(' '))")"
+          # shellcheck disable=SC2086
+          npm run publish:packages -- $order
+      - name: Remove credentials
+        if: always()
+        run: rm -f ~/.npmrc

@@ -61,3 +61,8 @@ the tests of a package import its dependencies' built `dist`, so build before te
 `npm run publish:packages -- [--dry-run] packages/<name>...` publishes built packages to GitHub Packages from a staged
 copy (`tools/publish-packages.ts`, tests in `tools/tests/`, `npm run test:tools`). It refuses a `dist` older than its
 `src`, and every package carries the one workspace version.
+
+A release is published by CI, not from a workstation: commit the version bump of every package (and the lock), push,
+then push the tag `v<version>`. `.github/workflows/publish.yml` checks that the tag names the workspace version, builds
+and tests as `ci.yml` does, and publishes every package in the root build order with the run's `GITHUB_TOKEN`
+(`packages: write`); a version already published is skipped, so the workflow can be re-run (also on demand).
