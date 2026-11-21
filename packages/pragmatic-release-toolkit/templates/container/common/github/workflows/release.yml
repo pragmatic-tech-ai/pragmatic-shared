@@ -11,6 +11,10 @@ name: release
 on:
   push:
     tags: ['v*.*.*']
+# One image release at a time: two tags pushed together never race on the image tags or the GitHub release.
+concurrency:
+  group: release
+  cancel-in-progress: false
 permissions:
   contents: write
   packages: write

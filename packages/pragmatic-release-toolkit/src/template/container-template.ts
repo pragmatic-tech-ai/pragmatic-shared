@@ -30,8 +30,10 @@ export type ContainerTemplateOptions = {
     Workspaces?: readonly string[]
     /** Runtime assets copied after the build (`src/templates` to `dist/templates`, ...). */
     Assets?: readonly ContainerAsset[]
-    /** Lines appended to the common `.dockerignore` (local secrets, ...): one pattern each, no comment, no line break. */
+    /** Lines appended to the common `.dockerignore` after the profile's: one pattern or `#` comment each, no line break. */
     DockerIgnore?: readonly string[]
+    /** Lines appended to the common `.gitignore` after the profile's: one pattern or `#` comment each, no line break. */
+    GitIgnore?: readonly string[]
 }
 
 /** An entry resolved to the paths the files are rendered with. */
@@ -130,9 +132,13 @@ export class ContainerTemplate
     private static readonly ExternalExtrasPrefix = 'Keeps its own Dockerfile, so takes no UI dir, extra copy, workspace or asset: '
     private static readonly UnlistedWorkspacePrefix = 'The entry lies in a workspace the root package.json does not list: '
     private static readonly MissingValuePrefix = 'Template value missing: '
-    private static readonly BadDockerIgnorePrefix = 'A .dockerignore line is one pattern, not empty, no comment, no line break: '
+    private static readonly BadIgnoreLinePrefix = 'An ignore-file line is one pattern or # comment, not empty, no line break: '
     private static readonly LineBreak = /[\r\n]/
-    private static readonly CommentMarker = '#'
+    private static readonly Quote = "'"
+    private static readonly BadRefusalPrefix = 'A start smoke refusal pattern is one line without a single quote: '
+    private static readonly LegacyPeerDepsNpmrcSnippet = 'snippets/legacy-peer-deps.npmrc'
+    private static readonly LegacyPeerDepsEnvSnippet = 'snippets/legacy-peer-deps.Dockerfile'
+    private static readonly StartSmokeRefusalSnippet = 'snippets/start-smoke-refusal.yml'
 
     /** Every file of the container repository, path (POSIX, relative to the repository root) to content. */
     public static Render(options: ContainerTemplateOptions): ReadonlyMap<string, string>
@@ -150,7 +156,11 @@ export class ContainerTemplate
             ClosureCheck: profile.ClosureCheck ? T.True : T.False,
             ImageTest: profile.ImageTest ? T.True : T.False,
             StartSmoke: profile.StartSmoke ? T.True : T.False,
-            DockerIgnore: (options.DockerIgnore ?? []).join(T.Newline),
+            StartSmokeRefusal: profile.StartSmokeRefusal === undefined ? '' : T.Snippet(T.StartSmokeRefusalSnippet, { Pattern: profile.StartSmokeRefusal }),
+            LegacyPeerDeps: profile.LegacyPeerDeps === true ? T.Snippet(T.LegacyPeerDepsNpmrcSnippet, {}) : '',
+            LegacyPeerDepsEnv: profile.LegacyPeerDeps === true ? T.Snippet(T.LegacyPeerDepsEnvSnippet, {}) : '',
+            DockerIgnore: [...(profile.DockerIgnore ?? []), ...(options.DockerIgnore ?? [])].join(T.Newline),
+            GitIgnore: [...(profile.GitIgnore ?? []), ...(options.GitIgnore ?? [])].join(T.Newline),
             Arm64: profile.MultiArch ? T.True : T.False,
             HelmChart: profile.HelmChart,
             VersionManifest: profile.VersionManifest,
@@ -213,12 +223,16 @@ export class ContainerTemplate
         {
             T.RequirePath(path)
         }
-        for (const line of options.DockerIgnore ?? [])
+        for (const line of [...(profile.DockerIgnore ?? []), ...(profile.GitIgnore ?? []), ...(options.DockerIgnore ?? []), ...(options.GitIgnore ?? [])])
         {
-            if (line.trim().length === 0 || line.trimStart().startsWith(T.CommentMarker) || T.LineBreak.test(line))
+            if (line.trim().length === 0 || T.LineBreak.test(line))
             {
-                throw new ContainerTemplateError(T.BadDockerIgnorePrefix + JSON.stringify(line))
+                throw new ContainerTemplateError(T.BadIgnoreLinePrefix + JSON.stringify(line))
             }
+        }
+        if (profile.StartSmokeRefusal !== undefined && (T.LineBreak.test(profile.StartSmokeRefusal) || profile.StartSmokeRefusal.includes(T.Quote)))
+        {
+            throw new ContainerTemplateError(T.BadRefusalPrefix + JSON.stringify(profile.StartSmokeRefusal))
         }
         if (profile.Kind === ContainerKind.ExternalDockerfile && options.UiDirs.length + options.ExtraCopies.length + workspaces.length + assets.length > 0)
         {

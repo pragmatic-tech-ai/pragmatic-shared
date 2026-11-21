@@ -55,10 +55,19 @@ describe('ContainerTemplateCli', () =>
     it('takes --dockerignore more than once, appending each line to the .dockerignore in order', () =>
     {
         const out = CliFixture.Out('ignores')
-        const result = CliFixture.Run(['render', '--app', 'pragmatic-platform-admin', '--entry', 'src/server.ts',
+        const result = CliFixture.Run(['render', '--app', 'pragmatic-hive-agent', '--entry', 'src/bin/pragmatic-agentd.ts',
             '--dockerignore', '**/*.local.json', '--dockerignore', 'secrets/', '--out', out])
         assert.equal(result.Code, 0, result.Err.join('\n'))
         assert.ok(readFileSync(join(out, '.dockerignore'), 'utf8').endsWith('test-results\n**/*.local.json\nsecrets/\n'))
+    })
+
+    it('takes --gitignore more than once, appending each line to the .gitignore in order', () =>
+    {
+        const out = CliFixture.Out('gitignores')
+        const result = CliFixture.Run(['render', '--app', 'pragmatic-hive-agent', '--entry', 'src/bin/pragmatic-agentd.ts',
+            '--gitignore', '# Local secrets.', '--gitignore', 'secrets/', '--out', out])
+        assert.equal(result.Code, 0, result.Err.join('\n'))
+        assert.ok(readFileSync(join(out, '.gitignore'), 'utf8').endsWith('test-results/\n# Local secrets.\nsecrets/\n'))
     })
 
     it('takes --ui and --copy more than once, in order', () =>

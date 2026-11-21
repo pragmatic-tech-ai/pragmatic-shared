@@ -259,10 +259,10 @@ describe('container workflows', () =>
         }
         const inputs = Workflows.Block(ci, 'on').join('\n')
         assert.match(inputs, / {6}start-smoke:\n {8}description: .*\n {8}type: boolean\n {8}default: false\n/, 'callers rendered before it keep passing')
-        assert.match(inputs, / {6}start-smoke-refusal:\n {8}description: .*\n {8}type: string\n {8}default: 'is required\|required environment variable\|must be set'\n/)
+        assert.match(inputs, / {6}start-smoke-refusal:\n {8}description: .*\n {8}type: string\n {8}default: 'is required\|required environment\|must be set'\n/)
     })
 
-    it('start-smoke.sh fails on a module error or a death without a refusal, passes a running image, and always removes it', () =>
+    it('start-smoke.sh fails on a module error or an end without a refusal (exit 0 included), passes a running image, and always removes it', () =>
     {
         const script = readFileSync(join(Workflows.Directory, '..', '..', 'packages', 'pragmatic-release-toolkit', 'scripts', 'start-smoke.sh'), 'utf8')
         assert.ok(script.startsWith('#!/usr/bin/env bash\n'))
@@ -275,7 +275,9 @@ describe('container workflows', () =>
         {
             assert.ok(script.includes(marker), marker)
         }
-        assert.ok(script.includes('if [ "$running" = false ] && [ "$code" != 0 ] && ! printf \'%s\' "$logs" | grep -Eiq "$REFUSAL"; then'))
+        assert.ok(script.includes('if grep -Eq "$MODULE_ERROR" <<< "$logs"; then'), 'here-strings, never a pipe into grep -q (SIGPIPE)')
+        assert.ok(script.includes('if [ "$running" = false ] && { [ "$code" = 0 ] || ! grep -Eiq "$REFUSAL" <<< "$logs"; }; then'), 'an exit 0 fails too')
+        assert.doesNotMatch(script, /\| *grep/)
         assert.ok(script.includes('trap cleanup EXIT') && script.includes('docker rm -f "$NAME"'), 'stopped and removed whatever the outcome')
         assert.ok(!script.includes('\r'))
     })

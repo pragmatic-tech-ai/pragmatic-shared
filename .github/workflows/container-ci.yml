@@ -61,7 +61,7 @@ on:
       start-smoke-refusal:
         description: An extended grep pattern (case-insensitive) a configuration refusal prints; a non-zero exit without it fails.
         type: string
-        default: 'is required|required environment variable|must be set'
+        default: 'is required|required environment|must be set'
     secrets:
       PACKAGES_TOKEN:
         required: false

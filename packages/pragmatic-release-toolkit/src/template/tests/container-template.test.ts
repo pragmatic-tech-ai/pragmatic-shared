@@ -164,7 +164,10 @@ describe('ContainerTemplate', () =>
                     continue
                 }
                 const lines = RenderedDockerfile.Parse(text).All()
-                assert.ok(lines.every(line => !/^(ARG|ENV)\b.*(npmrc|NPM|TOKEN|AUTH)/i.test(line)), app + ' passes a credential as ARG/ENV')
+                assert.ok(lines.every(line => !/^(ARG|ENV)\b.*(npmrc|TOKEN|AUTH|PASSWORD|REGISTRY)/i.test(line)), app + ' passes a credential as ARG/ENV')
+                // The only npm setting an image build sets is the platform edge's legacy-peer-deps.
+                assert.deepEqual(lines.filter(line => /^(ARG|ENV)\b.*NPM/i.test(line)),
+                    app === ReleaseApp.PlatformEdge && path === 'Dockerfile' ? ['ENV NPM_CONFIG_LEGACY_PEER_DEPS=true'] : [], app)
                 const installs = lines.filter(line => /\bnpm ci\b/.test(line) && !line.includes('--omit=dev'))
                 assert.ok(installs.length > 0)
                 for (const install of installs)
@@ -384,6 +387,7 @@ describe('ContainerTemplate', () =>
         const release = TemplateFixture.File(files, '.github/workflows/release.yml')
         assert.ok(release.includes('uses: pragmatic-tech-ai/pragmatic-shared/.github/workflows/container-release.yml@main'))
         assert.match(release, /tags: \['v\*\.\*\.\*'\]/)
+        assert.match(release, /^concurrency:\n {2}group: release\n {2}cancel-in-progress: false$/m)
         assert.ok(release.includes('contents: write'))
         assert.ok(release.includes('packages: write'))
         assert.ok(release.includes('version-manifest: server/package.json'))
@@ -442,22 +446,72 @@ describe('ContainerTemplate', () =>
         }
     })
 
-    it('appends the extra .dockerignore lines after the common ones, in order', () =>
-    {
-        const base = { App: ReleaseApp.PlatformAdmin, Entry: 'src/server.ts', UiDirs: [], ExtraCopies: [] }
-        const common = TemplateFixture.File(ContainerTemplate.Render(base), '.dockerignore')
-        const extra = ['**/*.local.json', 'secrets/', '!secrets/README.md']
-        const rendered = TemplateFixture.File(ContainerTemplate.Render({ ...base, DockerIgnore: extra }), '.dockerignore')
-        assert.equal(rendered, common + extra.join('\n') + '\n')
-        assert.ok(common.endsWith('test-results\n'))
-    })
-
-    it('refuses an extra .dockerignore line that is empty, a comment, or holds a line break', () =>
+    it('appends the extra .dockerignore and .gitignore lines (comments allowed) after the common ones, in order', () =>
     {
         const base = { App: ReleaseApp.HiveAgent, Entry: 'src/bin/pragmatic-agentd.ts', UiDirs: [], ExtraCopies: [] }
-        for (const line of ['', '   ', '# note', 'a\nb', 'a\rb'])
+        const files = ContainerTemplate.Render(base)
+        const extra = ['# Local secrets.', '**/*.local.json', 'secrets/', '!secrets/README.md']
+        const rendered = ContainerTemplate.Render({ ...base, DockerIgnore: extra, GitIgnore: extra })
+        for (const name of ['.dockerignore', '.gitignore'])
+        {
+            const common = TemplateFixture.File(files, name)
+            assert.match(common, /test-results\/?\n$/, name)
+            assert.equal(TemplateFixture.File(rendered, name), common + extra.join('\n') + '\n', name)
+        }
+    })
+
+    it('refuses an extra ignore-file line that is empty or holds a line break', () =>
+    {
+        const base = { App: ReleaseApp.HiveAgent, Entry: 'src/bin/pragmatic-agentd.ts', UiDirs: [], ExtraCopies: [] }
+        for (const line of ['', '   ', 'a\nb', 'a\rb'])
         {
             assert.throws(() => ContainerTemplate.Render({ ...base, DockerIgnore: [line] }), ContainerTemplateError, JSON.stringify(line))
+            assert.throws(() => ContainerTemplate.Render({ ...base, GitIgnore: [line] }), ContainerTemplateError, JSON.stringify(line))
+        }
+    })
+
+    it('renders each repository\'s own ignore lines from its profile: the platform admin console, the env server and the IdP', () =>
+    {
+        const ignored = (app: ReleaseApp, name: string): string[] => TemplateFixture.File(TemplateFixture.Render(app), name).split('\n')
+        assert.ok(ignored(ReleaseApp.PlatformAdmin, '.dockerignore').includes('src/environments/*/master.key'))
+        assert.ok(ignored(ReleaseApp.PlatformAdmin, '.gitignore').includes('src/environments/*/provisioned-secrets.json'))
+        assert.ok(ignored(ReleaseApp.EnvServer, '.dockerignore').includes('docker/tls'))
+        assert.ok(ignored(ReleaseApp.EnvServer, '.gitignore').includes('docker/tls/'))
+        assert.ok(ignored(ReleaseApp.TenantIdp, '.gitignore').includes('data/'))
+        for (const app of [ReleaseApp.HiveAgent, ReleaseApp.UiUnpack, ReleaseApp.EnvGateway])
+        {
+            assert.match(TemplateFixture.File(TemplateFixture.Render(app), '.gitignore'), /test-results\/\n$/, app)
+        }
+    })
+
+    it('renders legacy-peer-deps into the .npmrc and the deps stage for the platform edge only', () =>
+    {
+        for (const app of ReleaseApps.NodeApps)
+        {
+            const files = TemplateFixture.Render(app)
+            const npmrc = TemplateFixture.File(files, '.npmrc')
+            const deps = TemplateFixture.Dockerfile(app).Stage('deps').join('\n')
+            const legacy = app === ReleaseApp.PlatformEdge
+            assert.equal(npmrc.includes('\nlegacy-peer-deps=true\n'), legacy, app)
+            assert.equal(deps.includes('ENV NPM_CONFIG_LEGACY_PEER_DEPS=true'), legacy, app)
+            if (legacy)
+            {
+                assert.ok(deps.indexOf('ENV NPM_CONFIG_LEGACY_PEER_DEPS=true') < deps.indexOf('npm ci --no-audit --no-fund'), 'before the install')
+            }
+        }
+    })
+
+    it('renders a start smoke refusal pattern where the profile names one (the platform admin console)', () =>
+    {
+        for (const app of ReleaseApps.All)
+        {
+            const ci = TemplateFixture.File(TemplateFixture.Render(app), '.github/workflows/ci.yml')
+            const expected = app === ReleaseApp.PlatformAdmin ? "\n      start-smoke-refusal: 'PRAGMATIC_ADMIN_DATABASE_URL_FILE must name'\n" : undefined
+            assert.equal(ci.includes('start-smoke-refusal:'), expected !== undefined, app)
+            if (expected !== undefined)
+            {
+                assert.ok(ci.includes(expected), app)
+            }
         }
     })
 

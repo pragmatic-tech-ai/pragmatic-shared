@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Starts a container image once with no configuration (container-ci.yml's start smoke) and judges how it ends:
 #   - output with a module-resolution error fails (the image lacks a file its entry loads);
-#   - a non-zero exit fails unless its output matches the configuration-refusal pattern (extended grep, case-insensitive);
+#   - an exit within the wait fails unless it is non-zero and its output matches the configuration-refusal pattern
+#     (extended grep, case-insensitive): a server that exits 0 with no configuration has not started;
 #   - an image still running after the wait passes; it is stopped and removed whatever the outcome.
 # Usage: start-smoke.sh <image>   environment: SMOKE_ARGS (extra docker run arguments, split on blanks, never globbed),
 #        SMOKE_REFUSAL (the refusal pattern), SMOKE_SECONDS (the wait, default 20).
@@ -33,12 +34,12 @@ done
 logs="$(docker logs "$NAME" 2>&1)"
 code="$(docker inspect -f '{{.State.ExitCode}}' "$NAME")"
 printf '%s\n' "$logs"
-if printf '%s' "$logs" | grep -Eq "$MODULE_ERROR"; then
+if grep -Eq "$MODULE_ERROR" <<< "$logs"; then
     echo '::error::the image cannot resolve a module'
     exit 1
 fi
-if [ "$running" = false ] && [ "$code" != 0 ] && ! printf '%s' "$logs" | grep -Eiq "$REFUSAL"; then
-    echo "::error::the image died (exit $code) without a configuration refusal"
+if [ "$running" = false ] && { [ "$code" = 0 ] || ! grep -Eiq "$REFUSAL" <<< "$logs"; }; then
+    echo "::error::the image ended (exit $code) without a configuration refusal"
     exit 1
 fi
 echo "start smoke passed (running after ${SECONDS_TO_WAIT} s: $running, exit $code)"

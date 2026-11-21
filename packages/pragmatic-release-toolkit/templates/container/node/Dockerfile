@@ -18,6 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3 make g+
 # The manifests and the lock first, so the install layer is reused while they do not change.
 COPY package.json package-lock.json ./
 {{WorkspaceManifests}}
+{{LegacyPeerDepsEnv}}
 RUN --mount=type=secret,id=npmrc,target=/root/.npmrc,required=true \
     npm ci --no-audit --no-fund
 

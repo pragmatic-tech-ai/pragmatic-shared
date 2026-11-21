@@ -20,6 +20,7 @@ jobs:
       closure-check: {{ClosureCheck}}
       image-test: {{ImageTest}}
       start-smoke: {{StartSmoke}}
+{{StartSmokeRefusal}}
       arm64: {{Arm64}}
       helm-chart: '{{HelmChart}}'
     secrets:
