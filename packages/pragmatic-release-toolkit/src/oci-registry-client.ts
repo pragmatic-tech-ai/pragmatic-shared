@@ -291,12 +291,14 @@ export class OciRegistryClient
     private static readonly EmptyConfigMediaType = 'application/vnd.oci.empty.v1+json'
     private static readonly EmptyConfigJson = '{}'
     private static readonly AcceptSeparator = ', '
-    private static readonly ManifestAccept = [
+    /** Every manifest media type the client reads (and re-tags). */
+    private static readonly ManifestMediaTypes: readonly string[] = [
         OciRegistryClient.OciIndexMediaType,
         OciRegistryClient.ManifestMediaType,
         OciRegistryClient.DockerManifestListMediaType,
         OciRegistryClient.DockerManifestMediaType,
-    ].join(OciRegistryClient.AcceptSeparator)
+    ]
+    private static readonly ManifestAccept = OciRegistryClient.ManifestMediaTypes.join(OciRegistryClient.AcceptSeparator)
     private static readonly ManifestSchemaVersion = 2
     private static readonly MaxTagPages = 1000
     private static readonly MethodHead = 'HEAD'
@@ -319,6 +321,7 @@ export class OciRegistryClient
     private static readonly BadAnnotationsMessage = 'The OCI manifest annotations are not string values'
     private static readonly BadManifestMessage = 'The OCI manifest is not a single-layer artifact'
     private static readonly LayerMismatchMessage = 'The OCI layer bytes do not match the digest in the manifest'
+    private static readonly ManifestMismatchMessage = 'The OCI manifest bytes do not match the digest they were pulled by'
 
     /** The default seam: the global fetch, with the body narrowed to what BodyInit accepts at runtime (Uint8Array is valid). */
     private static readonly GlobalFetch: OciFetch = (url, init) => fetch(url, init as RequestInit)
@@ -354,12 +357,61 @@ export class OciRegistryClient
         return digest
     }
 
-    public async PushManifest(repo: string, reference: string, manifestBytes: Uint8Array): Promise<string>
+    /** Puts manifest bytes under a tag or digest reference, sent as `mediaType` (default: an OCI image manifest). */
+    public async PushManifest(repo: string, reference: string, manifestBytes: Uint8Array, mediaType: string = OciRegistryClient.ManifestMediaType): Promise<string>
     {
         const S = OciRegistryClient
         S.AssertReference(reference)
-        await this.Send(repo, S.MethodPut, this.RepoUrl(repo) + S.ManifestsPath + reference, S.StatusCreated, { [S.ContentTypeHeader]: S.ManifestMediaType }, manifestBytes)
+        await this.Send(repo, S.MethodPut, this.RepoUrl(repo) + S.ManifestsPath + reference, S.StatusCreated, { [S.ContentTypeHeader]: mediaType }, manifestBytes)
         return S.DigestOf(manifestBytes)
+    }
+
+    /**
+     * Names an existing manifest (image or index) by one more tag: pulls it by digest, checks the bytes hash to that digest,
+     * and puts the same bytes under `tag` with the media type they declare, so the tag names exactly `digest`.
+     */
+    public async TagManifest(repo: string, digest: string, tag: string): Promise<void>
+    {
+        const S = OciRegistryClient
+        if (!S.DigestShape.test(digest))
+        {
+            throw new OciArgumentError(S.BadDigestMessage)
+        }
+        S.AssertReference(tag)
+        const bytes = await this.PullManifest(repo, digest)
+        if (S.DigestOf(bytes) !== digest)
+        {
+            throw new OciProtocolError(S.ManifestMismatchMessage, OciProtocolFault.BadManifest)
+        }
+        await this.PushManifest(repo, tag, bytes, S.MediaTypeOf(bytes))
+    }
+
+    /** The media type a manifest declares; without one, an index when it lists manifests, else an OCI image manifest. */
+    private static MediaTypeOf(bytes: Uint8Array): string
+    {
+        const S = OciRegistryClient
+        let parsed: unknown
+        try
+        {
+            parsed = JSON.parse(new TextDecoder().decode(bytes))
+        }
+        catch
+        {
+            throw new OciProtocolError(S.BadManifestMessage, OciProtocolFault.BadManifest)
+        }
+        if (!S.IsPlainObject(parsed))
+        {
+            throw new OciProtocolError(S.BadManifestMessage, OciProtocolFault.BadManifest)
+        }
+        if (typeof parsed.mediaType === 'string' && S.ManifestMediaTypes.includes(parsed.mediaType))
+        {
+            return parsed.mediaType
+        }
+        if (parsed.mediaType !== undefined)
+        {
+            throw new OciProtocolError(S.BadManifestMessage, OciProtocolFault.BadManifest)
+        }
+        return Array.isArray(parsed.manifests) ? S.OciIndexMediaType : S.ManifestMediaType
     }
 
     public async PullManifest(repo: string, reference: string): Promise<Uint8Array>

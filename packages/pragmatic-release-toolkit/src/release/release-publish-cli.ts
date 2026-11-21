@@ -1,7 +1,9 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { OciRegistryClient, type OciFetch } from '../oci-registry-client.js'
-import { ReleaseDescriptorCodec } from './release-descriptor.js'
+import { GitHubComponentAssetSource, type IComponentAssetSource } from './component-asset-source.js'
+import { ReleaseDescriptorCodec, type ReleaseDescriptor } from './release-descriptor.js'
+import { ReleaseManifest } from './release-manifest.js'
 import { ReleasePublisher } from './release-publisher.js'
 import { ReleaseRegistry } from './release-registry.js'
 import { ReleaseTag } from './release-tag.js'
@@ -14,22 +16,31 @@ class ReleaseCliUsageError extends Error
 }
 
 /**
- * `check --tag <ref>` and `publish --tag <ref> --server-commit <sha> --siblings-file <path> --key-id <id> [--trust-dir <dir>]`.
- * Secrets come from the environment (key file path, registry credential); only the version and digests are printed, failures
- * print the error sentence. Before anything is pushed, publish verifies every signature against the trusted public key
- * `<trust dir>/<key id>.pub.pem` (default: `release-keys` under the working directory). Imports only node builtins and builtin-only relative
- * modules: the release workflow runs it without npm install.
+ * `check --tag <ref>`, `publish --tag <ref> --server-commit <sha> --siblings-file <path> --key-id <id> [--trust-dir <dir>]`
+ * (the images tagged with the release version), and from a release manifest (pragmatic-platform-release's `release.json`):
+ * `assemble --manifest <path>` (checks only: prints each problem, exit 1 on any) and `publish --manifest <path> --key-id <id>
+ * [--trust-dir <dir>] [--release-commit <sha>]` (the release commit defaults to GITHUB_SHA). Secrets come from the
+ * environment (key file path, registry credential, the optional GITHUB_TOKEN the component assets are read with); only
+ * the version and digests are printed, failures print the error sentence. Before anything is pushed, publish verifies
+ * every signature against the trusted public key `<trust dir>/<key id>.pub.pem` (default: `release-keys` under the
+ * working directory). Imports only node builtins and builtin-only relative modules: the release workflow runs it without
+ * npm install.
  */
 export class ReleasePublishCli
 {
     private static readonly CommandCheck = 'check'
     private static readonly CommandPublish = 'publish'
+    private static readonly CommandAssemble = 'assemble'
     private static readonly FlagPrefix = '--'
     private static readonly FlagTag = 'tag'
     private static readonly FlagServerCommit = 'server-commit'
     private static readonly FlagSiblingsFile = 'siblings-file'
     private static readonly FlagKeyId = 'key-id'
     private static readonly FlagTrustDir = 'trust-dir'
+    private static readonly FlagManifest = 'manifest'
+    private static readonly FlagReleaseCommit = 'release-commit'
+    /** The tag-mode options a `publish --manifest` refuses (the manifest names the version, the commits come from GitHub). */
+    private static readonly TagModeFlags: readonly string[] = [ReleasePublishCli.FlagTag, ReleasePublishCli.FlagServerCommit, ReleasePublishCli.FlagSiblingsFile]
     /** The options each command accepts: `check` refuses the publish-only ones. */
     private static readonly CommandFlags: ReadonlyMap<string, readonly string[]> = new Map([
         [ReleasePublishCli.CommandCheck, [ReleasePublishCli.FlagTag]],
@@ -39,8 +50,21 @@ export class ReleasePublishCli
             ReleasePublishCli.FlagSiblingsFile,
             ReleasePublishCli.FlagKeyId,
             ReleasePublishCli.FlagTrustDir,
+            ReleasePublishCli.FlagManifest,
+            ReleasePublishCli.FlagReleaseCommit,
         ]],
+        [ReleasePublishCli.CommandAssemble, [ReleasePublishCli.FlagManifest]],
     ])
+    private static readonly ManifestModeMessage = '--manifest replaces --tag, --server-commit and --siblings-file'
+    private static readonly TagModeMessage = '--release-commit is for publish --manifest; with --tag give --server-commit'
+    private static readonly UnreadableManifestMessage = 'The file named by --manifest cannot be read'
+    private static readonly MissingReleaseCommitMessage = 'Missing required option: --release-commit (or GITHUB_SHA)'
+    private static readonly EnvGitHubSha = 'GITHUB_SHA'
+    private static readonly EnvGitHubToken = 'GITHUB_TOKEN'
+    private static readonly EnvGitHubApi = 'GITHUB_API_URL'
+    private static readonly ReleaseLabel = 'release '
+    private static readonly AssemblesInfix = ' assembles: '
+    private static readonly AppsCheckedSuffix = ' apps checked, no problems'
     private static readonly UnreadableTrustDirMessage = 'The directory named by --trust-dir (default: release-keys) cannot be read'
     private static readonly UntrustedKeyPrefix = 'No trusted public key for --key-id in the trust directory: expected '
     private static readonly UnknownFlagPrefix = 'Unknown option: --'
@@ -58,7 +82,7 @@ export class ReleasePublishCli
     private static readonly Utf8 = 'utf8'
     private static readonly OkExitCode = 0
     private static readonly FailExitCode = 1
-    private static readonly UsageMessage = 'Usage: pragmatic-release-publish check --tag <ref> | publish --tag <ref> --server-commit <sha> --siblings-file <path> --key-id <id> [--trust-dir <dir>]'
+    private static readonly UsageMessage = 'Usage: pragmatic-release-publish check --tag <ref> | publish --tag <ref> --server-commit <sha> --siblings-file <path> --key-id <id> [--trust-dir <dir>] | assemble --manifest <path> | publish --manifest <path> --key-id <id> [--trust-dir <dir>] [--release-commit <sha>]'
     private static readonly MissingFlagPrefix = 'Missing required option: --'
     private static readonly MissingEnvPrefix = 'Missing required environment variable: '
     private static readonly BadSiblingsMessage = 'The siblings file must be a JSON object mapping plain repository names to 40-hex commit shas'
@@ -75,7 +99,8 @@ export class ReleasePublishCli
         return resolve(process.cwd(), ReleaseTrustKeys.DirName)
     }
 
-    public static async Run(argv: readonly string[], env: NodeJS.ProcessEnv, output: ReleaseCliOutput, fetchFn?: OciFetch): Promise<number>
+    /** `assets` replaces the GitHub source of the component assets and release commits (tests). */
+    public static async Run(argv: readonly string[], env: NodeJS.ProcessEnv, output: ReleaseCliOutput, fetchFn?: OciFetch, assets?: IComponentAssetSource): Promise<number>
     {
         const S = ReleasePublishCli
         try
@@ -90,6 +115,14 @@ export class ReleasePublishCli
             if (command === S.CommandCheck)
             {
                 await S.Check(flags, env, output, fetchFn)
+            }
+            else if (command === S.CommandAssemble)
+            {
+                return await S.Assemble(flags, env, output, fetchFn, assets)
+            }
+            else if (command === S.CommandPublish && flags.has(S.FlagManifest))
+            {
+                await S.PublishManifest(flags, env, output, fetchFn, assets)
             }
             else if (command === S.CommandPublish)
             {
@@ -116,9 +149,52 @@ export class ReleasePublishCli
         output.Out(S.VersionLabel + tag.Version + S.FreeSuffix)
     }
 
+    /** Prints the problems (stderr) and answers 1, or one line and 0. */
+    private static async Assemble(flags: Map<string, string>, env: NodeJS.ProcessEnv, output: ReleaseCliOutput, fetchFn?: OciFetch, assets?: IComponentAssetSource): Promise<number>
+    {
+        const S = ReleasePublishCli
+        const manifest = ReleaseManifest.Parse(S.ReadFile(S.Flag(flags, S.FlagManifest), S.UnreadableManifestMessage))
+        const inspection = await S.NewPublisher(env, fetchFn).Assemble(manifest, assets ?? S.NewAssets(env))
+        if (inspection.Problems.length > 0)
+        {
+            for (const problem of inspection.Problems)
+            {
+                output.Err(ReleaseManifest.Describe(problem))
+            }
+            return S.FailExitCode
+        }
+        output.Out(S.ReleaseLabel + manifest.version + S.AssemblesInfix + Object.keys(manifest.components).length + S.AppsCheckedSuffix)
+        return S.OkExitCode
+    }
+
+    private static async PublishManifest(flags: Map<string, string>, env: NodeJS.ProcessEnv, output: ReleaseCliOutput, fetchFn?: OciFetch, assets?: IComponentAssetSource): Promise<void>
+    {
+        const S = ReleasePublishCli
+        if (S.TagModeFlags.some(flag => flags.has(flag)))
+        {
+            throw new ReleaseCliUsageError(S.ManifestModeMessage)
+        }
+        const manifest = ReleaseManifest.Parse(S.ReadFile(S.Flag(flags, S.FlagManifest), S.UnreadableManifestMessage))
+        const releaseCommit = flags.get(S.FlagReleaseCommit) ?? S.EnvOr(env, S.EnvGitHubSha, '')
+        if (releaseCommit.length === 0)
+        {
+            throw new ReleaseCliUsageError(S.MissingReleaseCommitMessage)
+        }
+        const signingKeyId = S.Flag(flags, S.FlagKeyId)
+        const trustedPublicKeyPem = S.TrustedKey(flags.get(S.FlagTrustDir) ?? S.DefaultTrustDir(), signingKeyId)
+        const privateKeyPem = S.ReadFile(S.Env(env, S.EnvKeyFile), S.UnreadableKeyMessage)
+        const input = { manifest, assets: assets ?? S.NewAssets(env), releaseCommit, signingKeyId, privateKeyPem, trustedPublicKeyPem }
+        const result = await S.NewPublisher(env, fetchFn).PublishManifest(input)
+        S.PrintPublished(result.descriptor, result.descriptorDigest, output)
+    }
+
     private static async Publish(flags: Map<string, string>, env: NodeJS.ProcessEnv, output: ReleaseCliOutput, fetchFn?: OciFetch): Promise<void>
     {
         const S = ReleasePublishCli
+        if (flags.has(S.FlagReleaseCommit))
+        {
+            throw new ReleaseCliUsageError(S.TagModeMessage)
+        }
         const tag = ReleaseTag.Parse(S.Flag(flags, S.FlagTag))
         const serverCommit = S.Flag(flags, S.FlagServerCommit)
         const siblingCommits = S.ReadSiblings(S.Flag(flags, S.FlagSiblingsFile))
@@ -127,6 +203,13 @@ export class ReleasePublishCli
         const privateKeyPem = S.ReadFile(S.Env(env, S.EnvKeyFile), S.UnreadableKeyMessage)
         const input = { tag, serverCommit, siblingCommits, signingKeyId, privateKeyPem, trustedPublicKeyPem }
         const { descriptor, descriptorDigest } = await S.NewPublisher(env, fetchFn).Publish(input)
+        S.PrintPublished(descriptor, descriptorDigest, output)
+    }
+
+    /** The version, each image digest (with its component digest) and the descriptor digest; never key material. */
+    private static PrintPublished(descriptor: ReleaseDescriptor, descriptorDigest: string, output: ReleaseCliOutput): void
+    {
+        const S = ReleasePublishCli
         output.Out(S.PublishedPrefix + descriptor.version)
         for (const [app, image] of Object.entries(descriptor.images))
         {
@@ -145,6 +228,14 @@ export class ReleasePublishCli
         const credential = { username: S.Env(env, S.EnvUser), token: S.Env(env, S.EnvToken) }
         const registry = new OciRegistryClient(baseUrl, fetchFn, credential)
         return new ReleasePublisher(registry, S.EnvOr(env, S.EnvNamespace, S.DefaultNamespace))
+    }
+
+    /** The component assets and release commits from the GitHub API (GITHUB_API_URL, default api.github.com), with GITHUB_TOKEN when set. */
+    private static NewAssets(env: NodeJS.ProcessEnv): IComponentAssetSource
+    {
+        const S = ReleasePublishCli
+        const token = S.EnvOr(env, S.EnvGitHubToken, '')
+        return new GitHubComponentAssetSource(undefined, token.length === 0 ? undefined : token, S.EnvOr(env, S.EnvGitHubApi, GitHubComponentAssetSource.DefaultApi))
     }
 
     private static ReadSiblings(path: string): Record<string, string>

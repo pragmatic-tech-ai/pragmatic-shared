@@ -1,9 +1,11 @@
 import { OciRegistryClient } from '../oci-registry-client.js'
+import type { IComponentAssetSource } from './component-asset-source.js'
 import { ComponentImageLabel, ComponentLabelError } from './component-image-label.js'
 import { ReleaseDescriptorCodec, type ReleaseDescriptor, type ReleaseImage } from './release-descriptor.js'
+import { ReleaseManifest, type ReleaseManifestDocument, type ReleaseManifestInspection, type ReleaseManifestProblem } from './release-manifest.js'
 import { ReleaseRegistry } from './release-registry.js'
 import { ReleaseSignature } from './release-signature.js'
-import { ReleaseApps, type ReleaseApp, type ReleaseTag } from './release-tag.js'
+import { ReleaseApps, ReleaseTag, type ReleaseApp } from './release-tag.js'
 import { ReleaseTrustKeys } from './release-trust-keys.js'
 
 /** The published descriptor and the digest of its encoded bytes (the layer digest the registry records and the signature covers). */
@@ -17,6 +19,48 @@ export type ReleasePublishInput = {
     privateKeyPem: string
     /** The trusted public key for `signingKeyId` (`release-keys/<id>.pub.pem`): every signature is checked against it before the push. */
     trustedPublicKeyPem: string
+}
+
+/**
+ * A platform release assembled from `release.json` (pragmatic-platform-release): the manifest names every image by digest,
+ * the container repositories' releases supply each component descriptor and commit. `releaseCommit` (the release
+ * repository's commit) is recorded as the descriptor's `serverCommit`; `siblingCommits` holds each container repository's.
+ */
+export type ReleaseManifestPublishInput = {
+    manifest: ReleaseManifestDocument
+    assets: IComponentAssetSource
+    releaseCommit: string
+    signingKeyId: string
+    privateKeyPem: string
+    trustedPublicKeyPem: string
+}
+
+/** The manifest cannot be assembled: ReleaseManifest.Check found problems; nothing was pushed. */
+export class ReleaseManifestProblemsError extends Error
+{
+    private static readonly ErrorName = 'ReleaseManifestProblemsError'
+    private static readonly MessagePrefix = 'The release manifest cannot be assembled; nothing was published: '
+    private static readonly ProblemSeparator = '; '
+
+    public constructor(public readonly Problems: readonly ReleaseManifestProblem[])
+    {
+        super(ReleaseManifestProblemsError.MessagePrefix
+            + Problems.map(problem => ReleaseManifest.Describe(problem)).join(ReleaseManifestProblemsError.ProblemSeparator))
+        this.name = ReleaseManifestProblemsError.ErrorName
+    }
+}
+
+/** The release commit is not a 40-hex commit sha. */
+export class ReleaseCommitInvalidError extends Error
+{
+    private static readonly ErrorName = 'ReleaseCommitInvalidError'
+    private static readonly Text = 'The release commit is not a 40-hex commit'
+
+    public constructor()
+    {
+        super(ReleaseCommitInvalidError.Text)
+        this.name = ReleaseCommitInvalidError.ErrorName
+    }
 }
 
 /**
@@ -88,10 +132,12 @@ export class ReleaseComponentMissingError extends Error
 }
 
 /**
- * Signs the digest of every image tagged with the release version and publishes the signed release descriptor as an OCI
- * artifact. Each image's component descriptor digest is read from its label and recorded beside the image digest, so the
- * descriptor signature binds both. The descriptor is pushed last, so its existence means every image was present, labelled
- * and signed.
+ * Signs the digest of every image of a release and publishes the signed release descriptor as an OCI artifact. Each image's
+ * component descriptor digest is read from its label and recorded beside the image digest, so the descriptor signature
+ * binds both. The descriptor is pushed last, so its existence means every image was present, labelled and signed.
+ * `Publish` takes the images tagged with the release version (the monorepo release); `PublishManifest` takes them by
+ * digest from a release manifest, checked first (`Assemble`), and tags each with the release version before the
+ * descriptor is pushed, so `<app>:<release version>` names the released image as before.
  */
 export class ReleasePublisher
 {
@@ -156,11 +202,67 @@ export class ReleasePublisher
         return { descriptor, descriptorDigest }
     }
 
+    /** Checks a release manifest against the registry and the container repositories' releases; never writes. */
+    public Assemble(manifest: ReleaseManifestDocument, assets: IComponentAssetSource): Promise<ReleaseManifestInspection>
+    {
+        return ReleaseManifest.Inspect(manifest, this.registry, assets, this.namespace)
+    }
+
+    public async PublishManifest(input: ReleaseManifestPublishInput): Promise<ReleasePublishResult>
+    {
+        const S = ReleasePublisher
+        if (!ReleaseDescriptorCodec.IsCommit(input.releaseCommit))
+        {
+            throw new ReleaseCommitInvalidError()
+        }
+        const tag = ReleaseTag.FromVersion(input.manifest.version)
+        await this.CheckVersionFree(tag.Version)
+        const inspection = await this.Assemble(input.manifest, input.assets)
+        if (inspection.Problems.length > 0)
+        {
+            throw new ReleaseManifestProblemsError(inspection.Problems)
+        }
+        const images: Partial<Record<ReleaseApp, ReleaseImage>> = {}
+        for (const app of ReleaseApps.All)
+        {
+            const digest = input.manifest.components[app].digest
+            const componentDigest = inspection.ComponentDigests.get(app)
+            if (componentDigest === undefined)
+            {
+                throw new ReleaseComponentMissingError(app, tag.Version)
+            }
+            images[app] = { repository: this.repo(app), digest, signature: ReleaseSignature.Sign(digest, input.privateKeyPem), componentDigest }
+        }
+        const descriptor: ReleaseDescriptor = {
+            schema: ReleaseDescriptorCodec.CurrentSchema,
+            version: tag.Version,
+            channel: tag.Channel,
+            serverCommit: input.releaseCommit,
+            siblingCommits: Object.fromEntries(inspection.Commits),
+            builtAt: this.clock().toISOString(),
+            signingKeyId: input.signingKeyId,
+            images: images as ReleaseDescriptor['images'],
+        }
+        const bytes = ReleaseDescriptorCodec.Encode(descriptor)
+        const descriptorDigest = OciRegistryClient.DigestOf(bytes)
+        const signature = ReleaseSignature.Sign(descriptorDigest, input.privateKeyPem)
+        S.AssertVerifies(bytes, descriptorDigest, signature, input)
+        for (const app of ReleaseApps.All)
+        {
+            await this.registry.TagManifest(this.repo(app), input.manifest.components[app].digest, tag.Version)
+        }
+        await this.registry.PushArtifact(this.repo(S.DescriptorRepository), tag.Version, S.ArtifactType, S.LayerMediaType, bytes, {
+            [S.SignatureAnnotation]: signature,
+            [S.KeyAnnotation]: input.signingKeyId,
+        })
+        return { descriptor, descriptorDigest }
+    }
+
     /**
      * What the platform's catalogue will check, run on the bytes about to be pushed: the descriptor decodes, and its signature
      * and every image signature verify against the trusted public key. Throws before any push when one does not.
      */
-    private static AssertVerifies(bytes: Uint8Array, descriptorDigest: string, signature: string, input: ReleasePublishInput): void
+    private static AssertVerifies(bytes: Uint8Array, descriptorDigest: string, signature: string, input: { signingKeyId: string; trustedPublicKeyPem: string }): void
     {
         const decoded = ReleaseDescriptorCodec.Decode(bytes)
         const key = input.trustedPublicKeyPem

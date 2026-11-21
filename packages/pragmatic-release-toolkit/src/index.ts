@@ -5,8 +5,12 @@ export type { ReleaseImage, ReleaseImages, ReleaseDescriptorSchema, ReleaseDescr
 export { ReleaseSignature } from './release/release-signature.js';
 export { ReleaseRegistry } from './release/release-registry.js';
 export { ReleaseTrustKeyInvalidError, ReleaseTrustKeys } from './release/release-trust-keys.js';
-export { ReleaseSigningKeyMismatchError, ReleaseVersionExistsError, ReleaseImageMissingError, ReleaseComponentMissingError, ReleasePublisher } from './release/release-publisher.js';
-export type { ReleasePublishResult, ReleasePublishInput } from './release/release-publisher.js';
+export { ReleaseManifestProblemsError, ReleaseCommitInvalidError, ReleaseSigningKeyMismatchError, ReleaseVersionExistsError, ReleaseImageMissingError, ReleaseComponentMissingError, ReleasePublisher } from './release/release-publisher.js';
+export type { ReleasePublishResult, ReleasePublishInput, ReleaseManifestPublishInput } from './release/release-publisher.js';
+export { ReleaseManifestInvalidError, ReleaseManifestMissingAppError, ReleaseManifestUnknownAppError, ReleaseManifestDigestError, ReleaseManifestProblemKind, ReleaseManifest } from './release/release-manifest.js';
+export type { ReleaseManifestComponent, ReleaseManifestDocument, ReleaseManifestProblem, ReleaseManifestInspection } from './release/release-manifest.js';
+export { ComponentAssetUnavailableError, GitHubComponentAssetSource } from './release/component-asset-source.js';
+export type { IComponentAssetSource, GitHubRequestInit, GitHubFetch } from './release/component-asset-source.js';
 export { ReleasePublishCli } from './release/release-publish-cli.js';
 export type { ReleaseCliOutput } from './release/release-publish-cli.js';
 export { ComponentLabelFault, ComponentLabelError, ComponentImageLabel } from './release/component-image-label.js';
