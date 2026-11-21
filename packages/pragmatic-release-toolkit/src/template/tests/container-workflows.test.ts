@@ -221,11 +221,23 @@ describe('container workflows', () =>
             assert.ok(Workflows.Needs(job).includes('gate'), job.Name)
             assert.ok(job.Lines.some(line => /^ {4}if: .*needs\.gate\.outputs\.token == 'true'/.test(line)), job.Name)
         }
-        for (const step of ['npm ci', 'npm run build', 'npm test', 'npm run typecheck', 'npx pragmatic-closure-check', 'inputs.node && inputs.closure-check',
+        for (const step of ['npm ci', 'npm run build', 'npm test', 'npm run typecheck', 'npx --no-install pragmatic-closure-check', 'inputs.node && inputs.closure-check',
             '.components/docker-bake.components.json', 'node_modules/@pragmatic-tech-ai/pragmatic-release-toolkit/scripts/check-component-label.sh',
             'tests/image.test.sh', 'helm lint', 'helm template', 'ubuntu-24.04-arm', 'linux/arm64', 'umask 077', 'if: always()'])
         {
             assert.ok(ci.includes(step), step)
+        }
+    })
+
+    it('every npx runs only what the repository installed (--no-install: an unscoped name never comes from the public registry)', () =>
+    {
+        for (const name of [Workflows.Ci, Workflows.Release])
+        {
+            const npx = Workflows.Scripts(Workflows.Read(name)).filter(line => /\bnpx\b/.test(line))
+            for (const line of npx)
+            {
+                assert.match(line, /\bnpx --no-install /, name + ': ' + line)
+            }
         }
     })
 
@@ -238,7 +250,7 @@ describe('container workflows', () =>
         assert.ok(step < build.indexOf('      - name: Build'), 'before the build')
         const text = build.slice(step, build.indexOf('      - name: Build'))
         assert.ok(text.includes("require('./package.json').pragmaticContainerTemplate"))
-        assert.ok(text.includes('npx pragmatic-container-template check'))
+        assert.ok(text.includes('npx --no-install pragmatic-container-template check'))
     })
 
     it('container-ci.yml typechecks the repository after the build, skipping only a repository without a typecheck script', () =>

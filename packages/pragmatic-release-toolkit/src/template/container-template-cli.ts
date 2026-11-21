@@ -30,6 +30,7 @@ export class ContainerTemplateCli
     private static readonly Here = '.'
     private static readonly CarriageReturns = /\r\n/g
     private static readonly DriftPrefix = 'drift: '
+    private static readonly UnparseableManifest = 'drift: package.json (unparseable)'
     private static readonly DriftSummary = 'The rendered files differ from the template: re-render with pragmatic-container-template render --out . and commit'
     private static readonly MatchesMessage = 'The rendered files match the template'
     private static readonly NoArgsMessage = 'No render arguments: give --app and --entry, or keep them in package.json pragmaticContainerTemplate'
@@ -121,6 +122,11 @@ export class ContainerTemplateCli
             throw new ContainerTemplateUsageError(C.UsageMessage)
         }
         const out = single.get(C.FlagOut) ?? C.Here
+        const manifest = join(out, C.PackageJson)
+        if (existsSync(manifest))
+        {
+            C.CommittedManifest(manifest)
+        }
         const options = ContainerRenderArgs.Read(out)
         if (options === undefined)
         {
@@ -130,18 +136,22 @@ export class ContainerTemplateCli
         for (const [path, text] of C.Expected(out, options))
         {
             const file = join(out, path)
+            if (!existsSync(file) || !statSync(file).isFile())
+            {
+                drift.push(path)
+                continue
+            }
             if (path === C.PackageJson)
             {
-                const committed = JSON.parse(readFileSync(file, C.Utf8)) as Record<string, unknown>
                 const expected = JSON.parse(text) as Record<string, unknown>
                 const fields = [ContainerRenderArgs.PackageField, ClosureCheckConfig.PackageField]
-                if (fields.some(field => JSON.stringify(committed[field]) !== JSON.stringify(expected[field])))
+                if (fields.some(field => JSON.stringify(C.CommittedManifest(file)[field]) !== JSON.stringify(expected[field])))
                 {
                     drift.push(path)
                 }
                 continue
             }
-            if (!existsSync(file) || readFileSync(file, C.Utf8).replace(C.CarriageReturns, C.Newline) !== text)
+            if (readFileSync(file, C.Utf8).replace(C.CarriageReturns, C.Newline) !== text)
             {
                 drift.push(path)
             }
@@ -174,7 +184,10 @@ export class ContainerTemplateCli
         }
     }
 
-    /** Every rendered file, plus package.json carrying both fields when the repository has one. */
+    /**
+     * Every rendered file, plus package.json carrying the fields a render sets when the repository has one (a closure
+     * check field is removed where the image is not a Node closure).
+     */
     private static Expected(out: string, options: ContainerTemplateOptions): Map<string, string>
     {
         const C = ContainerTemplateCli
@@ -182,10 +195,34 @@ export class ContainerTemplateCli
         const manifest = join(out, C.PackageJson)
         if (existsSync(manifest))
         {
-            const parsed = JSON.parse(readFileSync(manifest, C.Utf8)) as Record<string, unknown>
-            files.set(C.PackageJson, JSON.stringify({ ...parsed, ...C.Fields(options) }, null, C.JsonIndent) + C.Newline)
+            const merged: Record<string, unknown> = { ...C.CommittedManifest(manifest), ...C.Fields(options) }
+            if (ContainerTemplate.ClosureCheckOptions(options) === undefined)
+            {
+                delete merged[ClosureCheckConfig.PackageField]
+            }
+            files.set(C.PackageJson, JSON.stringify(merged, null, C.JsonIndent) + C.Newline)
         }
         return files
+    }
+
+    /** The repository's package.json; one that is not a JSON object is named as such. */
+    private static CommittedManifest(file: string): Record<string, unknown>
+    {
+        const C = ContainerTemplateCli
+        let parsed: unknown
+        try
+        {
+            parsed = JSON.parse(readFileSync(file, C.Utf8))
+        }
+        catch
+        {
+            throw new Error(C.UnparseableManifest)
+        }
+        if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed))
+        {
+            throw new Error(C.UnparseableManifest)
+        }
+        return parsed as Record<string, unknown>
     }
 
     /** The package.json fields a render sets: the closure check options (Node apps) and the render arguments. */

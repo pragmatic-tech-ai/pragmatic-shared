@@ -28,6 +28,7 @@ export class ContainerRenderArgs
     private static readonly Utf8 = 'utf8'
     private static readonly ListFields: readonly string[] = ['UiDirs', 'ExtraCopies', 'DockerIgnore', 'GitIgnore']
     private static readonly KnownFields: ReadonlySet<string> = new Set(['App', 'Entry', 'UiDirs', 'ExtraCopies', 'Assets', 'DockerIgnore', 'GitIgnore'])
+    private static readonly AssetFields: ReadonlySet<string> = new Set(['From', 'To'])
     private static readonly BadFieldPrefix = 'package.json pragmaticContainerTemplate is not { App, Entry, UiDirs?, ExtraCopies?, Assets?, DockerIgnore?, GitIgnore? }: '
 
     /** The options the repository at `dir` keeps; undefined when its package.json has no such field (or none at all). */
@@ -69,6 +70,23 @@ export class ContainerRenderArgs
         return field
     }
 
+    private static IsText(value: unknown): value is string
+    {
+        return typeof value === 'string' && value.length > 0
+    }
+
+    /** `{ From, To }`, both non-empty, nothing else. */
+    private static IsAsset(asset: unknown): asset is ContainerAsset
+    {
+        const R = ContainerRenderArgs
+        if (typeof asset !== 'object' || asset === null || Array.isArray(asset))
+        {
+            return false
+        }
+        const value = asset as Record<string, unknown>
+        return Object.keys(value).every(key => R.AssetFields.has(key)) && R.IsText(value.From) && R.IsText(value.To)
+    }
+
     private static Validate(field: unknown): ContainerRenderArgsField
     {
         const R = ContainerRenderArgs
@@ -80,9 +98,8 @@ export class ContainerRenderArgs
         const unknownKey = Object.keys(value).find(key => !R.KnownFields.has(key))
         const app = ReleaseApps.All.find(candidate => candidate === value.App)
         const listsOk = R.ListFields.every(name => value[name] === undefined || (Array.isArray(value[name]) && (value[name] as unknown[]).every(item => typeof item === 'string')))
-        const assetsOk = value.Assets === undefined || (Array.isArray(value.Assets) && value.Assets.every(asset =>
-            typeof asset === 'object' && asset !== null && typeof (asset as ContainerAsset).From === 'string' && typeof (asset as ContainerAsset).To === 'string'))
-        if (unknownKey !== undefined || app === undefined || typeof value.Entry !== 'string' || !listsOk || !assetsOk)
+        const assetsOk = value.Assets === undefined || (Array.isArray(value.Assets) && value.Assets.every(asset => R.IsAsset(asset)))
+        if (unknownKey !== undefined || app === undefined || !R.IsText(value.Entry) || !listsOk || !assetsOk)
         {
             throw new ContainerTemplateError(R.BadFieldPrefix + JSON.stringify(field))
         }

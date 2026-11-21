@@ -115,7 +115,7 @@ jobs:
       - name: Rendered files match the template
         run: |
           if node -e "process.exit(require('./package.json').pragmaticContainerTemplate ? 0 : 1)"; then
-            npx pragmatic-container-template check
+            npx --no-install pragmatic-container-template check
           else
             echo '::warning::package.json has no pragmaticContainerTemplate: the rendered files are not checked against the template'
           fi
@@ -136,7 +136,7 @@ jobs:
           TEST_GLOB: ${{ inputs.node-test-glob }}
         run: |
           if [ -n "$TEST_GLOB" ]; then
-            npx tsx --test "$TEST_GLOB"
+            npx --no-install tsx --test "$TEST_GLOB"
           else
             npm test
           fi
@@ -160,7 +160,7 @@ jobs:
       # package.json `pragmaticClosureCheck`). The image build runs it again on the tree it is cut from.
       - name: Image closure check
         if: inputs.node && inputs.closure-check
-        run: npx pragmatic-closure-check
+        run: npx --no-install pragmatic-closure-check
       # Two steps: the descriptor and its bake override into .components, then the image labelled with its digest
       # (built, not pushed; the release workflow publishes).
       - name: Docker build

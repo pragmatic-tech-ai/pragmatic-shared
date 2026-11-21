@@ -64,10 +64,15 @@ copy (`tools/publish-packages.ts`, tests in `tools/tests/`, `npm run test:tools`
 
 A release is published by CI, not from a workstation: commit the version bump of every package (and the lock) on
 main, push, then push the tag `v<version>`. `.github/workflows/publish.yml` has three jobs. `pack` (read-only token)
-refuses a commit that is not on main and a package whose version differs from the tag, builds with every install's
-scripts off and packs every package as it will be published (`npm run publish:packages -- --pack-into <dir> <dirs>`,
-root build order, plus `provenance.json`: the commits of this repository, TODL and todl-runtime and the Mural version).
-`test` builds and tests as `ci.yml` does. `publish` (environment `packages`, no GITHUB_TOKEN permission) waits for
-both, checks nothing out and runs no repository code: it publishes those tarballs in order with
-`PACKAGES_PUBLISH_TOKEN`, a write:packages token held only as a secret of the `packages` environment, and skips a
-version already published, so it can be re-run.
+refuses a commit that is not on main and a package whose version differs from the tag, resolves the sibling commits
+and the Mural version once, installs with every install script off, builds with no registry token on disk, and packs
+every package as it will be published (`npm run publish:packages -- --pack-into <dir> <dirs>`, root build order, plus
+`provenance.json` and `SHA256SUMS`). `test` builds the same siblings and Mural and runs the tests. `publish`
+(environment `packages`, no GITHUB_TOKEN permission) waits for both, checks nothing out and runs no repository code: it
+takes the bundle by artifact id, refuses it unless its checksums are the pack job's, and publishes the tarballs in
+order with `PACKAGES_PUBLISH_TOKEN`, skipping a version already published, so it can be re-run.
+
+Setup (once, repository settings): an environment `packages` whose deployment rule allows tags `v*` (and `main`, for a
+run on demand), with the secret `PACKAGES_PUBLISH_TOKEN` (a write:packages token). No repository or organisation secret
+may carry that name: `secrets.PACKAGES_PUBLISH_TOKEN` would resolve it outside the environment. Each package's "Manage
+Actions access" gives this repository Read only, so no other workflow can publish with the run's own token.

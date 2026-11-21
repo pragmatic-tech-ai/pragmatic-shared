@@ -104,6 +104,41 @@ describe('ContainerTemplateCli', () =>
         assert.deepEqual(check.Err.filter(line => line.startsWith('drift: ')).sort(), ['drift: .dockerignore', 'drift: docker-bake.hcl', 'drift: package.json'])
     })
 
+    it('check reads CRLF checkouts as LF, names a directory where a file goes and an unparseable package.json as drift', () =>
+    {
+        const out = CliFixture.Out('crlf')
+        mkdirSync(out, { recursive: true })
+        writeFileSync(join(out, 'package.json'), JSON.stringify({ name: 'x' }, null, 2) + '\n')
+        assert.equal(CliFixture.Run(['render', '--app', 'pragmatic-hive-agent', '--entry', 'src/bin/pragmatic-agentd.ts', '--out', out]).Code, 0)
+        const ignore = join(out, '.dockerignore')
+        writeFileSync(ignore, readFileSync(ignore, 'utf8').replace(/\n/g, '\r\n'))
+        assert.equal(CliFixture.Run(['check', '--out', out]).Code, 0, 'a CRLF checkout is not drift')
+        rmSync(join(out, 'tsconfig.json'))
+        mkdirSync(join(out, 'tsconfig.json'))
+        const directory = CliFixture.Run(['check', '--out', out])
+        assert.equal(directory.Code, 1)
+        assert.ok(directory.Err.includes('drift: tsconfig.json'))
+        rmSync(join(out, 'tsconfig.json'), { recursive: true })
+        const manifest = readFileSync(join(out, 'package.json'), 'utf8')
+        writeFileSync(join(out, 'package.json'), manifest.slice(0, -3))
+        const broken = CliFixture.Run(['check', '--out', out])
+        assert.equal(broken.Code, 1)
+        assert.ok(broken.Err.includes('drift: package.json (unparseable)'), broken.Err.join('\n'))
+    })
+
+    it('drops a stale closure check field where the image is not a Node closure (pragmatic-postgres)', () =>
+    {
+        const out = CliFixture.Out('postgres')
+        mkdirSync(out, { recursive: true })
+        writeFileSync(join(out, 'package.json'), JSON.stringify({ name: 'x', pragmaticClosureCheck: { Apps: ['pragmatic-postgres'] } }, null, 2) + '\n')
+        assert.equal(CliFixture.Run(['check', '--out', out]).Code, 2, 'no render arguments yet')
+        assert.equal(CliFixture.Run(['render', '--app', 'pragmatic-postgres', '--entry', 'Dockerfile', '--out', out]).Code, 0)
+        const manifest = JSON.parse(readFileSync(join(out, 'package.json'), 'utf8'))
+        assert.equal(manifest.pragmaticClosureCheck, undefined)
+        assert.deepEqual(manifest.pragmaticContainerTemplate, { App: 'pragmatic-postgres', Entry: 'Dockerfile' })
+        assert.equal(CliFixture.Run(['check', '--out', out]).Code, 0)
+    })
+
     it('check and a flagless render refuse a repository without render arguments, and an ill-shaped field', () =>
     {
         const out = CliFixture.Out('no-args')
@@ -116,6 +151,11 @@ describe('ContainerTemplateCli', () =>
         assert.equal(CliFixture.Run(['check', '--out', out]).Code, 1)
         writeFileSync(join(out, 'package.json'), JSON.stringify({ name: 'x', pragmaticContainerTemplate: { App: 'pragmatic-hive-agent', Entry: 'src/a.ts', Extra: true } }))
         assert.equal(CliFixture.Run(['check', '--out', out]).Code, 1)
+        for (const bad of [{ Entry: '' }, { Assets: [{ From: '', To: 'dist/x' }] }, { Assets: [{ From: 'a', To: 'b', Mode: 1 }] }])
+        {
+            writeFileSync(join(out, 'package.json'), JSON.stringify({ name: 'x', pragmaticContainerTemplate: { App: 'pragmatic-hive-agent', Entry: 'src/a.ts', ...bad } }))
+            assert.equal(CliFixture.Run(['check', '--out', out]).Code, 1, JSON.stringify(bad))
+        }
     })
 
     it('takes --ui and --copy more than once, in order', () =>

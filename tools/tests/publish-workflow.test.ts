@@ -79,7 +79,8 @@ describe('publish workflow', () =>
         assert.doesNotMatch(text, /^ {2}pull_request:/m);
         assert.doesNotMatch(text, /branches:/);
         assert.deepEqual([...jobs.keys()], ['pack', 'test', 'publish']);
-        assert.ok(PublishWorkflow.IsMainOnly(pack) && PublishWorkflow.IsMainOnly(test));
+        assert.ok(PublishWorkflow.IsMainOnly(pack));
+        assert.match(test, /^ {4}needs: pack\n/m);
         assert.match(publish, /^ {4}needs: \[pack, test\]\n/m);
     });
 
@@ -102,14 +103,41 @@ describe('publish workflow', () =>
             assert.ok(line.includes('--ignore-scripts'), line);
         }
         assert.ok(!pack.includes('npm test'));
-        const steps = ['The commit is on main', 'run: npm ci --ignore-scripts --no-audit --no-fund', 'run: npm run build\n',
-            'npm run publish:packages -- --pack-into "$RUNNER_TEMP/bundle" $order', 'provenance.json', 'actions/upload-artifact@'];
+        const steps = ['The commit is on main', '(cd pragmatic-shared && npm ci --ignore-scripts --no-audit --no-fund)', '- name: Remove credentials before the build',
+            '(cd todl-runtime && npm run build)', 'run: npm run build\n', 'Configure GitHub Packages auth (read, for the pack)',
+            'npm run publish:packages -- --pack-into "$RUNNER_TEMP/bundle" $order', 'provenance.json', 'sha256sum -- *.tgz packages.json provenance.json > SHA256SUMS',
+            'actions/upload-artifact@'];
         const positions = steps.map(step => pack.indexOf(step));
         assert.ok(positions.every(position => position > 0), JSON.stringify(positions));
         assert.deepEqual([...positions].sort((a, b) => a - b), positions);
         assert.match(pack, /retention-days: 7\n {10}if-no-files-found: error\n {10}overwrite: true\n/);
         assert.ok(test.includes('run: npm test --workspaces && npm run test:tools'));
         assert.ok(!test.includes('publish:packages') && !test.includes('upload-artifact'));
+    });
+
+    it('resolves the sibling commits and the Mural version once, and the test job builds those very ones', () =>
+    {
+        assert.ok(pack.includes('echo "todl=$(git -C TODL rev-parse HEAD)" >> "$GITHUB_OUTPUT"'));
+        assert.ok(pack.includes('echo "runtime=$(git -C todl-runtime rev-parse HEAD)" >> "$GITHUB_OUTPUT"'));
+        assert.ok(pack.includes('echo "version=$version" >> "$GITHUB_OUTPUT"'));
+        assert.match(pack, /^ {6}todl: \$\{\{ steps\.siblings\.outputs\.todl \}\}\n {6}runtime: \$\{\{ steps\.siblings\.outputs\.runtime \}\}\n {6}mural: \$\{\{ steps\.mural\.outputs\.version \}\}\n/m);
+        assert.ok(test.includes('TODL_SHA: ${{ needs.pack.outputs.todl }}') && test.includes('RUNTIME_SHA: ${{ needs.pack.outputs.runtime }}'));
+        assert.ok(test.includes('git -C "$dir" fetch -q --depth 1 "https://github.com/pragmatic-tech-ai/$repo.git" "$sha"'));
+        assert.ok(test.includes('MURAL_VERSION: ${{ needs.pack.outputs.mural }}'));
+        assert.ok(!test.includes('npm view @pragmatic-tech-ai/mural version'));
+        assert.ok(!test.includes('git clone --depth 1'));
+    });
+
+    it('hands the bundle over by artifact id and checksums: the publish refuses any other bundle', () =>
+    {
+        assert.match(pack, /^ {6}artifact: \$\{\{ steps\.upload\.outputs\.artifact-id \}\}\n {6}sums: \$\{\{ steps\.sums\.outputs\.sha256 \}\}\n/m);
+        assert.ok(publish.includes('artifact-ids: ${{ needs.pack.outputs.artifact }}'));
+        assert.ok(!/^ {10}name: packages$/m.test(publish), 'never by name');
+        assert.ok(publish.includes('SUMS_SHA256: ${{ needs.pack.outputs.sums }}'));
+        assert.ok(publish.includes('[ "$(sha256sum SHA256SUMS | cut -d \' \' -f 1)" = "$SUMS_SHA256" ]'));
+        assert.ok(publish.includes('sha256sum -c --strict SHA256SUMS'));
+        assert.ok(publish.indexOf('sha256sum -c --strict SHA256SUMS') < publish.indexOf('Configure GitHub Packages auth (publish)'));
+        assert.ok(publish.includes('if ! [[ "$file" =~ ^[A-Za-z0-9._-]+\\.tgz$ ]] || [[ "$file" == *..* ]]; then'));
     });
 
     it('reads only GITHUB_TOKEN (read-only) in pack and test; publish holds no GITHUB_TOKEN permission and uses the environment\'s publish token', () =>

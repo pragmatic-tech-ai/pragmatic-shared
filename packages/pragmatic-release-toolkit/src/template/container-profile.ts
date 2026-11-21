@@ -126,8 +126,9 @@ export class ContainerProfiles
         'docker/tls/',
     ]
     private static readonly TenantIdpDockerIgnore: readonly string[] = [
-        '# Dev runs (tsx) write the IdP\'s keys and secrets into data/: never in the build context.',
+        '# Dev runs (tsx) write the IdP\'s keys and secrets into a data folder beside the sources: never in the build context.',
         'data',
+        '**/data',
     ]
     private static readonly TenantIdpGitIgnore: readonly string[] = [
         '# Dev runs (tsx) write the IdP\'s keys and secrets into a data folder beside the sources.',
