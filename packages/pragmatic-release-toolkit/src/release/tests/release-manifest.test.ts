@@ -120,6 +120,15 @@ describe('ReleaseManifest.Parse', () =>
         })), ReleaseManifestInvalidError)
     })
 
+    it('names an unknown field only when it has a plain name shape', () =>
+    {
+        const world = new ReleaseWorld()
+        const plain = Edit.Text(world, doc => { (doc as Record<string, unknown>).notes = 'x' })
+        assert.throws(() => ReleaseManifest.Parse(plain), (error: unknown) => error instanceof ReleaseManifestInvalidError && error.Reason === 'unknown field: notes')
+        const odd = Edit.Text(world, doc => { (doc as Record<string, unknown>)[Edit.BadName] = 'x' })
+        assert.throws(() => ReleaseManifest.Parse(odd), (error: unknown) => error instanceof ReleaseManifestInvalidError && error.Reason === 'unknown field')
+    })
+
     it('names a repository by the part after its owner', () =>
     {
         assert.equal(ReleaseManifest.RepositoryName(ReleaseWorld.Repository(ReleaseApp.HiveAgent)), ReleaseApp.HiveAgent)
@@ -184,17 +193,19 @@ describe('ReleaseManifest.Check', () =>
         ])
     })
 
-    it('reports a release version already tagged on an image repository with another digest; the same digest is fine', async () =>
+    it('reports release-<version> already tagged on an image repository with another digest; the same digest is fine', async () =>
     {
         const world = new ReleaseWorld()
         const client = world.Client()
         const repo = ReleaseWorld.ImageRepo(ReleaseApp.EnvServer)
         const own = world.Digests.get(ReleaseApp.EnvServer) as string
-        await client.TagManifest(repo, own, ReleaseWorld.ReleaseVersion)
+        const tag = ReleaseManifest.ImageTagOf(ReleaseWorld.ReleaseVersion)
+        assert.equal(tag, 'release-' + ReleaseWorld.ReleaseVersion)
+        await client.TagManifest(repo, own, tag)
         const doc = ReleaseManifest.Parse(world.ManifestText())
         assert.deepEqual(await ReleaseManifest.Check(doc, client, world.Assets, ReleaseWorld.Namespace), [])
         const other = world.Digests.get(ReleaseApp.EnvGateway) as string
-        world.Registry.PutManifest(repo, ReleaseWorld.ReleaseVersion, await client.PullManifest(ReleaseWorld.ImageRepo(ReleaseApp.EnvGateway), other), FakeReleaseImage.ManifestType)
+        world.Registry.PutManifest(repo, tag, await client.PullManifest(ReleaseWorld.ImageRepo(ReleaseApp.EnvGateway), other), FakeReleaseImage.ManifestType)
         assert.deepEqual(await ReleaseManifest.Check(doc, client, world.Assets, ReleaseWorld.Namespace),
             [{ App: ReleaseApp.EnvServer, Kind: ReleaseManifestProblemKind.VersionTagTaken }])
     })

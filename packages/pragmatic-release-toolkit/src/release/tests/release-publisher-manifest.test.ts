@@ -176,14 +176,16 @@ describe('ReleasePublisher from a release manifest', () =>
         assert.ok(ReleaseSignature.Verifies(descriptorDigest, manifest.annotations[ReleasePublisher.SignatureAnnotation], f.Key.Public))
     })
 
-    it('tags every image with the release version (the same digest), then pushes the descriptor last', async () =>
+    it('tags every image release-<version> (the same digest), leaves the container tags alone, then pushes the descriptor last', async () =>
     {
         const f = new AssembleFixture()
         await f.Publisher().PublishManifest(f.Input())
         const client = f.World.Client()
         for (const app of ReleaseApps.All)
         {
-            assert.equal(await client.HeadManifest(ReleaseWorld.ImageRepo(app), ReleaseWorld.ReleaseVersion), f.World.Digests.get(app), app)
+            assert.equal(await client.HeadManifest(ReleaseWorld.ImageRepo(app), ReleaseManifest.ImageTagOf(ReleaseWorld.ReleaseVersion)), f.World.Digests.get(app), app)
+            assert.equal(await client.HeadManifest(ReleaseWorld.ImageRepo(app), ReleaseWorld.ReleaseVersion), undefined, app)
+            assert.equal(await client.HeadManifest(ReleaseWorld.ImageRepo(app), ReleaseWorld.ComponentVersion), f.World.Digests.get(app), app)
         }
         const puts = f.World.Registry.Requests.filter(r => r.method === AssembleFixture.MethodPut)
         assert.ok(puts.at(-1)?.url.includes(AssembleFixture.DescriptorRepo + '/manifests/' + ReleaseWorld.ReleaseVersion))
@@ -215,6 +217,23 @@ describe('ReleasePublisher from a release manifest', () =>
         assert.ok(mismatched.PushedNothing)
     })
 
+    it('finishes a publish that stopped after tagging some images: re-run as is', async () =>
+    {
+        const f = new AssembleFixture()
+        const client = f.World.Client()
+        const tag = ReleaseManifest.ImageTagOf(ReleaseWorld.ReleaseVersion)
+        for (const app of [ReleaseApp.PlatformAdmin, ReleaseApp.EnvServer])
+        {
+            await client.TagManifest(ReleaseWorld.ImageRepo(app), f.World.Digests.get(app) as string, tag)
+        }
+        const { descriptor } = await f.Publisher().PublishManifest(f.Input())
+        assert.equal(descriptor.version, ReleaseWorld.ReleaseVersion)
+        for (const app of ReleaseApps.All)
+        {
+            assert.equal(await client.HeadManifest(ReleaseWorld.ImageRepo(app), tag), f.World.Digests.get(app), app)
+        }
+    })
+
     it('refuses a release commit that is not 40 hex before any request', async () =>
     {
         const f = new AssembleFixture()
@@ -234,6 +253,17 @@ describe('ReleasePublishCli with a release manifest', () =>
             assert.equal(cli.Lines.length, 1)
             assert.ok(cli.Lines[0].includes(ReleaseWorld.ReleaseVersion))
             assert.ok(cli.Base.PushedNothing)
+        })
+    })
+
+    it('assemble refuses a version whose release descriptor is already published', async () =>
+    {
+        const f = new AssembleFixture()
+        await f.Publisher().PublishManifest(f.Input())
+        await ManifestCli.With(f, async cli =>
+        {
+            assert.equal(await cli.Run('assemble', '--manifest', cli.Manifest), 1)
+            assert.deepEqual(cli.Errors, [new ReleaseVersionExistsError(ReleaseWorld.ReleaseVersion).message])
         })
     })
 

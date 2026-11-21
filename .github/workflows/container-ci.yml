@@ -3,11 +3,13 @@
 # PACKAGES_TOKEN (no sibling checkout). Steps: install, build, the typecheck (when the repository has a `typecheck`
 # script), tests, UI unit tests (and typecheck where a UI has one), the image closure check, the two-step image bake
 # (`components` exports the component descriptor and the override that labels the image with its digest, then the
-# image), the label check (the image's /pragmatic/component.json hashes to its label), the start smoke (the image is
-# started once with no configuration: a module-resolution error, or a death that is not a configuration refusal, fails;
-# still running after 20 s passes; `start-smoke: false` turns it off), the optional image test and the optional Helm
-# lint/render. With `arm64` the image is also baked and checked on a native arm64 runner. `closure-check: false` skips only the closure check (pragmatic-postgres, whose
-# image is not a Node closure); `node: false` also skips the build and tests (a repository with no Node code of its own).
+# image), the label check (the image's /pragmatic/component.json hashes to its label), the opt-in start smoke
+# (`start-smoke: true`, rendered by the template for every Node app: the toolkit's scripts/start-smoke.sh, so the
+# caller's lock needs pragmatic-release-toolkit 0.17.3 or later, starts the image once with no configuration; a
+# module-resolution error, or a non-zero exit without a configuration refusal, fails; still running after 20 s passes),
+# the optional image test and the optional Helm lint/render. With `arm64` the image is also baked and checked on a
+# native arm64 runner. `closure-check: false` skips only the closure check (pragmatic-postgres, whose image is not a
+# Node closure); `node: false` also skips the build and tests (a repository with no Node code of its own).
 # A pull request from a fork gets no PACKAGES_TOKEN: the gate job says so and every other job is skipped.
 # Inputs reach scripts only through env, never interpolated into a script. The npm credentials are written under umask
 # 077 to one file, which every npm step reads (NPM_CONFIG_USERCONFIG) and the bake hands in as its `npmrc` secret, and
@@ -51,7 +53,7 @@ on:
       start-smoke:
         description: Start the baked image once with no configuration and fail on a module error or a non-configuration death.
         type: boolean
-        default: true
+        default: false
       start-smoke-args:
         description: Extra docker run arguments for the start smoke (space separated, e.g. -e NAME=value).
         type: string
@@ -59,7 +61,7 @@ on:
       start-smoke-refusal:
         description: An extended grep pattern (case-insensitive) a configuration refusal prints; a non-zero exit without it fails.
         type: string
-        default: 'required|must be|not set|missing|not found|refus|invalid'
+        default: 'is required|required environment variable|must be set'
     secrets:
       PACKAGES_TOKEN:
         required: false
@@ -164,32 +166,7 @@ jobs:
         env:
           SMOKE_ARGS: ${{ inputs.start-smoke-args }}
           SMOKE_REFUSAL: ${{ inputs.start-smoke-refusal }}
-        run: |
-          name="start-smoke-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-          # SMOKE_ARGS is split into words on purpose: it holds docker run flags.
-          # shellcheck disable=SC2086
-          docker run -d --name "$name" $SMOKE_ARGS "$IMAGE" > /dev/null
-          running=true
-          for _ in $(seq 1 20); do
-            if [ "$(docker inspect -f '{{.State.Running}}' "$name")" != true ]; then
-              running=false
-              break
-            fi
-            sleep 1
-          done
-          logs="$(docker logs "$name" 2>&1)"
-          code="$(docker inspect -f '{{.State.ExitCode}}' "$name")"
-          docker rm -f "$name" > /dev/null
-          printf '%s\n' "$logs"
-          if printf '%s' "$logs" | grep -Eq 'ERR_MODULE_NOT_FOUND|Cannot find module|Cannot find package|ERR_PACKAGE_PATH_NOT_EXPORTED'; then
-            echo '::error::the image cannot resolve a module'
-            exit 1
-          fi
-          if [ "$running" = false ] && [ "$code" != 0 ] && ! printf '%s' "$logs" | grep -Eiq "$SMOKE_REFUSAL"; then
-            echo "::error::the image died (exit $code) without a configuration refusal"
-            exit 1
-          fi
-          echo "start smoke passed (running after 20 s: $running, exit $code)"
+        run: bash node_modules/@pragmatic-tech-ai/pragmatic-release-toolkit/scripts/start-smoke.sh "$IMAGE"
       - name: Image test
         if: inputs.image-test
         run: bash tests/image.test.sh "$IMAGE"
@@ -244,32 +221,7 @@ jobs:
         env:
           SMOKE_ARGS: ${{ inputs.start-smoke-args }}
           SMOKE_REFUSAL: ${{ inputs.start-smoke-refusal }}
-        run: |
-          name="start-smoke-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-          # SMOKE_ARGS is split into words on purpose: it holds docker run flags.
-          # shellcheck disable=SC2086
-          docker run -d --name "$name" $SMOKE_ARGS "$IMAGE" > /dev/null
-          running=true
-          for _ in $(seq 1 20); do
-            if [ "$(docker inspect -f '{{.State.Running}}' "$name")" != true ]; then
-              running=false
-              break
-            fi
-            sleep 1
-          done
-          logs="$(docker logs "$name" 2>&1)"
-          code="$(docker inspect -f '{{.State.ExitCode}}' "$name")"
-          docker rm -f "$name" > /dev/null
-          printf '%s\n' "$logs"
-          if printf '%s' "$logs" | grep -Eq 'ERR_MODULE_NOT_FOUND|Cannot find module|Cannot find package|ERR_PACKAGE_PATH_NOT_EXPORTED'; then
-            echo '::error::the image cannot resolve a module'
-            exit 1
-          fi
-          if [ "$running" = false ] && [ "$code" != 0 ] && ! printf '%s' "$logs" | grep -Eiq "$SMOKE_REFUSAL"; then
-            echo "::error::the image died (exit $code) without a configuration refusal"
-            exit 1
-          fi
-          echo "start smoke passed (running after 20 s: $running, exit $code)"
+        run: bash node_modules/@pragmatic-tech-ai/pragmatic-release-toolkit/scripts/start-smoke.sh "$IMAGE"
       - name: Image test (arm64)
         if: inputs.image-test
         run: bash tests/image.test.sh "$IMAGE"

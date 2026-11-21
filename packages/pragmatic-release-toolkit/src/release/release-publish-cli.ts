@@ -149,12 +149,14 @@ export class ReleasePublishCli
         output.Out(S.VersionLabel + tag.Version + S.FreeSuffix)
     }
 
-    /** Prints the problems (stderr) and answers 1, or one line and 0. */
+    /** Refuses a published version; prints the problems (stderr) and answers 1, or one line and 0. */
     private static async Assemble(flags: Map<string, string>, env: NodeJS.ProcessEnv, output: ReleaseCliOutput, fetchFn?: OciFetch, assets?: IComponentAssetSource): Promise<number>
     {
         const S = ReleasePublishCli
         const manifest = ReleaseManifest.Parse(S.ReadFile(S.Flag(flags, S.FlagManifest), S.UnreadableManifestMessage))
-        const inspection = await S.NewPublisher(env, fetchFn).Assemble(manifest, assets ?? S.NewAssets(env))
+        const publisher = S.NewPublisher(env, fetchFn)
+        await publisher.CheckVersionFree(manifest.version)
+        const inspection = await publisher.Assemble(manifest, assets ?? S.NewAssets(env))
         if (inspection.Problems.length > 0)
         {
             for (const problem of inspection.Problems)

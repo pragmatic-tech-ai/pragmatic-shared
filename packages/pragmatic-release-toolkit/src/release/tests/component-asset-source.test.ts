@@ -109,6 +109,29 @@ describe('GitHubComponentAssetSource', () =>
         }
     })
 
+    it('refuses an asset whose declared length passes the limit before reading it', async () =>
+    {
+        const github = new FakeGitHub()
+        const declared = String(GitHubComponentAssetSource.MaxAssetBytes + 1)
+        github.Routes.set(FakeGitHub.Download, () => new Response(FakeGitHub.AssetBytes as BodyInit, { status: 200, headers: { 'content-length': declared } }))
+        await assert.rejects(github.Source().ComponentAsset(FakeGitHub.Repository, FakeGitHub.Version), /larger than a component descriptor/)
+    })
+
+    it('keeps the API base path (GitHub Enterprise Server /api/v3) and sends the token to its origin only', async () =>
+    {
+        const base = 'https://ghes.test/api/v3/'
+        const seen: Seen[] = []
+        const fetch: GitHubFetch = async (url, init) =>
+        {
+            seen.push({ Url: url, Init: init })
+            return url.endsWith('/commits/v0.1.0') ? new Response(FakeGitHub.Commit, { status: 200 }) : new Response(null, { status: 404 })
+        }
+        const source = new GitHubComponentAssetSource(fetch, FakeGitHub.Token, base)
+        assert.equal(await source.ReleaseCommit(FakeGitHub.Repository, FakeGitHub.Version), FakeGitHub.Commit)
+        assert.equal(seen[0].Url, 'https://ghes.test/api/v3/repos/pragmatic-tech-ai/pragmatic-ui-unpack/commits/v0.1.0')
+        assert.equal(seen[0].Init.headers[FakeGitHub.Authorization], 'Bearer ' + FakeGitHub.Token)
+    })
+
     it('reads the commit tag v<version> names, undefined for a tag GitHub does not know', async () =>
     {
         const github = new FakeGitHub()

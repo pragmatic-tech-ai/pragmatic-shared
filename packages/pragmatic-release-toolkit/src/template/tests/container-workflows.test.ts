@@ -242,7 +242,7 @@ describe('container workflows', () =>
         assert.ok(step.includes('npm run typecheck'))
     })
 
-    it('container-ci.yml starts every baked image once: a module error or a non-configuration death fails, a running image passes and is removed', () =>
+    it('container-ci.yml starts every baked image once when asked (opt-in): the toolkit script, after the bake and the label check', () =>
     {
         const ci = Workflows.Read(Workflows.Ci)
         const jobs = new Map(Workflows.Jobs(ci).map(job => [job.Name, job.Lines.join('\n')]))
@@ -254,18 +254,30 @@ describe('container workflows', () =>
             const step = body.slice(start, body.indexOf('      - name: Image test', start))
             assert.match(step, /if: inputs\.start-smoke\n/, job)
             assert.match(step, /SMOKE_ARGS: \$\{\{ inputs\.start-smoke-args \}\}/, job)
-            assert.ok(step.includes('docker run -d --name "$name" $SMOKE_ARGS "$IMAGE"'), job + ': no configuration but the extra args')
-            assert.ok(step.includes('seq 1 20'), job + ': about 20 s')
-            for (const marker of ['ERR_MODULE_NOT_FOUND', 'Cannot find module', 'ERR_PACKAGE_PATH_NOT_EXPORTED'])
-            {
-                assert.ok(step.includes(marker), job + ' ' + marker)
-            }
-            assert.ok(step.includes('[ "$running" = false ] && [ "$code" != 0 ] && ! printf'), job + ': dies without a refusal')
-            assert.ok(step.includes('grep -Eiq "$SMOKE_REFUSAL"'), job)
-            assert.ok(step.includes('docker rm -f "$name"'), job + ': stopped and removed')
+            assert.match(step, /SMOKE_REFUSAL: \$\{\{ inputs\.start-smoke-refusal \}\}/, job)
+            assert.ok(step.includes('run: bash node_modules/@pragmatic-tech-ai/pragmatic-release-toolkit/scripts/start-smoke.sh "$IMAGE"'), job)
         }
         const inputs = Workflows.Block(ci, 'on').join('\n')
-        assert.match(inputs, / {6}start-smoke:\n {8}description: .*\n {8}type: boolean\n {8}default: true\n/)
+        assert.match(inputs, / {6}start-smoke:\n {8}description: .*\n {8}type: boolean\n {8}default: false\n/, 'callers rendered before it keep passing')
+        assert.match(inputs, / {6}start-smoke-refusal:\n {8}description: .*\n {8}type: string\n {8}default: 'is required\|required environment variable\|must be set'\n/)
+    })
+
+    it('start-smoke.sh fails on a module error or a death without a refusal, passes a running image, and always removes it', () =>
+    {
+        const script = readFileSync(join(Workflows.Directory, '..', '..', 'packages', 'pragmatic-release-toolkit', 'scripts', 'start-smoke.sh'), 'utf8')
+        assert.ok(script.startsWith('#!/usr/bin/env bash\n'))
+        assert.ok(script.includes('set -euo pipefail'))
+        assert.ok(script.includes('read -r -a ARGS <<< "${SMOKE_ARGS:-}"'), 'split on blanks, never globbed')
+        assert.ok(script.includes('docker run -d --name "$NAME" "${ARGS[@]}" "$IMAGE"'), 'no configuration but the extra args')
+        assert.ok(script.includes('SECONDS_TO_WAIT="${SMOKE_SECONDS:-20}"'))
+        for (const marker of ['ERR_MODULE_NOT_FOUND', 'Cannot find module', 'Cannot find package', 'ERR_PACKAGE_PATH_NOT_EXPORTED', 'ERR_UNSUPPORTED_DIR_IMPORT',
+            'ERR_UNKNOWN_FILE_EXTENSION', 'ERR_REQUIRE_ESM'])
+        {
+            assert.ok(script.includes(marker), marker)
+        }
+        assert.ok(script.includes('if [ "$running" = false ] && [ "$code" != 0 ] && ! printf \'%s\' "$logs" | grep -Eiq "$REFUSAL"; then'))
+        assert.ok(script.includes('trap cleanup EXIT') && script.includes('docker rm -f "$NAME"'), 'stopped and removed whatever the outcome')
+        assert.ok(!script.includes('\r'))
     })
 
     it('every bake names its bake file, also the first (components) step', () =>

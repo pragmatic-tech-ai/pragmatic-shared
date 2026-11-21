@@ -136,8 +136,10 @@ export class ReleaseComponentMissingError extends Error
  * component descriptor digest is read from its label and recorded beside the image digest, so the descriptor signature
  * binds both. The descriptor is pushed last, so its existence means every image was present, labelled and signed.
  * `Publish` takes the images tagged with the release version (the monorepo release); `PublishManifest` takes them by
- * digest from a release manifest, checked first (`Assemble`), and tags each with the release version before the
- * descriptor is pushed, so `<app>:<release version>` names the released image as before.
+ * digest from a release manifest, checked first (`Assemble`), and tags each `release-<version>`
+ * (ReleaseManifest.ImageTagOf; a container release tags `<version>`) before the descriptor is pushed. A publish that
+ * stopped after some tags is re-run as is: a tag that already names the manifest digest passes the check and is put
+ * again, and the version stays free until the descriptor push.
  */
 export class ReleasePublisher
 {
@@ -249,7 +251,7 @@ export class ReleasePublisher
         S.AssertVerifies(bytes, descriptorDigest, signature, input)
         for (const app of ReleaseApps.All)
         {
-            await this.registry.TagManifest(this.repo(app), input.manifest.components[app].digest, tag.Version)
+            await this.registry.TagManifest(this.repo(app), input.manifest.components[app].digest, ReleaseManifest.ImageTagOf(tag.Version))
         }
         await this.registry.PushArtifact(this.repo(S.DescriptorRepository), tag.Version, S.ArtifactType, S.LayerMediaType, bytes, {
             [S.SignatureAnnotation]: signature,

@@ -14,14 +14,17 @@ The platform release toolkit, lifted from pragmatic-server by the container spli
   `IComponentAssetSource` seam and `GitHubComponentAssetSource` (GitHub REST; the token goes to the API origin only),
   `ReleasePublisher.Assemble` (check only) and `PublishManifest` (schema-2 descriptor: the manifest's digests, the
   labelled component digests, `siblingCommits` = each container repository's tag commit, `serverCommit` = the release
-  repository's commit; every image is tagged with the release version, then the descriptor is pushed last), and the
-  commands `pragmatic-release-publish assemble --manifest <path>` (prints each problem, exit 1 on any) and `publish
+  repository's commit; every image is tagged `release-<version>` (`ReleaseManifest.ImageTagOf`, apart from a
+  container release's `<version>` tags), then the descriptor is pushed last; a stopped publish is re-run as is), and the
+  commands `pragmatic-release-publish assemble --manifest <path>` (refuses a published version, prints each problem, exit 1
+  on any) and `publish
   --manifest <path> --key-id <id> [--trust-dir <dir>] [--release-commit <sha>]` (default `GITHUB_SHA`; the signing key
   from the file `RELEASE_SIGNING_KEY_FILE` names; component assets read with `GITHUB_TOKEN` when set).
   `OciRegistryClient.TagManifest(repo, digest, tag)` re-tags an image manifest or index by its own media type.
 - images: `OciRegistryClient`, `ImageSigner`, `CryptoImageVerifier`, `PinnedImageVerifier` (`VerifiedImage`),
   `FileKeyStore`, the `IImageDigest` and `ISignatureStore` seams, `ComponentImageLabel`, and
-  `scripts/check-component-label.sh <image>...` (the image's `/pragmatic/component.json` hashes to its label).
+  `scripts/check-component-label.sh <image>...` (the image's `/pragmatic/component.json` hashes to its label) and
+  `scripts/start-smoke.sh <image>` (container-ci.yml's start smoke).
 - UI artifacts: `UiArtifact`, `UiArtifactSigner` / `UiArtifactVerifier`.
 - component descriptors: `ComponentDescriptorSet` (a vendored, digest-pinned set), `ComponentDescriptorCli` over the
   caller's `IReleaseComponentSource`, and its command `pragmatic-component-descriptors --components <module> emit-all |
@@ -54,10 +57,11 @@ The platform release toolkit, lifted from pragmatic-server by the container spli
   <descriptor>)`. pragmatic-postgres keeps its own Dockerfile (its entry): it gets `components.Dockerfile` (the
   descriptor build) and a bake file whose image target reads the descriptor from the `components` build context.
 - the reusable workflows (repository root `.github/workflows`): `container-ci.yml` (inputs `app`, `node-test-glob`,
-  `ui-dirs`, `image-test`, `arm64`, `helm-chart`, `node`, `closure-check`, `start-smoke` (default on: the baked image
-  is started once with no configuration and `start-smoke-args`; a module-resolution error, or a non-zero exit whose
-  output does not match `start-smoke-refusal`, fails; still running after 20 s passes), `start-smoke-args`,
-  `start-smoke-refusal`; the repository's `typecheck` script runs after the build when it has one; secret
+  `ui-dirs`, `image-test`, `arm64`, `helm-chart`, `node`, `closure-check`, `start-smoke` (opt-in, the template
+  renders it for every Node app: `scripts/start-smoke.sh` starts the baked image once with no configuration and
+  `start-smoke-args`; a module-resolution error, or a non-zero exit whose output does not match `start-smoke-refusal`
+  (default `is required|required environment variable|must be set`), fails; still running after 20 s passes),
+  `start-smoke-args`, `start-smoke-refusal`; the repository's `typecheck` script runs after the build when it has one; secret
   `PACKAGES_TOKEN`, absent on a fork's pull request, which then skips with a warning) and `container-release.yml` (on the caller's `v<semver>` tag, equal to
   the version of input `version-manifest`; build and test, per-arch bake pushed by digest, `imagetools` join under
   `:<version>` and `:git-<sha>`, output `digest`, `component.json` and `digest.txt` on the tag's GitHub release). The

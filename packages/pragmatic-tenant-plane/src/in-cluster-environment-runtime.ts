@@ -210,9 +210,10 @@ export class InClusterEnvironmentRuntime implements IEnvironmentRuntime
 
     /**
      * For a hive that trusts the platform signing key, signs the platform's server image and, with an app deployment, the
-     * UI unpack image (as the hive will pull them) so the hive's fail-closed verification accepts them. The image is the one placement chose for the template, never
-     * caller input; signing per bring-up keeps a rebuilt image runnable. Any other hive (own trust root, or none) gets
-     * nothing signed here and its verification decides. See the platform console's PlatformImageSigner for the trust trade-off.
+     * UI unpack image (as the hive will pull them) so the hive's fail-closed verification accepts them. The images are
+     * the ones placement chose for the template, never caller input; signing per bring-up keeps a rebuilt image
+     * runnable. Any other hive (own trust root, or none) gets nothing signed here and its verification decides. See the
+     * platform console's PlatformImageSigner for the trust trade-off.
      */
     private async SignServerImage(hive: HiveRecord, workload: EnvironmentWorkload): Promise<void>
     {

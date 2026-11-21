@@ -38,18 +38,20 @@ export class ReleaseManifestInvalidError extends Error
 /** An app of ReleaseApps.All has no component: every release ships all of them. */
 export class ReleaseManifestMissingAppError extends ReleaseManifestInvalidError
 {
+    private static readonly TypeName = 'ReleaseManifestMissingAppError'
     private static readonly ReasonPrefix = 'missing app: '
 
     public constructor(public readonly App: ReleaseApp)
     {
         super(ReleaseManifestMissingAppError.ReasonPrefix + App)
-        this.name = ReleaseManifestMissingAppError.name
+        this.name = ReleaseManifestMissingAppError.TypeName
     }
 }
 
 /** A component names no release app. The name is echoed only when it has a plain name shape. */
 export class ReleaseManifestUnknownAppError extends ReleaseManifestInvalidError
 {
+    private static readonly TypeName = 'ReleaseManifestUnknownAppError'
     private static readonly Reason = 'unknown app'
     private static readonly NameSeparator = ': '
 
@@ -58,19 +60,20 @@ export class ReleaseManifestUnknownAppError extends ReleaseManifestInvalidError
         super(ReleaseDescriptorCodec.IsRepoName(Name)
             ? ReleaseManifestUnknownAppError.Reason + ReleaseManifestUnknownAppError.NameSeparator + Name
             : ReleaseManifestUnknownAppError.Reason)
-        this.name = ReleaseManifestUnknownAppError.name
+        this.name = ReleaseManifestUnknownAppError.TypeName
     }
 }
 
 /** A component's image reference is not a `sha256:<64 hex>` digest (a tag, a placeholder, ...). */
 export class ReleaseManifestDigestError extends ReleaseManifestInvalidError
 {
+    private static readonly TypeName = 'ReleaseManifestDigestError'
     private static readonly ReasonPrefix = 'not a sha256 digest: '
 
     public constructor(public readonly App: ReleaseApp)
     {
         super(ReleaseManifestDigestError.ReasonPrefix + App)
-        this.name = ReleaseManifestDigestError.name
+        this.name = ReleaseManifestDigestError.TypeName
     }
 }
 
@@ -80,7 +83,7 @@ export enum ReleaseManifestProblemKind
     ImageMissing = 'the image is not in the registry at the manifest digest',
     LabelMissing = 'the image carries no component descriptor label',
     LabelUnreadable = 'the image component descriptor label cannot be read',
-    VersionTagTaken = 'the image repository already tags the release version with another digest',
+    VersionTagTaken = 'the image repository already tags release-<version> with another digest',
     AssetMissing = 'the repository release v<version> has no component.json asset',
     AssetMismatch = 'the image component label is not the digest of the component.json asset',
     AssetForeign = 'the component.json asset is not this app at the manifest version',
@@ -103,7 +106,8 @@ export type ReleaseManifestInspection = {
  * each a repository, a version and a digest) and checked against what the registry and the container repositories'
  * releases hold (`Check`): each image exists at its digest, carries a component label, and that label is the digest of
  * the `component.json` the repository's release `v<version>` attached (whose `component` and `version` are the app's);
- * the release version tag is free on every image repository or already names the same digest; the release tag exists.
+ * the image tag `release-<version>` (ImageTagOf) is free on every image repository or already names the same digest
+ * (a re-run after a partial publish); the repository tag `v<version>` exists.
  * Imports only node builtins and builtin-only relative modules.
  */
 export class ReleaseManifest
@@ -126,7 +130,10 @@ export class ReleaseManifest
     private static readonly BadSchema = 'schema must be 1'
     private static readonly BadVersion = 'version is not a release version (X.Y.Z or X.Y.Z-early.N)'
     private static readonly BadComponents = 'components must be an object of apps'
-    private static readonly UnknownFieldPrefix = 'unknown field: '
+    private static readonly UnknownField = 'unknown field'
+    private static readonly FieldSeparator = ': '
+    /** The image tag a platform release adds: prefixed, so it never meets a container release's `<version>` tag. */
+    private static readonly ImageTagPrefix = 'release-'
     private static readonly BadComponentPrefix = 'ill-shaped component: '
     private static readonly BadRepositoryPrefix = 'repository is not <owner>/<name>: '
     private static readonly BadComponentVersionPrefix = 'version is not X.Y.Z[-pre-release]: '
@@ -177,6 +184,15 @@ export class ReleaseManifest
         }
         S.RefuseRepositoryConflicts(components as Record<ReleaseApp, ReleaseManifestComponent>)
         return { schema: S.Schema, version: raw.version, components: components as Record<ReleaseApp, ReleaseManifestComponent> }
+    }
+
+    /**
+     * The tag a platform release gives each of its images, `release-<version>`: a container repository's release tags its
+     * image `<version>` (and `git-<sha>`), so the two never meet in one image repository.
+     */
+    public static ImageTagOf(releaseVersion: string): string
+    {
+        return ReleaseManifest.ImageTagPrefix + releaseVersion
     }
 
     /** The repository's name without its owner: the key of the release descriptor's `siblingCommits`. */
@@ -262,7 +278,7 @@ export class ReleaseManifest
                 }
                 kinds.push(ReleaseManifestProblemKind.LabelUnreadable)
             }
-            const tagged = await registry.HeadManifest(repo, releaseVersion)
+            const tagged = await registry.HeadManifest(repo, S.ImageTagOf(releaseVersion))
             if (tagged !== undefined && tagged !== component.digest)
             {
                 kinds.push(ReleaseManifestProblemKind.VersionTagTaken)
@@ -355,8 +371,9 @@ export class ReleaseManifest
         {
             if (!known.has(key))
             {
-                throw new ReleaseManifestInvalidError(ReleaseManifest.UnknownFieldPrefix
-                    + (ReleaseDescriptorCodec.IsRepoName(key) ? key : ReleaseManifest.FieldComponent))
+                throw new ReleaseManifestInvalidError(ReleaseDescriptorCodec.IsRepoName(key)
+                    ? ReleaseManifest.UnknownField + ReleaseManifest.FieldSeparator + key
+                    : ReleaseManifest.UnknownField)
             }
         }
     }

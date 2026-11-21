@@ -51,6 +51,8 @@ export class GitHubComponentAssetSource implements IComponentAssetSource
     private static readonly ApiVersionHeader = 'X-GitHub-Api-Version'
     private static readonly UserAgentHeader = 'User-Agent'
     private static readonly LocationHeader = 'location'
+    private static readonly ContentLengthHeader = 'content-length'
+    private static readonly TrailingSlashes = /\/+$/
     private static readonly JsonType = 'application/vnd.github+json'
     private static readonly ShaType = 'application/vnd.github.sha'
     private static readonly OctetStream = 'application/octet-stream'
@@ -74,7 +76,10 @@ export class GitHubComponentAssetSource implements IComponentAssetSource
     private static readonly BadRedirectMessage = 'GitHub redirected the asset download somewhere that is not https'
     private static readonly GlobalFetch: GitHubFetch = (url, init) => fetch(url, init as RequestInit)
 
+    /** The API base without a trailing slash (`https://api.github.com`, a GHES `https://host/api/v3`). */
     private readonly api: string
+    /** The origin the token is sent to, and the only one an asset API URL may name. */
+    private readonly apiOrigin: string
 
     public constructor(
         private readonly fetchFn: GitHubFetch = GitHubComponentAssetSource.GlobalFetch,
@@ -82,7 +87,9 @@ export class GitHubComponentAssetSource implements IComponentAssetSource
         api: string = GitHubComponentAssetSource.DefaultApi,
     )
     {
-        this.api = new URL(api).origin
+        const base = new URL(api)
+        this.apiOrigin = base.origin
+        this.api = base.origin + base.pathname.replace(GitHubComponentAssetSource.TrailingSlashes, '')
     }
 
     public async ComponentAsset(repository: string, version: string): Promise<Uint8Array | undefined>
@@ -100,7 +107,7 @@ export class GitHubComponentAssetSource implements IComponentAssetSource
         {
             return undefined
         }
-        if (new URL(assetUrl).origin !== this.api)
+        if (new URL(assetUrl).origin !== this.apiOrigin)
         {
             throw new ComponentAssetUnavailableError(S.UnreadableMessage)
         }
@@ -168,7 +175,7 @@ export class GitHubComponentAssetSource implements IComponentAssetSource
             [S.ApiVersionHeader]: S.ApiVersion,
             [S.UserAgentHeader]: S.UserAgent,
         }
-        if (this.token !== undefined && this.token.length > 0 && new URL(url).origin === this.api)
+        if (this.token !== undefined && this.token.length > 0 && new URL(url).origin === this.apiOrigin)
         {
             headers[S.AuthorizationHeader] = S.BearerPrefix + this.token
         }
@@ -226,21 +233,46 @@ export class GitHubComponentAssetSource implements IComponentAssetSource
         return undefined
     }
 
+    /** The body, refused once it passes MaxAssetBytes: by its declared length before reading, else while streaming it. */
     private static async ReadAsset(response: Response): Promise<Uint8Array>
     {
         const S = GitHubComponentAssetSource
-        let bytes: Uint8Array
+        const declared = Number(response.headers.get(S.ContentLengthHeader) ?? 0)
+        if (declared > S.MaxAssetBytes)
+        {
+            await S.Drain(response)
+            throw new ComponentAssetUnavailableError(S.TooLargeMessage)
+        }
+        const reader = response.body?.getReader()
+        if (reader === undefined)
+        {
+            return new Uint8Array()
+        }
+        const chunks: Uint8Array[] = []
+        let total = 0
         try
         {
-            bytes = new Uint8Array(await response.arrayBuffer())
+            for (let next = await reader.read(); !next.done; next = await reader.read())
+            {
+                total += next.value.length
+                if (total > S.MaxAssetBytes)
+                {
+                    await reader.cancel()
+                    throw new ComponentAssetUnavailableError(S.TooLargeMessage)
+                }
+                chunks.push(next.value)
+            }
         }
-        catch
+        catch (error)
         {
-            throw new ComponentAssetUnavailableError(S.UnreachableMessage)
+            throw error instanceof ComponentAssetUnavailableError ? error : new ComponentAssetUnavailableError(S.UnreachableMessage)
         }
-        if (bytes.length > S.MaxAssetBytes)
+        const bytes = new Uint8Array(total)
+        let offset = 0
+        for (const chunk of chunks)
         {
-            throw new ComponentAssetUnavailableError(S.TooLargeMessage)
+            bytes.set(chunk, offset)
+            offset += chunk.length
         }
         return bytes
     }
