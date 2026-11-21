@@ -1,0 +1,58 @@
+{
+  "name": "@pragmatic-tech-ai/pragmatic-tenant-plane",
+  "version": "0.17.0",
+  "license": "Apache-2.0",
+  "description": "Transitional: the tenant plane the tenant admin console and the platform admin console's co-hosted tenant plane share (tenant API and sign-in, environments, the hive layer they drive, configuration, records, the environment seed and its data); folded back into pragmatic-tenant-admin by C5.3.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pragmatic-tech-ai/pragmatic-shared.git",
+    "directory": "packages/pragmatic-tenant-plane"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "templates",
+    "environments",
+    "README.md"
+  ],
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "tsx --test \"src/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@pragmatic-tech-ai/pragmatic-app-host": "0.17.0",
+    "@pragmatic-tech-ai/pragmatic-component": "0.17.0",
+    "@pragmatic-tech-ai/pragmatic-configuration": "0.17.0",
+    "@pragmatic-tech-ai/pragmatic-identity": "0.17.0",
+    "@pragmatic-tech-ai/pragmatic-identity-source-oidc": "0.17.0",
+    "@pragmatic-tech-ai/pragmatic-kube": "0.17.0",
+    "@pragmatic-tech-ai/pragmatic-platform-link": "0.17.0",
+    "@pragmatic-tech-ai/pragmatic-protocol": "^0.14.0",
+    "@pragmatic-tech-ai/pragmatic-realm-adapters": "0.17.0",
+    "@pragmatic-tech-ai/pragmatic-release-toolkit": "0.17.0",
+    "ws": "^8.18.0"
+  },
+  "peerDependencies": {
+    "@pragmatic-tech-ai/todl": "file:../../../TODL",
+    "@pragmatic-tech-ai/todl-runtime": "file:../../../todl-runtime"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "@types/ws": "^8.5.10",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.0"
+  }
+}

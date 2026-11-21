@@ -32,6 +32,8 @@ The platform packages shared by the Pragmatic containers, under their `pragmatic
 | `pragmatic-kube` | pragmatic-server Kubernetes client files | the Kubernetes client layer: the API client over the in-cluster service account and its HTTPS transport, the kubectl seam, the API-backed kubectl; no dependencies |
 | `pragmatic-platform-link` | pragmatic-server edge/console link files | the platform edge to platform admin console link: internal API routes, client and secret link, the agent channel contract and host, the desktop discovery contract and endpoint, the shared HTTP helpers |
 | `pragmatic-observability` | pragmatic-server `src/observability` | structured logging (`StructuredLogger`, `NullLogger`); no dependencies |
+| `pragmatic-tenant-plane` | pragmatic-server tenant-plane files (`admin/control-plane` co-used, `environments/seed`) | **transitional** (folded back into pragmatic-tenant-admin by C5.3): the tenant plane both admin consoles run: tenant API and sign-in, environments and their runtimes, the hive layer they drive, configuration, records, the environment seed with its templates, demo seed and Northwind sample |
+| `pragmatic-env-cluster` | pragmatic-server env-server / gateway shared files | what the environment server and the environment gateway share: cluster keys, machine headers and TLS, the server configuration loader and its types, access audit, health, rate limiting, OpenTelemetry observability, request correlation, drain, `HostBootstrap` |
 
 The cross-provider tests of the old `todl-identity-cloud` (Entra and Google side by side) live in
 `pragmatic-identity-source-google`, which has a dev dependency on `pragmatic-identity-source-entra`.

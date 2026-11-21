@@ -38,8 +38,8 @@ class Workspace
     public static readonly Root = path.resolve(__dirname, '..', '..');
     public static readonly Scope = '@pragmatic-tech-ai/';
     public static readonly License = 'Apache-2.0';
-    /** The packages the container split lifted out of pragmatic-server (dev-kit A3 plan, Task 3). */
-    public static readonly LiftedPackages: readonly string[] = ['pragmatic-release-toolkit', 'pragmatic-kube', 'pragmatic-platform-link', 'pragmatic-observability'];
+    /** The packages the container split lifted out of pragmatic-server (dev-kit A3 plan, Tasks 3 and 4). */
+    public static readonly LiftedPackages: readonly string[] = ['pragmatic-release-toolkit', 'pragmatic-kube', 'pragmatic-platform-link', 'pragmatic-observability', 'pragmatic-tenant-plane', 'pragmatic-env-cluster'];
     /** Packages a consumer must hold exactly one copy of: an object from one copy fails `instanceof` against the other. */
     public static readonly Singletons: Record<string, string> = {
         '@pragmatic-tech-ai/todl': '../../../TODL',
@@ -58,12 +58,12 @@ describe('workspace manifests', () =>
 {
     const packages = Workspace.Packages();
 
-    it('lists the twenty-six packages', () =>
+    it('lists the twenty-eight packages', () =>
     {
-        assert.equal(packages.length, 26);
+        assert.equal(packages.length, 28);
     });
 
-    it('lists the four packages lifted out of pragmatic-server with Apache-2.0 and the workspace version', () =>
+    it('lists the six packages lifted out of pragmatic-server with Apache-2.0 and the workspace version', () =>
     {
         const version = packages[0].Version;
         for (const name of Workspace.LiftedPackages)
@@ -127,6 +127,8 @@ describe('workspace manifests', () =>
             'pragmatic-kube': [],
             'pragmatic-release-toolkit': [],
             'pragmatic-platform-link': [],
+            'pragmatic-tenant-plane': ['@pragmatic-tech-ai/todl', '@pragmatic-tech-ai/todl-runtime'],
+            'pragmatic-env-cluster': [],
         };
         for (const [name, singletons] of Object.entries(expected))
         {

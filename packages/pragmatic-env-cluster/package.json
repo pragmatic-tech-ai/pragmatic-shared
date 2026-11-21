@@ -1,0 +1,53 @@
+{
+  "name": "@pragmatic-tech-ai/pragmatic-env-cluster",
+  "version": "0.17.0",
+  "license": "Apache-2.0",
+  "description": "What the environment server and the environment gateway share: the cluster keys, machine headers and TLS, the server configuration loader and its types, access audit sinks, health endpoint, rate limiting, OpenTelemetry observability, request correlation, drain, and the bootstrap pieces both compose.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pragmatic-tech-ai/pragmatic-shared.git",
+    "directory": "packages/pragmatic-env-cluster"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "tsx --test \"src/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@opentelemetry/api": "1.9.1",
+    "@opentelemetry/core": "2.12.0",
+    "@opentelemetry/exporter-metrics-otlp-http": "0.223.0",
+    "@opentelemetry/exporter-prometheus": "0.223.0",
+    "@opentelemetry/exporter-trace-otlp-grpc": "0.223.0",
+    "@opentelemetry/exporter-trace-otlp-http": "0.223.0",
+    "@opentelemetry/resources": "2.12.0",
+    "@opentelemetry/sdk-metrics": "2.12.0",
+    "@opentelemetry/sdk-trace-base": "2.12.0",
+    "@opentelemetry/sdk-trace-node": "2.12.0",
+    "@opentelemetry/semantic-conventions": "1.43.0",
+    "@pragmatic-tech-ai/pragmatic-identity": "0.17.0",
+    "@pragmatic-tech-ai/pragmatic-observability": "0.17.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.0"
+  }
+}
