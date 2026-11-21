@@ -136,7 +136,7 @@ export class InClusterEnvironmentRuntime implements IEnvironmentRuntime
         }
         await InClusterEnvironmentRuntime.Guard(ctx, async () =>
         {
-            await this.SignServerImage(hive, workload)
+            await this.SignPlatformImages(hive, workload)
             await orchestrator.Apply(workload)
             if (workload.federation !== undefined && ctx.caPem !== undefined)
             {
@@ -215,7 +215,7 @@ export class InClusterEnvironmentRuntime implements IEnvironmentRuntime
      * runnable. Any other hive (own trust root, or none) gets nothing signed here and its verification decides. See the
      * platform console's PlatformImageSigner for the trust trade-off.
      */
-    private async SignServerImage(hive: HiveRecord, workload: EnvironmentWorkload): Promise<void>
+    private async SignPlatformImages(hive: HiveRecord, workload: EnvironmentWorkload): Promise<void>
     {
         if (this.signer === undefined || !this.signer.SignsFor(hive))
         {
