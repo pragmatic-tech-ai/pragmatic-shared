@@ -38,6 +38,8 @@ class Workspace
     public static readonly Root = path.resolve(__dirname, '..', '..');
     public static readonly Scope = '@pragmatic-tech-ai/';
     public static readonly License = 'Apache-2.0';
+    /** The packages the container split lifted out of pragmatic-server (dev-kit A3 plan, Task 3). */
+    public static readonly LiftedPackages: readonly string[] = ['pragmatic-release-toolkit', 'pragmatic-kube', 'pragmatic-platform-link', 'pragmatic-observability'];
     /** Packages a consumer must hold exactly one copy of: an object from one copy fails `instanceof` against the other. */
     public static readonly Singletons: Record<string, string> = {
         '@pragmatic-tech-ai/todl': '../../../TODL',
@@ -56,9 +58,21 @@ describe('workspace manifests', () =>
 {
     const packages = Workspace.Packages();
 
-    it('lists the twenty-two packages', () =>
+    it('lists the twenty-six packages', () =>
     {
-        assert.equal(packages.length, 22);
+        assert.equal(packages.length, 26);
+    });
+
+    it('lists the four packages lifted out of pragmatic-server with Apache-2.0 and the workspace version', () =>
+    {
+        const version = packages[0].Version;
+        for (const name of Workspace.LiftedPackages)
+        {
+            const manifest = packages.find(candidate => candidate.Name === Workspace.Scope + name);
+            assert.ok(manifest !== undefined, name);
+            assert.equal(manifest.Data.license, Workspace.License, name);
+            assert.equal(manifest.Version, version, name);
+        }
     });
 
     it('takes todl, todl-runtime and mural as peer dependencies linked to the sibling checkout, never as dependencies', () =>
@@ -109,6 +123,10 @@ describe('workspace manifests', () =>
             'pragmatic-app-shell': ['@pragmatic-tech-ai/mural', '@pragmatic-tech-ai/todl-runtime'],
             'pragmatic-identity-source-identity-platform': [],
             'pragmatic-identity-source-pragmatic': [],
+            'pragmatic-observability': [],
+            'pragmatic-kube': [],
+            'pragmatic-release-toolkit': [],
+            'pragmatic-platform-link': [],
         };
         for (const [name, singletons] of Object.entries(expected))
         {

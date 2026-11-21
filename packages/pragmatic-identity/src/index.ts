@@ -79,3 +79,5 @@ export type { IApplicationRoleSource } from "./roles/application-declaration.js"
 export type { IApplicationCatalogue } from "./roles/application-catalogue.js";
 export { RealmRoleClaims } from "./roles/realm-role-claims.js";
 export type { RealmRoleClaimsPayload } from "./roles/realm-role-claims.js";
+export { TokenScope, ScopedAccessContext, ScopedMethods, DevelopMethods, RunTestMethods, TokenScopeGate } from "./scope/token-scope.js";
+export { RealmIssuer } from "./realm/realm-issuer.js";

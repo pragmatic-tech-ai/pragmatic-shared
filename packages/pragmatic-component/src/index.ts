@@ -18,3 +18,5 @@ export { ConfigurationValidation, ConfigurationValidator } from './configuration
 export { ResolvedConfiguration, SecretSetting } from './configuration/resolved-configuration.js';
 export type { SettingValue } from './configuration/resolved-configuration.js';
 export { SecretReference } from './configuration/secret-reference.js';
+export { ComponentDeclarations } from './declaration/component-declarations.js';
+export type { ComponentDeclaration, OptionDeclaration, PortDeclaration, RoleDeclaration, SettingDeclaration } from './declaration/component-declarations.js';

@@ -39,3 +39,5 @@ export type { RealmTokenVerifierOptions } from "./verify/realm-token-verifier-op
 export { RealmTokenVerifier } from "./verify/realm-token-verifier.js";
 export { RealmTokenPrincipal } from "./verify/realm-token-principal.js";
 export { TokenVerifierUnavailableError } from "./verify/token-verifier-unavailable-error.js";
+export { DevCaError, DevCa, IdpTlsMaterial } from "./dev-ca/dev-certificate-authority.js";
+export type { DevCaFiles, IdpTlsRef, IdpTlsMaterialData } from "./dev-ca/dev-certificate-authority.js";

@@ -1,0 +1,47 @@
+{
+  "name": "@pragmatic-tech-ai/pragmatic-release-toolkit",
+  "version": "0.17.0",
+  "license": "Apache-2.0",
+  "description": "The platform release toolkit: release tags and apps, the signed release descriptor and its publisher, the OCI registry client, image and UI-artifact signing and verification, component image labels, the vendored component descriptor set, and the image closure check.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pragmatic-tech-ai/pragmatic-shared.git",
+    "directory": "packages/pragmatic-release-toolkit"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "pragmatic-release-publish": "dist/bin/pragmatic-release-publish.js",
+    "pragmatic-component-descriptors": "dist/bin/pragmatic-component-descriptors.js",
+    "pragmatic-closure-check": "dist/bin/pragmatic-closure-check.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "scripts"
+  ],
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "tsx --test \"src/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@pragmatic-tech-ai/pragmatic-component": "0.17.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.0"
+  }
+}

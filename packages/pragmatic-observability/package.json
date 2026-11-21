@@ -1,0 +1,38 @@
+{
+  "name": "@pragmatic-tech-ai/pragmatic-observability",
+  "version": "0.17.0",
+  "license": "Apache-2.0",
+  "description": "Structured logging for the Pragmatic containers: one JSON line per event, levels, a null logger.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pragmatic-tech-ai/pragmatic-shared.git",
+    "directory": "packages/pragmatic-observability"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "tsx --test \"src/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.0"
+  }
+}
