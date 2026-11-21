@@ -1,6 +1,6 @@
 {
   "name": "@pragmatic-tech-ai/pragmatic-app-host",
-  "version": "0.17.0",
+  "version": "0.17.2",
   "license": "Apache-2.0",
   "description": "The server of a Mural application: one ordered request pipeline, declared routes, the UI bundle, JSON API limits, OIDC sign-in sessions, claims authorization and audit.",
   "repository": {
@@ -30,9 +30,9 @@
     "test": "tsx --test \"src/**/*.test.ts\""
   },
   "dependencies": {
-    "@pragmatic-tech-ai/pragmatic-identity": "0.17.0",
-    "@pragmatic-tech-ai/pragmatic-identity-source-oidc": "0.17.0",
-    "@pragmatic-tech-ai/pragmatic-realm-adapters": "0.17.0",
+    "@pragmatic-tech-ai/pragmatic-identity": "0.17.2",
+    "@pragmatic-tech-ai/pragmatic-identity-source-oidc": "0.17.2",
+    "@pragmatic-tech-ai/pragmatic-realm-adapters": "0.17.2",
     "ws": "^8.18.0"
   },
   "peerDependencies": {
