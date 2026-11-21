@@ -135,3 +135,10 @@ test('a federated re-generate merges the OIDC secret into an existing provisione
     assert.equal(after['dev/oidc/client-secret'], 's3cret')
     assert.deepEqual({ ...after, 'dev/oidc/client-secret': undefined }, { ...before, 'dev/oidc/client-secret': undefined })
 })
+
+test('SeedDirOf names the package-shipped seed folder of an environment: the demo seed holds its users and security model', () =>
+{
+    const demo = BundleBuilder.SeedDirOf(EnvKind.Demo)
+    assert.ok(existsSync(join(demo, BundleBuilder.UsersFile)), demo)
+    assert.ok(existsSync(join(demo, BundleBuilder.SecurityModelFile)), demo)
+})

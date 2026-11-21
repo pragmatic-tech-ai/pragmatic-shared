@@ -12,3 +12,10 @@ export interface ITenantDirectory
     /** The tenant's organisation name, when the directory knows it (optional: the platform directory does not carry one). */
     GetOrganisation?(tenantId: string): string | undefined
 }
+
+/** One tenant, its hives and its organisation: what a tenant-local directory is seeded with (the tenant console's startup config). */
+export type TenantDirectorySeed = {
+    readonly tenant: TenantRecord
+    readonly hives: readonly HiveRecord[]
+    readonly organisation?: string
+}

@@ -471,6 +471,8 @@ export class ClosureCheck
     private static readonly DockerfileWorkspacePrefix = 'Dockerfile: npm ci --workspace='
     private static readonly DockerfileInstallPrefix = 'Dockerfile: npm ci --omit=dev in '
     private static readonly DockerfileCopyLabel = 'Dockerfile: COPY '
+    private static readonly WholePackageNote = ' (the whole package folder: copy its manifest and published files)'
+    private static readonly FilesField = 'files'
     private static readonly DockerfileEntrypointLabel = 'Dockerfile: ENTRYPOINT '
     private static readonly PackageJson = 'package.json'
     private static readonly NodeModules = 'node_modules'
@@ -665,27 +667,70 @@ export class ClosureCheck
         }
         if (targets !== undefined)
         {
-            C.CompareTarget(app, entry, targets, missing, extra)
+            C.CompareTarget(root, app, entry, targets, missing, extra)
         }
         return { App: app, Reached: [...reached].sort(), Missing: missing, Extra: extra }
+    }
+
+    /**
+     * The workspace paths a registry install of a pragmatic-shared package holds: its package.json and each entry of its
+     * `files`; undefined when the manifest declares no `files` (then the folder is copied whole).
+     */
+    private static PublishedPaths(root: string, packagePath: string): string[] | undefined
+    {
+        const C = ClosureCheck
+        const manifest = join(root, packagePath, C.PackageJson)
+        if (!existsSync(manifest))
+        {
+            return undefined
+        }
+        const files = (JSON.parse(readFileSync(manifest, C.Utf8)) as Record<string, unknown>)[C.FilesField]
+        if (!Array.isArray(files))
+        {
+            return undefined
+        }
+        return [packagePath + C.Slash + C.PackageJson, ...(files as string[]).map(f => packagePath + C.Slash + f)]
+    }
+
+    /** True for a whole-folder copy of a listed shared package (already reported as such). */
+    private static IsWholeSharedPackage(path: string, entry: IClosureEntry): boolean
+    {
+        return entry.packages.includes(path) && path.startsWith(ClosureCheck.SharedPrefix + ClosureCheck.SharedPackagesPrefix)
     }
 
     /**
      * The app's Dockerfile stage must copy exactly its packages and files, and start its entrypoint. Its
      * pragmatic-shared/node_modules must come from its own modules stage, whose `npm ci --omit=dev` is filtered to exactly
      * the shared packages it lists: one more pulls that package's dependencies (a cloud SDK) into the image, one fewer
-     * leaves a reached package without its dependencies.
+     * leaves a reached package without its dependencies. A listed pragmatic-shared package that declares its published
+     * `files` is copied by its manifest and those files (what a registry install of it holds), never its whole folder
+     * (its sources, tests and their fixtures).
      */
-    private static CompareTarget(app: string, entry: IClosureEntry, targets: DockerfileTargets, missing: string[], extra: string[]): void
+    private static CompareTarget(root: string, app: string, entry: IClosureEntry, targets: DockerfileTargets, missing: string[], extra: string[]): void
     {
         const C = ClosureCheck
         const modulesStage = app + C.SharedModulesStageSuffix
         const fromBuild = targets.Copies(app, C.BuildStage)
         const fromModules = targets.Copies(app, modulesStage)
         const copied = [...fromBuild, ...fromModules]
-        const listed = [...entry.packages, ...entry.files]
-        missing.push(...listed.filter(p => !copied.includes(p)).map(p => C.DockerfileCopyLabel + p))
-        extra.push(...copied.filter(p => !listed.includes(p)).map(p => C.DockerfileCopyLabel + p))
+        const listed: string[] = []
+        for (const path of [...entry.packages, ...entry.files])
+        {
+            const published = path.startsWith(C.SharedPrefix + C.SharedPackagesPrefix) ? C.PublishedPaths(root, path) : undefined
+            if (published === undefined)
+            {
+                listed.push(path)
+                continue
+            }
+            listed.push(...published)
+            if (copied.includes(path))
+            {
+                extra.push(C.DockerfileCopyLabel + path + C.WholePackageNote)
+            }
+        }
+        const flagged = new Set(listed.filter(p => !copied.includes(p)))
+        missing.push(...[...flagged].map(p => C.DockerfileCopyLabel + p))
+        extra.push(...copied.filter(p => !listed.includes(p) && !C.IsWholeSharedPackage(p, entry)).map(p => C.DockerfileCopyLabel + p))
         const expected = JSON.stringify(entry.entrypoint)
         if (JSON.stringify(targets.Entrypoint(app)) !== expected)
         {

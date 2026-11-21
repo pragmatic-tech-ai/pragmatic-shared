@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { after, describe, it } from 'node:test'
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { ClosureCheck, ClosureCheckConfig, ClosureManifestError, type ClosureReport, SharedLockClosure } from '../closure-check.js'
@@ -87,12 +87,27 @@ class FixtureWorkspace
     }
 
     /** The report for an app importing shared package `s`, whose lock entry is `lockEntry`, against the given Dockerfile. */
-    public static SharedReport(lockEntry: Record<string, unknown>, dockerfile?: string): ClosureReport
+    public static SharedReport(lockEntry: Record<string, unknown>, dockerfile?: string, publishedFiles?: readonly string[]): ClosureReport
     {
         const F = FixtureWorkspace
         const root = F.Make([F.SharedS], [F.SharedModules, Dist, Modules], F.ImportsShared, dockerfile)
         F.AddShared(root, lockEntry)
+        if (publishedFiles !== undefined)
+        {
+            const manifest = join(root, F.SharedS, 'package.json')
+            writeFileSync(manifest, JSON.stringify({ ...JSON.parse(readFileSync(manifest, 'utf8')), files: publishedFiles }))
+        }
         return ClosureCheck.Run(root, { RepoDir: F.RepoDir, Siblings: F.Siblings, Apps: [F.App] })
+    }
+
+    /** The published files of `s` when a test declares them. */
+    public static readonly PublishedIndex: readonly string[] = ['index.js']
+    /** The whole-folder COPY of `s` in SharedTarget. */
+    public static readonly WholeS = 'COPY --from=build /workspace/pragmatic-shared/packages/s /workspace/pragmatic-shared/packages/s'
+
+    public static CopyOf(path: string): string
+    {
+        return 'COPY --from=build /workspace/' + path + ' /workspace/' + path
     }
 
     /**
@@ -282,6 +297,20 @@ describe('ClosureCheck: pragmatic-shared dependencies', () =>
         const report = FixtureWorkspace.ExtraSharedReport(false)
         assert.deepEqual(report.Apps[0].Missing, ['pragmatic-shared/packages/extra'])
         assert.equal(report.Ok, false)
+    })
+
+    it('copies a shared package that declares its published files by those files and its manifest, never its whole folder', () =>
+    {
+        const F = FixtureWorkspace
+        const published = (copies: string): string => F.SharedTarget(Filtered, OwnStage).replace(F.WholeS, copies)
+        const manifestAndIndex = [F.CopyOf(F.SharedS + '/package.json'), F.CopyOf(F.SharedS + '/index.js')].join('\n')
+        assert.equal(F.SharedReport(DeclaresDep, published(manifestAndIndex), F.PublishedIndex).Ok, true)
+
+        const whole = F.SharedReport(DeclaresDep, F.SharedTarget(Filtered, OwnStage), F.PublishedIndex).Apps[0]
+        assert.deepEqual(whole.Extra, ['Dockerfile: COPY ' + F.SharedS + ' (the whole package folder: copy its manifest and published files)'])
+
+        const noManifest = F.SharedReport(DeclaresDep, published(F.CopyOf(F.SharedS + '/index.js')), F.PublishedIndex).Apps[0]
+        assert.deepEqual(noManifest.Missing, ['Dockerfile: COPY ' + F.SharedS + '/package.json'])
     })
 
     it('reads the shared siblings from the pragmatic-shared workspaces', () =>

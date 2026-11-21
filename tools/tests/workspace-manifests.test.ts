@@ -96,7 +96,8 @@ describe('workspace manifests', () =>
         for (const manifest of packages)
         {
             const published = rewriter.Rewrite(manifest).Manifest;
-            for (const [singleton, spec] of Object.entries(published.peerDependencies ?? {}))
+            // the sibling-checkout singletons only: a third-party peer (the OpenTelemetry API) keeps the range its SDK accepts
+            for (const [singleton, spec] of Object.entries(published.peerDependencies ?? {}).filter(([name]) => name in Workspace.Singletons))
             {
                 assert.match(spec, /^\^\d+\.\d+\.\d+$/, `${manifest.Name}: published peer ${singleton}`);
             }
@@ -128,7 +129,7 @@ describe('workspace manifests', () =>
             'pragmatic-release-toolkit': [],
             'pragmatic-platform-link': [],
             'pragmatic-tenant-plane': ['@pragmatic-tech-ai/todl', '@pragmatic-tech-ai/todl-runtime'],
-            'pragmatic-env-cluster': [],
+            'pragmatic-env-cluster': ['@opentelemetry/api'],
         };
         for (const [name, singletons] of Object.entries(expected))
         {

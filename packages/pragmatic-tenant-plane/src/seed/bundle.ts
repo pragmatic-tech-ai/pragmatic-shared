@@ -32,8 +32,8 @@ export class BundleBuilder
     private static readonly EnvironmentsFile = 'environments.json'
     private static readonly RealmConfigFile = 'realm-config.json'
     private static readonly ApplicationFile = 'application.json'
-    private static readonly SecurityModelFile = 'security-model.json'
-    private static readonly UsersFile = 'users.json'
+    public static readonly SecurityModelFile = 'security-model.json'
+    public static readonly UsersFile = 'users.json'
     private static readonly DataDir = 'data'
     private static readonly SeedDir = 'seed'
     private static readonly IdentityDir = 'identity'
@@ -61,10 +61,16 @@ export class BundleBuilder
     /** The package's environments/ folder (this module sits in src/seed/ or dist/seed/): `<env>/seed` per environment. */
     private static readonly SeedRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'environments')
 
+    /** The seed folder of a named environment this package ships (`environments/<name>/seed`: users, security model). */
+    public static SeedDirOf(name: string): string
+    {
+        return join(BundleBuilder.SeedRoot, name, BundleBuilder.SeedDir)
+    }
+
     public static async Generate(def: EnvDefinition, bundleDir: string, explicitSeedDir?: string, oidc?: EnvOidc): Promise<void>
     {
         mkdirSync(bundleDir, { recursive: true })
-        const seedDir = explicitSeedDir ?? join(BundleBuilder.SeedRoot, def.name, BundleBuilder.SeedDir)
+        const seedDir = explicitSeedDir ?? BundleBuilder.SeedDirOf(def.name)
         BundleBuilder.WriteMasterKey(bundleDir)
         BundleBuilder.WriteSecrets(def, bundleDir, seedDir, oidc)
         BundleBuilder.WriteEnvironments(def, bundleDir)
