@@ -62,7 +62,10 @@ the tests of a package import its dependencies' built `dist`, so build before te
 copy (`tools/publish-packages.ts`, tests in `tools/tests/`, `npm run test:tools`). It refuses a `dist` older than its
 `src`, and every package carries the one workspace version.
 
-A release is published by CI, not from a workstation: commit the version bump of every package (and the lock), push,
-then push the tag `v<version>`. `.github/workflows/publish.yml` checks that the tag names the workspace version, builds
-and tests as `ci.yml` does, and publishes every package in the root build order with the run's `GITHUB_TOKEN`
-(`packages: write`); a version already published is skipped, so the workflow can be re-run (also on demand).
+A release is published by CI, not from a workstation: commit the version bump of every package (and the lock) on
+main, push, then push the tag `v<version>`. `.github/workflows/publish.yml` has two jobs. `test` (read-only token)
+refuses a commit that is not on main and a package whose version differs from the tag, builds and tests as `ci.yml`
+does, and packs every package as it will be published (`npm run publish:packages -- --pack-into <dir> <dirs>`, root
+build order, plus `provenance.json`: the commits of this repository, TODL and todl-runtime and the Mural version). The
+`publish` job (environment `packages`, `packages: write`) checks nothing out and runs no repository code: it publishes
+those tarballs in order with the run's `GITHUB_TOKEN` and skips a version already published, so it can be re-run.

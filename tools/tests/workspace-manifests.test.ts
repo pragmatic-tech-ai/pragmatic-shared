@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test';
 import * as assert from 'node:assert/strict';
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { DependencyRewriter, IManifestReader } from '../publishing/dependency-rewriter.js';
 import { IPackageManifestData, PackageManifest } from '../publishing/package-manifest.js';
@@ -18,6 +19,35 @@ class SiblingReader implements IManifestReader
             const name = Object.entries(Workspace.Singletons).find(([, link]) => directory.endsWith(path.basename(link)))?.[0] ?? '';
             return new PackageManifest(directory, { name, version: '1.0.0' });
         }
+    }
+}
+
+/** The TypeScript sources of a package (tests included), the files a test helper import can sit in. */
+class TestHelperUsers
+{
+    private static readonly SourceExtension = '.ts';
+    private static readonly SkippedFolders: readonly string[] = ['node_modules', 'dist'];
+
+    public static Sources(directory: string): string[]
+    {
+        if (!fs.existsSync(directory))
+        {
+            return [];
+        }
+        const files: string[] = [];
+        for (const entry of fs.readdirSync(directory, { withFileTypes: true }))
+        {
+            const full = path.join(directory, entry.name);
+            if (entry.isDirectory() && !TestHelperUsers.SkippedFolders.includes(entry.name))
+            {
+                files.push(...TestHelperUsers.Sources(full));
+            }
+            else if (entry.isFile() && entry.name.endsWith(TestHelperUsers.SourceExtension))
+            {
+                files.push(full);
+            }
+        }
+        return files;
     }
 }
 
@@ -140,6 +170,19 @@ describe('workspace manifests', () =>
             assert.equal(manifest.Data.peerDependenciesMeta, undefined, name);
             const peers = Object.keys(manifest.Data.peerDependencies ?? {});
             assert.deepEqual(peers.sort(), singletons, name);
+        }
+    });
+
+    it('declares pg-mem as a devDependency of every package whose sources import the SQL test helpers', () =>
+    {
+        const helpers = /from ['"]@pragmatic-tech-ai\/pragmatic-realm-adapters\/testing['"]/;
+        for (const manifest of packages)
+        {
+            const sources = TestHelperUsers.Sources(path.join(manifest.Directory, 'src'));
+            if (sources.some(file => helpers.test(fs.readFileSync(file, 'utf8'))))
+            {
+                assert.ok(manifest.Data.devDependencies?.['pg-mem'] !== undefined, manifest.Name + ' imports pragmatic-realm-adapters/testing without pg-mem');
+            }
         }
     });
 

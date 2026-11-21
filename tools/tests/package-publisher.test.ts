@@ -165,6 +165,35 @@ describe('PackagePublisher', () =>
         }
     });
 
+    it('packs a release tarball into a destination folder: rewritten manifest, scripts ignored, staging removed, its file name returned', () =>
+    {
+        const disk = new PackageOnDisk({ peerDependencies: { '@scope/todl': 'file:../todl' } });
+        const destination = fs.mkdtempSync(path.join(os.tmpdir(), 'publisher-pack-'));
+        try
+        {
+            const runner = new FakeRunner();
+            const registry = new FakeRegistry(['@scope/todl@0.66.2']);
+            const packed = new PackagePublisher(false, Silent.Log, runner, registry).Pack(disk.Directory, destination);
+            assert.deepEqual(packed, { Name: '@scope/pkg', Version: '0.1.1', File: 'scope-pkg-0.1.1.tgz' });
+            assert.deepEqual(runner.Calls[0].Args, ['pack', '--ignore-scripts', '--pack-destination', destination]);
+            assert.ok(runner.Calls[0].StagedFiles.includes('package.json'));
+            assert.ok(!fs.existsSync(runner.Calls[0].Cwd), 'the staging folder is removed');
+            assert.deepEqual(registry.Asked, ['@scope/todl@0.66.2'], 'only the rewritten peer target is looked up');
+            assert.throws(() => new PackagePublisher(false, Silent.Log, new FakeRunner(1), registry).Pack(disk.Directory, destination), /npm pack failed/);
+        }
+        finally
+        {
+            disk.Dispose();
+            fs.rmSync(destination, { recursive: true, force: true });
+        }
+    });
+
+    it('names a tarball as npm pack does: scope and name joined by a dash, then the version', () =>
+    {
+        assert.equal(PackagePublisher.TarballName('@pragmatic-tech-ai/pragmatic-kube', '0.17.4'), 'pragmatic-tech-ai-pragmatic-kube-0.17.4.tgz');
+        assert.equal(PackagePublisher.TarballName('plain', '1.0.0'), 'plain-1.0.0.tgz');
+    });
+
     for (const section of ['dependencies', 'peerDependencies', 'optionalDependencies'])
     {
         it(`refuses a rewritten ${section} entry whose target version is not on the registry`, () =>
