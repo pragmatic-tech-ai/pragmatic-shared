@@ -153,7 +153,7 @@ export class ReleasePublishCli
     private static async Assemble(flags: Map<string, string>, env: NodeJS.ProcessEnv, output: ReleaseCliOutput, fetchFn?: OciFetch, assets?: IComponentAssetSource): Promise<number>
     {
         const S = ReleasePublishCli
-        const manifest = ReleaseManifest.Parse(S.ReadFile(S.Flag(flags, S.FlagManifest), S.UnreadableManifestMessage))
+        const manifest = ReleaseManifest.Parse(S.ReadFile(S.Flag(flags, S.FlagManifest), S.UnreadableManifestMessage), S.EnvOr(env, S.EnvNamespace, S.DefaultNamespace))
         const publisher = S.NewPublisher(env, fetchFn)
         await publisher.CheckVersionFree(manifest.version)
         const inspection = await publisher.Assemble(manifest, assets ?? S.NewAssets(env))
@@ -176,7 +176,7 @@ export class ReleasePublishCli
         {
             throw new ReleaseCliUsageError(S.ManifestModeMessage)
         }
-        const manifest = ReleaseManifest.Parse(S.ReadFile(S.Flag(flags, S.FlagManifest), S.UnreadableManifestMessage))
+        const manifest = ReleaseManifest.Parse(S.ReadFile(S.Flag(flags, S.FlagManifest), S.UnreadableManifestMessage), S.EnvOr(env, S.EnvNamespace, S.DefaultNamespace))
         const releaseCommit = flags.get(S.FlagReleaseCommit) ?? S.EnvOr(env, S.EnvGitHubSha, '')
         if (releaseCommit.length === 0)
         {

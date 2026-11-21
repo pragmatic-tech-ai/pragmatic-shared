@@ -228,6 +228,9 @@ jobs:
       - name: Build
         working-directory: ${{ github.workspace }}/pragmatic-shared
         run: npm run build
+      - name: Typecheck the packages and their tests
+        working-directory: ${{ github.workspace }}/pragmatic-shared
+        run: npm run typecheck --workspaces && npm run typecheck:tools
       - name: Test
         working-directory: ${{ github.workspace }}/pragmatic-shared
         run: npm test --workspaces && npm run test:tools

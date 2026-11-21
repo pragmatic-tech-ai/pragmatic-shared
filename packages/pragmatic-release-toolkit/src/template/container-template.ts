@@ -34,6 +34,12 @@ export type ContainerTemplateOptions = {
     DockerIgnore?: readonly string[]
     /** Lines appended to the common `.gitignore` after the profile's: one pattern or `#` comment each, no line break. */
     GitIgnore?: readonly string[]
+    /**
+     * The directories the running service writes inside its tree (relative to the repository root, so to
+     * `/workspace/<app>`): created when missing and owned by the service user 10001. Everything else the runtime copies
+     * stays root's, so the service cannot change its own code.
+     */
+    WritableDirs?: readonly string[]
 }
 
 /** An entry resolved to the paths the files are rendered with. */
@@ -67,6 +73,15 @@ export class ContainerTemplate
     public static readonly ClosureManifest = 'closure.json'
     public static readonly Dockerfile = 'Dockerfile'
     private static readonly Root = fileURLToPath(new URL('../../templates/container/', import.meta.url))
+    private static readonly Utf8 = 'utf8'
+    private static readonly ToolkitManifest = fileURLToPath(new URL('../../package.json', import.meta.url))
+    private static readonly TagPrefix = 'v'
+    /**
+     * The ref the caller workflows take pragmatic-shared's reusable workflows at: the tag of this toolkit's version
+     * (`v<version>`, protected on pragmatic-shared), so a repository runs the CI of the toolkit its lock installs.
+     */
+    public static readonly WorkflowRef = ContainerTemplate.TagPrefix
+        + (JSON.parse(readFileSync(ContainerTemplate.ToolkitManifest, ContainerTemplate.Utf8)) as { version: string }).version
     private static readonly CommonFiles: ReadonlyArray<readonly [string, string]> = [
         ['.npmrc', 'common/npmrc'],
         ['.gitattributes', 'common/gitattributes'],
@@ -98,6 +113,8 @@ export class ContainerTemplate
     private static readonly HealthcheckSnippet = 'snippets/healthcheck.Dockerfile'
     private static readonly ToolsStageSnippet = 'snippets/platform-admin-tools-stage.Dockerfile'
     private static readonly ToolsCopySnippet = 'snippets/platform-admin-tools-copy.Dockerfile'
+    private static readonly WritableDirsSnippet = 'snippets/writable-dirs.Dockerfile'
+    private static readonly WorkspaceRoot = '/workspace/'
 
     private static readonly NodeEntryPattern = /^((?:[^/]+\/)*?)src\/(.+)\.ts$/
     private static readonly DockerfileSuffix = '.Dockerfile'
@@ -123,21 +140,18 @@ export class ContainerTemplate
     private static readonly PortPrefix = 'process.env.'
     private static readonly PortFallback = '||'
     private static readonly InsecureRequestOption = ',rejectUnauthorized:false'
-    private static readonly Utf8 = 'utf8'
 
     private static readonly UnknownAppPrefix = 'Not a release app: '
     private static readonly BadPathPrefix = 'Not a relative repository path: '
     private static readonly BadNodeEntryPrefix = 'A Node entry is [<workspace>/]src/<path>.ts: '
     private static readonly BadDockerfileEntryPrefix = 'The entry of a repository that keeps its own Dockerfile names that Dockerfile: '
-    private static readonly ExternalExtrasPrefix = 'Keeps its own Dockerfile, so takes no UI dir, extra copy, workspace or asset: '
+    private static readonly ExternalExtrasPrefix = 'Keeps its own Dockerfile, so takes no UI dir, extra copy, workspace, asset or writable dir: '
     private static readonly UnlistedWorkspacePrefix = 'The entry lies in a workspace the root package.json does not list: '
     private static readonly MissingValuePrefix = 'Template value missing: '
     private static readonly BadIgnoreLinePrefix = 'An ignore-file line is one pattern or # comment, not empty, no line break: '
     private static readonly LineBreak = /[\r\n]/
     private static readonly Quote = "'"
     private static readonly BadRefusalPrefix = 'A start smoke refusal pattern is one line without a single quote: '
-    private static readonly LegacyPeerDepsNpmrcSnippet = 'snippets/legacy-peer-deps.npmrc'
-    private static readonly LegacyPeerDepsEnvSnippet = 'snippets/legacy-peer-deps.Dockerfile'
     private static readonly StartSmokeRefusalSnippet = 'snippets/start-smoke-refusal.yml'
 
     /** Every file of the container repository, path (POSIX, relative to the repository root) to content. */
@@ -150,6 +164,7 @@ export class ContainerTemplate
         const workspaces = options.Workspaces ?? []
         const values: Record<string, string> = {
             App: options.App,
+            WorkflowRef: T.WorkflowRef,
             ...layout,
             UiDirs: options.UiDirs.join(T.Space),
             Node: T.True,
@@ -157,8 +172,6 @@ export class ContainerTemplate
             ImageTest: profile.ImageTest ? T.True : T.False,
             StartSmoke: profile.StartSmoke ? T.True : T.False,
             StartSmokeRefusal: profile.StartSmokeRefusal === undefined ? '' : T.Snippet(T.StartSmokeRefusalSnippet, { Pattern: profile.StartSmokeRefusal }),
-            LegacyPeerDeps: profile.LegacyPeerDeps === true ? T.Snippet(T.LegacyPeerDepsNpmrcSnippet, {}) : '',
-            LegacyPeerDepsEnv: profile.LegacyPeerDeps === true ? T.Snippet(T.LegacyPeerDepsEnvSnippet, {}) : '',
             DockerIgnore: [...(profile.DockerIgnore ?? []), ...(options.DockerIgnore ?? [])].join(T.Newline),
             GitIgnore: [...(profile.GitIgnore ?? []), ...(options.GitIgnore ?? [])].join(T.Newline),
             Arm64: profile.MultiArch ? T.True : T.False,
@@ -173,6 +186,7 @@ export class ContainerTemplate
             ToolsStage: profile.ProvisioningTools ? T.Snippet(T.ToolsStageSnippet, {}) : '',
             RuntimeSetup: T.RuntimeSetup(profile),
             Copies: T.Copies(options, layout).map(path => T.Snippet(T.CopySnippet, { App: options.App, Path: path })).join(T.Newline),
+            WritableDirs: T.WritableDirs(options),
             Env: profile.Env.map(([name, value]) => T.Snippet(T.EnvSnippet, { Name: name, Value: value })).join(T.Newline),
             Expose: profile.Ports.length === 0 ? '' : T.Snippet(T.ExposeSnippet, { Ports: profile.Ports.join(T.Space) }),
             Healthcheck: profile.Healthcheck === undefined ? '' : T.Healthcheck(profile.Healthcheck),
@@ -219,7 +233,8 @@ export class ContainerTemplate
         }
         const workspaces = options.Workspaces ?? []
         const assets = options.Assets ?? []
-        for (const path of [options.Entry, ...options.UiDirs, ...options.ExtraCopies, ...workspaces, ...assets.flatMap(asset => [asset.From, asset.To])])
+        const writable = options.WritableDirs ?? []
+        for (const path of [options.Entry, ...options.UiDirs, ...options.ExtraCopies, ...workspaces, ...assets.flatMap(asset => [asset.From, asset.To]), ...writable])
         {
             T.RequirePath(path)
         }
@@ -234,7 +249,7 @@ export class ContainerTemplate
         {
             throw new ContainerTemplateError(T.BadRefusalPrefix + JSON.stringify(profile.StartSmokeRefusal))
         }
-        if (profile.Kind === ContainerKind.ExternalDockerfile && options.UiDirs.length + options.ExtraCopies.length + workspaces.length + assets.length > 0)
+        if (profile.Kind === ContainerKind.ExternalDockerfile && options.UiDirs.length + options.ExtraCopies.length + workspaces.length + assets.length + writable.length > 0)
         {
             throw new ContainerTemplateError(T.ExternalExtrasPrefix + options.App)
         }
@@ -311,6 +326,14 @@ export class ContainerTemplate
             }
         }
         return copies
+    }
+
+    /** The image stage's line that hands the writable directories (absolute in the image) to the service user; none: no line. */
+    private static WritableDirs(options: ContainerTemplateOptions): string
+    {
+        const T = ContainerTemplate
+        const dirs = (options.WritableDirs ?? []).map(dir => T.WorkspaceRoot + options.App + T.Slash + dir)
+        return dirs.length === 0 ? '' : T.Snippet(T.WritableDirsSnippet, { Dirs: dirs.join(T.Space) })
     }
 
     private static RuntimeSetup(profile: IContainerProfile): string

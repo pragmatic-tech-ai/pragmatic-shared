@@ -1,6 +1,6 @@
 {
   "name": "@pragmatic-tech-ai/pragmatic-identity-source-local",
-  "version": "0.17.6",
+  "version": "0.17.7",
   "license": "Apache-2.0",
   "description": "Local-accounts identity source (argon2id, encrypted store, service tokens).",
   "repository": {
@@ -33,7 +33,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@pragmatic-tech-ai/pragmatic-identity": "0.17.6",
+    "@pragmatic-tech-ai/pragmatic-identity": "0.17.7",
     "hash-wasm": "^4.12.0"
   },
   "devDependencies": {

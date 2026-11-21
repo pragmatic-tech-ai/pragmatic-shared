@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, describe, it } from 'node:test'
-import { InternalApiCredential, InternalApiSecretError } from '@pragmatic-tech-ai/pragmatic-app-host'
+import { InternalApiCredential, InternalApiSecretError } from '@pragmatic-tech-ai/pragmatic-component'
 import { InternalApiLink, InternalApiLinkError } from '../internal-api-link.js'
 
 /** The edge to platform admin console link: an independent derivation of the bearer both ends present. */
@@ -31,7 +31,7 @@ describe('InternalApiLink', () =>
 {
     after(() => rmSync(LinkFixture.Root, { recursive: true, force: true }))
 
-    it('is app-host\'s default-label credential, bit-identical to the edge and console of earlier releases', () =>
+    it('is the shared default-label credential, bit-identical to the edge and console of earlier releases', () =>
     {
         assert.equal(InternalApiCredential.DefaultLabel, LinkFixture.Label)
         assert.equal(InternalApiLink.Credential(LinkFixture.File(LinkFixture.Secret)).Bearer(), LinkFixture.ExpectedBearer())

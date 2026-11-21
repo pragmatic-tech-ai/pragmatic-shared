@@ -116,7 +116,6 @@ export class ReleaseManifest
 {
     public static readonly Schema = 1
     private static readonly DigestPattern = /^sha256:[0-9a-f]{64}$/
-    private static readonly OwnerPattern = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/
     private static readonly VersionPattern = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?$/
     private static readonly RepositorySeparator = '/'
     private static readonly FieldSchema = 'schema'
@@ -139,13 +138,16 @@ export class ReleaseManifest
     /** The tag a container release gives its image beside `<version>` (container-release.yml). */
     private static readonly CommitTagPrefix = 'git-'
     private static readonly BadComponentPrefix = 'ill-shaped component: '
-    private static readonly BadRepositoryPrefix = 'repository is not <owner>/<name>: '
+    private static readonly BadRepositoryPrefix = 'repository is not '
     private static readonly BadComponentVersionPrefix = 'version is not X.Y.Z[-pre-release]: '
-    private static readonly RepositoryConflictPrefix = 'a repository named by two apps at different owners or versions: '
     private static readonly ProblemSeparator = ': '
 
-    /** Parses `release.json`; throws a ReleaseManifestInvalidError (or one of its subclasses) for anything but a full manifest. */
-    public static Parse(text: string): ReleaseManifestDocument
+    /**
+     * Parses `release.json`; throws a ReleaseManifestInvalidError (or one of its subclasses) for anything but a full manifest
+     * whose every app comes from its own container repository, `<namespace>/<app>` (the repository its image is named
+     * after, so no release is assembled from a fork's or another app's release).
+     */
+    public static Parse(text: string, namespace: string = ReleaseRegistry.DefaultNamespace): ReleaseManifestDocument
     {
         const S = ReleaseManifest
         let raw: unknown
@@ -184,9 +186,8 @@ export class ReleaseManifest
         const components: Partial<Record<ReleaseApp, ReleaseManifestComponent>> = {}
         for (const app of ReleaseApps.All)
         {
-            components[app] = S.ParseComponent(app, raw.components[app])
+            components[app] = S.ParseComponent(app, raw.components[app], namespace)
         }
-        S.RefuseRepositoryConflicts(components as Record<ReleaseApp, ReleaseManifestComponent>)
         return { schema: S.Schema, version: raw.version, components: components as Record<ReleaseApp, ReleaseManifestComponent> }
     }
 
@@ -226,22 +227,15 @@ export class ReleaseManifest
         const problems: ReleaseManifestProblem[] = []
         const componentDigests = new Map<ReleaseApp, string>()
         const commits = new Map<string, string>()
-        const asked = new Set<string>()
         for (const app of ReleaseApps.All)
         {
             const component = doc.components[app]
             const kinds = await S.CheckImage(app, component, doc.version, registry, ReleaseRegistry.RepositoryPath(namespace, app), assets, componentDigests)
-            const name = S.RepositoryName(component.repository)
-            if (!asked.has(name))
+            const commit = await assets.ReleaseCommit(component.repository, component.version)
+            if (commit !== undefined)
             {
-                asked.add(name)
-                const commit = await assets.ReleaseCommit(component.repository, component.version)
-                if (commit !== undefined)
-                {
-                    commits.set(name, commit)
-                }
+                commits.set(S.RepositoryName(component.repository), commit)
             }
-            const commit = commits.get(name)
             if (commit === undefined)
             {
                 kinds.push(ReleaseManifestProblemKind.CommitMissing)
@@ -345,7 +339,7 @@ export class ReleaseManifest
         return S.IsRecord(parsed) && parsed[S.FieldComponent] === app && parsed[S.FieldVersion] === version
     }
 
-    private static ParseComponent(app: ReleaseApp, value: unknown): ReleaseManifestComponent
+    private static ParseComponent(app: ReleaseApp, value: unknown, namespace: string): ReleaseManifestComponent
     {
         const S = ReleaseManifest
         if (value === undefined)
@@ -360,9 +354,9 @@ export class ReleaseManifest
             throw new ReleaseManifestInvalidError(S.BadComponentPrefix + app)
         }
         S.RefuseUnknownFields(value, S.ComponentFields)
-        if (!S.IsRepository(value.repository))
+        if (value.repository !== S.RepositoryOf(namespace, app))
         {
-            throw new ReleaseManifestInvalidError(S.BadRepositoryPrefix + app)
+            throw new ReleaseManifestInvalidError(S.BadRepositoryPrefix + S.RepositoryOf(namespace, app) + S.ProblemSeparator + app)
         }
         if (!S.VersionPattern.test(value.version))
         {
@@ -373,24 +367,6 @@ export class ReleaseManifest
             throw new ReleaseManifestDigestError(app)
         }
         return { repository: value.repository, version: value.version, digest: value.digest }
-    }
-
-    /** One repository name, one owner and one version: the descriptor records one commit per repository name. */
-    private static RefuseRepositoryConflicts(components: Record<ReleaseApp, ReleaseManifestComponent>): void
-    {
-        const S = ReleaseManifest
-        const seen = new Map<string, ReleaseManifestComponent>()
-        for (const app of ReleaseApps.All)
-        {
-            const component = components[app]
-            const name = S.RepositoryName(component.repository)
-            const earlier = seen.get(name)
-            if (earlier !== undefined && (earlier.repository !== component.repository || earlier.version !== component.version))
-            {
-                throw new ReleaseManifestInvalidError(S.RepositoryConflictPrefix + app)
-            }
-            seen.set(name, component)
-        }
     }
 
     private static RefuseUnknownFields(value: Record<string, unknown>, known: ReadonlySet<string>): void
@@ -406,11 +382,10 @@ export class ReleaseManifest
         }
     }
 
-    private static IsRepository(repository: string): boolean
+    /** `<namespace>/<app>`: the container repository an app's image and component.json come from. */
+    private static RepositoryOf(namespace: string, app: ReleaseApp): string
     {
-        const S = ReleaseManifest
-        const parts = repository.split(S.RepositorySeparator)
-        return parts.length === 2 && S.OwnerPattern.test(parts[0]) && ReleaseDescriptorCodec.IsRepoName(parts[1])
+        return namespace + ReleaseManifest.RepositorySeparator + app
     }
 
     private static IsReleaseVersion(version: string): boolean

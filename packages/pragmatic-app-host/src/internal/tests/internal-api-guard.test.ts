@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { HostFixture } from '../../tests/support/host-fixture.js'
 import { HttpMethod } from '../../http/http-method.js'
 import { RouteAuth } from '../../routing/route.js'
-import { InternalApiCredential } from '../internal-api-credential.js'
+import { InternalApiCredential } from '@pragmatic-tech-ai/pragmatic-component'
 import { InternalApiGuard } from '../internal-api-guard.js'
 
 describe('InternalApiGuard', () =>

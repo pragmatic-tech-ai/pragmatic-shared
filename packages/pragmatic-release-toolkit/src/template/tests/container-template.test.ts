@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import { DockerfileTargets } from '../../closure/closure-check.js'
 import { ReleaseApp, ReleaseApps } from '../../release/release-tag.js'
@@ -75,12 +76,13 @@ class TemplateFixture
         [ReleaseApp.UiUnpack, { App: ReleaseApp.UiUnpack, Entry: 'src/bin/pragmatic-ui-unpack.ts', UiDirs: [], ExtraCopies: [] }],
         [ReleaseApp.HiveAgent, { App: ReleaseApp.HiveAgent, Entry: 'src/bin/pragmatic-agentd.ts', UiDirs: [], ExtraCopies: [] }],
         [ReleaseApp.EnvGateway, { App: ReleaseApp.EnvGateway, Entry: 'src/bin/pragmatic-gatewayd.ts', UiDirs: [], ExtraCopies: [] }],
-        [ReleaseApp.TenantIdp, { App: ReleaseApp.TenantIdp, Entry: 'src/bin/pragmatic-idpd.ts', UiDirs: ['idp-login'], ExtraCopies: ['idp-login/dist'] }],
-        [ReleaseApp.EnvServer, { App: ReleaseApp.EnvServer, Entry: 'server/src/bin/pragmatic-serverd.ts', UiDirs: [], ExtraCopies: [], Workspaces: TemplateFixture.EnvServerWorkspaces }],
+        [ReleaseApp.TenantIdp, { App: ReleaseApp.TenantIdp, Entry: 'src/bin/pragmatic-idpd.ts', UiDirs: ['idp-login'], ExtraCopies: ['idp-login/dist'], WritableDirs: ['dist/data'] }],
+        [ReleaseApp.EnvServer, { App: ReleaseApp.EnvServer, Entry: 'server/src/bin/pragmatic-serverd.ts', UiDirs: [], ExtraCopies: [], Workspaces: TemplateFixture.EnvServerWorkspaces,
+            WritableDirs: ['node_modules/@pragmatic-tech-ai/todl'] }],
         [ReleaseApp.TenantAdmin, { App: ReleaseApp.TenantAdmin, Entry: 'src/bin/pragmatic-tenant-admind.ts', UiDirs: ['tenant-portal'], ExtraCopies: ['environments/sample-apps', 'environments/demo'] }],
         [ReleaseApp.PlatformEdge, { App: ReleaseApp.PlatformEdge, Entry: 'src/bin/pragmatic-platform-edged.ts', UiDirs: [], ExtraCopies: [] }],
         [ReleaseApp.PlatformAdmin, { App: ReleaseApp.PlatformAdmin, Entry: 'src/server.ts', UiDirs: ['portal'], ExtraCopies: ['release-keys', 'environments/demo', 'environments/sample-apps'],
-            Assets: [{ From: 'src/templates', To: 'dist/templates' }, { From: 'descriptors', To: 'dist/descriptors' }] }],
+            Assets: [{ From: 'src/templates', To: 'dist/templates' }, { From: 'descriptors', To: 'dist/descriptors' }], WritableDirs: ['dist/data'] }],
     ])
 
     public static Render(app: ReleaseApp): ReadonlyMap<string, string>
@@ -165,9 +167,8 @@ describe('ContainerTemplate', () =>
                 }
                 const lines = RenderedDockerfile.Parse(text).All()
                 assert.ok(lines.every(line => !/^(ARG|ENV)\b.*(npmrc|TOKEN|AUTH|PASSWORD|REGISTRY)/i.test(line)), app + ' passes a credential as ARG/ENV')
-                // The only npm setting an image build sets is the platform edge's legacy-peer-deps.
-                assert.deepEqual(lines.filter(line => /^(ARG|ENV)\b.*NPM/i.test(line)),
-                    app === ReleaseApp.PlatformEdge && path === 'Dockerfile' ? ['ENV NPM_CONFIG_LEGACY_PEER_DEPS=true'] : [], app)
+                // No image build sets an npm setting (no repository installs with legacy-peer-deps).
+                assert.deepEqual(lines.filter(line => /^(ARG|ENV)\b.*NPM/i.test(line)), [], app)
                 const installs = lines.filter(line => /\bnpm ci\b/.test(line) && !line.includes('--omit=dev'))
                 assert.ok(installs.length > 0)
                 for (const install of installs)
@@ -219,7 +220,7 @@ describe('ContainerTemplate', () =>
             '/workspace/pragmatic-tenant-idp/dist',
             '/workspace/pragmatic-tenant-idp/idp-login/dist',
         ])
-        assert.ok(image.filter(line => line.startsWith('COPY --from=build ')).every(line => line.includes('--chown=10001:10001')))
+        assert.ok(image.filter(line => line.startsWith('COPY ')).every(line => !line.includes('--chown')), 'the app tree is root\'s')
         assert.ok(image.some(line => line.includes('apt-get install') && line.includes('openssl')))
         assert.ok(image.some(line => line.startsWith('HEALTHCHECK ') && line.includes("require('node:https')") && line.includes('rejectUnauthorized:false')))
         // The UI is built (its own lock, the npmrc secret) in the compile stage.
@@ -372,11 +373,14 @@ describe('ContainerTemplate', () =>
         assert.ok(ci.includes('arm64: true'))
     })
 
-    it('renders the caller workflows on the reusable ones at main, with the app inputs', () =>
+    it('renders the caller workflows on the reusable ones at the toolkit version\'s tag, with the app inputs', () =>
     {
         const files = TemplateFixture.Render(ReleaseApp.EnvServer)
         const ci = TemplateFixture.File(files, '.github/workflows/ci.yml')
-        assert.ok(ci.includes('uses: pragmatic-tech-ai/pragmatic-shared/.github/workflows/container-ci.yml@main'))
+        const version = (JSON.parse(readFileSync(new URL('../../../package.json', import.meta.url), 'utf8')) as { version: string }).version
+        assert.equal(ContainerTemplate.WorkflowRef, 'v' + version)
+        assert.ok(ci.includes('uses: pragmatic-tech-ai/pragmatic-shared/.github/workflows/container-ci.yml@v' + version + '\n'))
+        assert.ok(!ci.includes('@main') && !TemplateFixture.File(files, '.github/workflows/release.yml').includes('@main'))
         assert.ok(ci.includes('app: pragmatic-env-server'))
         assert.ok(ci.includes("helm-chart: 'helm/pragmatic-env-server'"))
         assert.ok(ci.includes('arm64: false'))
@@ -385,7 +389,8 @@ describe('ContainerTemplate', () =>
         assert.match(ci, /^# Trust: /m)
         assert.ok(ci.includes('closure-check: true'))
         const release = TemplateFixture.File(files, '.github/workflows/release.yml')
-        assert.ok(release.includes('uses: pragmatic-tech-ai/pragmatic-shared/.github/workflows/container-release.yml@main'))
+        assert.ok(release.includes('uses: pragmatic-tech-ai/pragmatic-shared/.github/workflows/container-release.yml@v' + version + '\n'))
+        assert.ok(release.includes("      ui-dirs: ''\n      node: true\n      closure-check: true\n"), 'the checks verify runs, as CI runs them')
         assert.match(release, /tags: \['v\*\.\*\.\*'\]/)
         assert.ok(release.includes('\nconcurrency:\n  group: release-${{ github.ref }}\n  cancel-in-progress: false\n'))
         assert.ok(release.includes('contents: write'))
@@ -397,6 +402,8 @@ describe('ContainerTemplate', () =>
         assert.ok(!release.includes('RELEASE_SIGNING_KEY'))
         const idp = TemplateFixture.File(TemplateFixture.Render(ReleaseApp.TenantIdp), '.github/workflows/ci.yml')
         assert.ok(idp.includes("ui-dirs: 'idp-login'"))
+        assert.ok(TemplateFixture.File(TemplateFixture.Render(ReleaseApp.TenantIdp), '.github/workflows/release.yml').includes("ui-dirs: 'idp-login'"))
+        assert.ok(TemplateFixture.File(TemplateFixture.Render(ReleaseApp.Postgres), '.github/workflows/release.yml').includes('closure-check: false'))
         assert.ok(idp.includes('arm64: true'))
     })
 
@@ -424,6 +431,30 @@ describe('ContainerTemplate', () =>
             assert.ok(TemplateFixture.File(files, '.github/workflows/release.yml').includes('app: ' + app))
         })
     }
+
+    it('hands only the WritableDirs to the service user: created and owned by 10001 after the copies, before USER; none, no line', () =>
+    {
+        const image = TemplateFixture.Dockerfile(ReleaseApp.TenantIdp).Stage('pragmatic-tenant-idp')
+        const own = image.filter(line => line.includes('chown'))
+        assert.deepEqual(own, ['RUN mkdir -p /workspace/pragmatic-tenant-idp/dist/data && chown 10001:10001 /workspace/pragmatic-tenant-idp/dist/data'])
+        const at = image.indexOf(own[0])
+        assert.ok(at > image.map(line => line.startsWith('COPY --from=build ')).lastIndexOf(true), 'after the copies')
+        assert.ok(at < image.indexOf('USER 10001'))
+        assert.ok(!own[0].includes(' -R'), 'what was copied into it stays root\'s')
+        const server = TemplateFixture.Dockerfile(ReleaseApp.EnvServer).Stage('pragmatic-env-server').filter(line => line.includes('chown'))
+        assert.deepEqual(server, ['RUN mkdir -p /workspace/pragmatic-env-server/node_modules/@pragmatic-tech-ai/todl && chown 10001:10001 /workspace/pragmatic-env-server/node_modules/@pragmatic-tech-ai/todl'])
+        for (const app of [ReleaseApp.UiUnpack, ReleaseApp.HiveAgent, ReleaseApp.EnvGateway, ReleaseApp.PlatformEdge, ReleaseApp.TenantAdmin])
+        {
+            assert.ok(TemplateFixture.Dockerfile(app).All().every(line => !line.includes('chown')), app)
+        }
+        const two = ContainerTemplate.Render({ App: ReleaseApp.HiveAgent, Entry: 'src/bin/pragmatic-agentd.ts', UiDirs: [], ExtraCopies: [], WritableDirs: ['dist/a', 'cache'] })
+        assert.ok(TemplateFixture.File(two, 'Dockerfile').includes('RUN mkdir -p /workspace/pragmatic-hive-agent/dist/a /workspace/pragmatic-hive-agent/cache && chown 10001:10001 /workspace/pragmatic-hive-agent/dist/a /workspace/pragmatic-hive-agent/cache\n'))
+        for (const bad of ['/abs', '../up', 'a b', 'a/./b'])
+        {
+            assert.throws(() => ContainerTemplate.Render({ App: ReleaseApp.HiveAgent, Entry: 'src/bin/pragmatic-agentd.ts', UiDirs: [], ExtraCopies: [], WritableDirs: [bad] }), ContainerTemplateError, bad)
+        }
+        assert.throws(() => ContainerTemplate.Render({ App: ReleaseApp.Postgres, Entry: 'Dockerfile', UiDirs: [], ExtraCopies: [], WritableDirs: ['data'] }), ContainerTemplateError)
+    })
 
     it('refuses an entry outside src/, an absolute or parent path and a path with spaces', () =>
     {
@@ -485,19 +516,13 @@ describe('ContainerTemplate', () =>
         }
     })
 
-    it('renders legacy-peer-deps into the .npmrc and the deps stage for the platform edge only', () =>
+    it('renders no legacy-peer-deps anywhere: every repository installs the peers its packages declare', () =>
     {
-        for (const app of ReleaseApps.NodeApps)
+        for (const app of ReleaseApps.All)
         {
-            const files = TemplateFixture.Render(app)
-            const npmrc = TemplateFixture.File(files, '.npmrc')
-            const deps = TemplateFixture.Dockerfile(app).Stage('deps').join('\n')
-            const legacy = app === ReleaseApp.PlatformEdge
-            assert.equal(npmrc.includes('\nlegacy-peer-deps=true\n'), legacy, app)
-            assert.equal(deps.includes('ENV NPM_CONFIG_LEGACY_PEER_DEPS=true'), legacy, app)
-            if (legacy)
+            for (const [path, text] of TemplateFixture.Render(app))
             {
-                assert.ok(deps.indexOf('ENV NPM_CONFIG_LEGACY_PEER_DEPS=true') < deps.indexOf('npm ci --no-audit --no-fund'), 'before the install')
+                assert.ok(!/legacy-peer-deps|LEGACY_PEER_DEPS/i.test(text), app + ' ' + path)
             }
         }
     })

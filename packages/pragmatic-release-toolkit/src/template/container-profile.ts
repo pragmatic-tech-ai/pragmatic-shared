@@ -46,8 +46,6 @@ export interface IContainerProfile
     StartSmoke: boolean
     /** The configuration refusal the app prints when started with no configuration, where the default pattern misses it. */
     StartSmokeRefusal?: string
-    /** The repository installs with `legacy-peer-deps` (.npmrc and the image's deps stage): it takes no TODL peer. */
-    LegacyPeerDeps?: boolean
     /** Lines appended to the common `.dockerignore` (local secrets and dev data); `#` comments allowed. */
     DockerIgnore?: readonly string[]
     /** Lines appended to the common `.gitignore` (local secrets and dev data); `#` comments allowed. */
@@ -154,7 +152,6 @@ export class ContainerProfiles
             Ports: [ContainerProfiles.AgentChannelPort],
             Healthcheck: { Scheme: HealthScheme.Http, PortVariable: ContainerProfiles.AgentChannelPortVariable, DefaultPort: ContainerProfiles.AgentChannelPort },
             ImageTest: false, StartSmoke: true, HelmChart: ContainerProfiles.NoChart, ClosureCheck: true, VersionManifest: ContainerProfiles.RootManifest,
-            LegacyPeerDeps: true,
             StartSmokeRefusal: ContainerProfiles.PlatformEdgeRefusal,
         }],
         [ReleaseApp.EnvServer, {

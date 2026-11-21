@@ -104,20 +104,23 @@ describe('ReleaseManifest.Parse', () =>
         }
     })
 
-    it('refuses two apps naming one repository at different owners or versions (one commit per repository name)', () =>
+    it('refuses a repository other than <namespace>/<app>: a fork, another app\'s repository, another namespace than asked', () =>
     {
         const world = new ReleaseWorld()
-        const shared = (change: (component: Record<string, string>) => void): string => Edit.Text(world, doc =>
+        const foreign: string[] = [
+            Edit.OtherOwner + '/' + ReleaseApp.EnvGateway,
+            ReleaseWorld.Repository(ReleaseApp.EnvServer),
+            ReleaseWorld.Owner + '/' + ReleaseApp.EnvGateway + '-fork',
+        ]
+        for (const repository of foreign)
         {
-            doc.components[ReleaseApp.EnvGateway].repository = doc.components[ReleaseApp.EnvServer].repository
-            change(doc.components[ReleaseApp.EnvGateway])
-        })
-        assert.doesNotThrow(() => ReleaseManifest.Parse(shared(() => undefined)))
-        assert.throws(() => ReleaseManifest.Parse(shared(component => { component.version = Edit.OtherVersion })), ReleaseManifestInvalidError)
-        assert.throws(() => ReleaseManifest.Parse(shared(component =>
-        {
-            component.repository = Edit.OtherOwner + '/' + ReleaseApp.EnvServer
-        })), ReleaseManifestInvalidError)
+            const text = Edit.Text(world, doc => { doc.components[ReleaseApp.EnvGateway].repository = repository })
+            assert.throws(() => ReleaseManifest.Parse(text), (error: unknown) =>
+                error instanceof ReleaseManifestInvalidError && error.Reason === 'repository is not ' + ReleaseWorld.Namespace + '/' + ReleaseApp.EnvGateway + ': '
+                    + ReleaseApp.EnvGateway, repository)
+        }
+        assert.doesNotThrow(() => ReleaseManifest.Parse(world.ManifestText(), ReleaseWorld.Namespace))
+        assert.throws(() => ReleaseManifest.Parse(world.ManifestText(), Edit.OtherOwner), ReleaseManifestInvalidError)
     })
 
     it('names an unknown field only when it has a plain name shape', () =>
@@ -245,7 +248,7 @@ describe('ReleaseManifest.Check', () =>
             [{ App: ReleaseApp.TenantIdp, Kind: ReleaseManifestProblemKind.CommitForeign }])
     })
 
-    it('asks each repository for its release commit once, whichever apps share it', async () =>
+    it('asks each app\'s own repository for its release commit once', async () =>
     {
         const world = new ReleaseWorld()
         const doc = ReleaseManifest.Parse(world.ManifestText())

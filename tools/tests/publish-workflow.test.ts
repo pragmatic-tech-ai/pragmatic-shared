@@ -112,6 +112,8 @@ describe('publish workflow', () =>
         assert.deepEqual([...positions].sort((a, b) => a - b), positions);
         assert.match(pack, /retention-days: 7\n {10}if-no-files-found: error\n {10}overwrite: true\n/);
         assert.ok(test.includes('run: npm test --workspaces && npm run test:tools'));
+        assert.ok(test.indexOf('run: npm run typecheck --workspaces && npm run typecheck:tools') > test.indexOf('run: npm run build\n'), 'typechecks the packages, their tests and the tools after the build');
+        assert.ok(test.indexOf('run: npm run typecheck --workspaces && npm run typecheck:tools') < test.indexOf('run: npm test --workspaces'));
         assert.ok(!test.includes('publish:packages') && !test.includes('upload-artifact'));
     });
 
@@ -194,5 +196,55 @@ describe('publish workflow', () =>
         {
             assert.match(job, /- name: Remove credentials\n {8}if: always\(\)\n {8}run: rm -f ~\/\.npmrc\n/);
         }
+    });
+});
+
+/** .github/workflows/ci.yml, read as text: the push and pull request CI of the workspace. */
+class CiWorkflow
+{
+    public static readonly File = path.resolve(__dirname, '..', '..', '.github', 'workflows', 'ci.yml');
+
+    public static Text(): string
+    {
+        return fs.readFileSync(CiWorkflow.File, 'utf8');
+    }
+}
+
+describe('ci workflow', () =>
+{
+    const text = CiWorkflow.Text();
+    const jobs = PublishWorkflow.Jobs(text);
+
+    it('grants nothing at the top level; its one job reads contents and packages only', () =>
+    {
+        assert.match(text, /^permissions: \{\}\njobs:\n/m);
+        assert.deepEqual([...jobs.keys()], ['build-test']);
+        assert.ok(PublishWorkflow.IsReadOnly(jobs.get('build-test') ?? ''));
+        assert.ok(!text.includes('write'));
+    });
+
+    it('pins every action by commit sha and keeps no git credentials in the checkout', () =>
+    {
+        const uses = text.split('\n').filter(line => /^\s*(- )?uses: /.test(line));
+        assert.ok(uses.length >= 2);
+        for (const line of uses)
+        {
+            assert.match(line, /uses: [\w-]+\/[\w-]+@[0-9a-f]{40} # v\d/, line);
+        }
+        const checkouts = text.split('- uses: actions/checkout@').slice(1);
+        assert.ok(checkouts.length > 0);
+        for (const checkout of checkouts)
+        {
+            assert.match(checkout, /^[0-9a-f]{40} # v\d\n {8}with:\n(?: {10}.*\n)*? {10}persist-credentials: false\n/);
+        }
+    });
+
+    it('typechecks every package with its tests after the build, before the tests', () =>
+    {
+        const job = jobs.get('build-test') ?? '';
+        const typecheck = job.indexOf('run: npm run typecheck --workspaces\n');
+        assert.ok(typecheck > job.indexOf('run: npm run build\n'));
+        assert.ok(typecheck < job.indexOf('run: npm test --workspaces\n'));
+        assert.ok(job.includes('run: npm run test:tools && npm run typecheck:tools'));
     });
 });

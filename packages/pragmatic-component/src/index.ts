@@ -19,4 +19,5 @@ export { ResolvedConfiguration, SecretSetting } from './configuration/resolved-c
 export type { SettingValue } from './configuration/resolved-configuration.js';
 export { SecretReference } from './configuration/secret-reference.js';
 export { ComponentDeclarations } from './declaration/component-declarations.js';
+export { InternalApiCredential, InternalApiSecretError } from './internal/internal-api-credential.js';
 export type { ComponentDeclaration, OptionDeclaration, PortDeclaration, RoleDeclaration, SettingDeclaration } from './declaration/component-declarations.js';

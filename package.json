@@ -41,6 +41,7 @@
     "test": "npm test --workspaces && npm run test:tools",
     "pretest": "npm run build",
     "test:tools": "tsx --test \"tools/tests/*.test.ts\"",
+    "typecheck": "npm run typecheck --workspaces && npm run typecheck:tools",
     "typecheck:tools": "tsc -p tools/tsconfig.json",
     "publish:packages": "tsx tools/publish-packages.ts"
   }

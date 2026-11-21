@@ -14,11 +14,12 @@ export type ContainerRenderArgsField = {
     Assets?: ContainerAsset[]
     DockerIgnore?: string[]
     GitIgnore?: string[]
+    WritableDirs?: string[]
 }
 
 /**
  * The repository's package.json field `pragmaticContainerTemplate`: what `pragmatic-container-template render` was
- * given (app, entry, UI dirs, extra copies, assets, extra ignore lines). `render` writes it; `render` without flags and
+ * given (app, entry, UI dirs, extra copies, assets, extra ignore lines, the directories the service writes). `render` writes it; `render` without flags and
  * `check` read it, the workspaces coming from the same package.json.
  */
 export class ContainerRenderArgs
@@ -26,10 +27,10 @@ export class ContainerRenderArgs
     public static readonly PackageField = 'pragmaticContainerTemplate'
     private static readonly PackageJson = 'package.json'
     private static readonly Utf8 = 'utf8'
-    private static readonly ListFields: readonly string[] = ['UiDirs', 'ExtraCopies', 'DockerIgnore', 'GitIgnore']
-    private static readonly KnownFields: ReadonlySet<string> = new Set(['App', 'Entry', 'UiDirs', 'ExtraCopies', 'Assets', 'DockerIgnore', 'GitIgnore'])
+    private static readonly ListFields: readonly string[] = ['UiDirs', 'ExtraCopies', 'DockerIgnore', 'GitIgnore', 'WritableDirs']
+    private static readonly KnownFields: ReadonlySet<string> = new Set(['App', 'Entry', 'UiDirs', 'ExtraCopies', 'Assets', 'DockerIgnore', 'GitIgnore', 'WritableDirs'])
     private static readonly AssetFields: ReadonlySet<string> = new Set(['From', 'To'])
-    private static readonly BadFieldPrefix = 'package.json pragmaticContainerTemplate is not { App, Entry, UiDirs?, ExtraCopies?, Assets?, DockerIgnore?, GitIgnore? }: '
+    private static readonly BadFieldPrefix = 'package.json pragmaticContainerTemplate is not { App, Entry, UiDirs?, ExtraCopies?, Assets?, DockerIgnore?, GitIgnore?, WritableDirs? }: '
 
     /** The options the repository at `dir` keeps; undefined when its package.json has no such field (or none at all). */
     public static Read(dir: string): ContainerTemplateOptions | undefined
@@ -54,6 +55,7 @@ export class ContainerRenderArgs
             Assets: args.Assets ?? [],
             DockerIgnore: args.DockerIgnore ?? [],
             GitIgnore: args.GitIgnore ?? [],
+            WritableDirs: args.WritableDirs ?? [],
             Workspaces: ContainerWorkspaces.Read(dir),
         }
     }
@@ -67,6 +69,7 @@ export class ContainerRenderArgs
         if ((options.Assets ?? []).length > 0) field.Assets = (options.Assets ?? []).map(asset => ({ From: asset.From, To: asset.To }))
         if ((options.DockerIgnore ?? []).length > 0) field.DockerIgnore = [...(options.DockerIgnore ?? [])]
         if ((options.GitIgnore ?? []).length > 0) field.GitIgnore = [...(options.GitIgnore ?? [])]
+        if ((options.WritableDirs ?? []).length > 0) field.WritableDirs = [...(options.WritableDirs ?? [])]
         return field
     }
 

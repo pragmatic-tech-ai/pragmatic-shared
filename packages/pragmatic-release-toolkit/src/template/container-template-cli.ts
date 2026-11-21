@@ -14,7 +14,7 @@ class ContainerTemplateUsageError extends Error
 /**
  * The `pragmatic-container-template` command.
  * - `render --app <app> --entry <path> [--ui <dir>]... [--copy <path>]... [--asset <from>=<to>]... [--dockerignore
- *   <line>]... [--gitignore <line>]... --out <dir>` writes ContainerTemplate's files for one container repository under
+ *   <line>]... [--gitignore <line>]... [--writable <dir>]... --out <dir>` writes ContainerTemplate's files for one container repository under
  *   `--out` (the repository root; existing files are overwritten) and prints each path. The npm workspaces come from
  *   `<out>/package.json`, which also receives the `pragmaticClosureCheck` field and the render arguments as
  *   `pragmaticContainerTemplate` (both printed instead when there is no package.json yet). `render --out <dir>` alone
@@ -43,8 +43,9 @@ export class ContainerTemplateCli
     private static readonly FlagAsset = 'asset'
     private static readonly FlagDockerIgnore = 'dockerignore'
     private static readonly FlagGitIgnore = 'gitignore'
+    private static readonly FlagWritable = 'writable'
     private static readonly SingleFlags: readonly string[] = [ContainerTemplateCli.FlagApp, ContainerTemplateCli.FlagEntry, ContainerTemplateCli.FlagOut]
-    private static readonly RepeatedFlags: readonly string[] = [ContainerTemplateCli.FlagUi, ContainerTemplateCli.FlagCopy, ContainerTemplateCli.FlagAsset, ContainerTemplateCli.FlagDockerIgnore, ContainerTemplateCli.FlagGitIgnore]
+    private static readonly RepeatedFlags: readonly string[] = [ContainerTemplateCli.FlagUi, ContainerTemplateCli.FlagCopy, ContainerTemplateCli.FlagAsset, ContainerTemplateCli.FlagDockerIgnore, ContainerTemplateCli.FlagGitIgnore, ContainerTemplateCli.FlagWritable]
     private static readonly AssetSeparator = '='
     private static readonly PackageJson = 'package.json'
     private static readonly JsonIndent = 2
@@ -53,7 +54,7 @@ export class ContainerTemplateCli
     private static readonly OkExitCode = 0
     private static readonly FailExitCode = 1
     private static readonly UsageExitCode = 2
-    private static readonly UsageMessage = 'Usage: pragmatic-container-template render [--app <app> --entry <path> [--ui <dir>]... [--copy <path>]... [--asset <from>=<to>]... [--dockerignore <line>]... [--gitignore <line>]...] --out <dir> | check [--out <dir>]'
+    private static readonly UsageMessage = 'Usage: pragmatic-container-template render [--app <app> --entry <path> [--ui <dir>]... [--copy <path>]... [--asset <from>=<to>]... [--dockerignore <line>]... [--gitignore <line>]... [--writable <dir>]...] --out <dir> | check [--out <dir>]'
     private static readonly UnknownFlagPrefix = 'Unknown option: --'
     private static readonly DuplicateFlagPrefix = 'Option given more than once: --'
     private static readonly MissingFlagPrefix = 'Missing required option: --'
@@ -181,6 +182,7 @@ export class ContainerTemplateCli
             Assets: (repeated.get(C.FlagAsset) ?? []).map(asset => C.AssetOf(asset)),
             DockerIgnore: repeated.get(C.FlagDockerIgnore) ?? [],
             GitIgnore: repeated.get(C.FlagGitIgnore) ?? [],
+            WritableDirs: repeated.get(C.FlagWritable) ?? [],
         }
     }
 

@@ -43,7 +43,7 @@ The platform release toolkit, lifted from pragmatic-server by the container spli
   <dir>]... [--copy <path>]... [--asset <from>=<to>]... [--dockerignore <line>]... [--gitignore <line>]... --out
   <dir>` (`DockerIgnore` / `GitIgnore`: lines appended after the profile's, `#` comments allowed), filled from
   `templates/container` with the per-app facts of `ContainerProfiles` (ports, health check, apt packages, environment,
-  multi-arch, image test, start smoke and its refusal pattern, `legacy-peer-deps`, the repository's own
+  multi-arch, image test, start smoke and its refusal pattern, the repository's own
   `.dockerignore` / `.gitignore` lines, Helm chart, the closure check, the manifest the release version comes from),
   so a re-render reproduces the repository's files. `render` also writes its arguments into the repository's
   package.json field `pragmaticContainerTemplate` (`ContainerRenderArgs`); `render --out .` alone re-renders from it,
@@ -58,7 +58,7 @@ The platform release toolkit, lifted from pragmatic-server by the container spli
   `pragmatic-closure-check` reads), `docker-bake.hcl` (targets `components` and `<app>`), `.npmrc` (token from
   `NODE_AUTH_TOKEN`), `.dockerignore`, the tsconfigs, `.gitattributes`, `.gitignore` and the caller workflows
   `.github/workflows/ci.yml` / `release.yml` on pragmatic-shared's reusable `container-ci.yml` /
-  `container-release.yml` (`@main`, this organisation's own public repository). The entry is
+  `container-release.yml` at the tag of the toolkit version that renders them (`ContainerTemplate.WorkflowRef`, `v<version>`, protected on pragmatic-shared; the render-drift check holds it, a re-render after a toolkit bump moves it). The release verifies the tagged commit is on main and runs CI's checks up to the bake before it bakes, and never moves a released `:<version>` tag or replaces an attached asset. The entry is
   `[<workspace>/]src/<path>.ts`; the descriptor comes from `[<workspace>/]dist/release-components.js`, which exports
   `Components = new ContainerComponentSource(app, () => <descriptor>)`. pragmatic-postgres keeps its own Dockerfile
   (its entry): it gets `components.Dockerfile` (the descriptor build) and a bake file whose image target reads the

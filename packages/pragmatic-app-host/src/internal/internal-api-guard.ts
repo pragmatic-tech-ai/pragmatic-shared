@@ -1,6 +1,6 @@
 import { HttpProblem } from '../http/http-problem.js'
 import type { RequestContext } from '../routing/request-context.js'
-import type { InternalApiCredential } from './internal-api-credential.js'
+import type { InternalApiCredential } from '@pragmatic-tech-ai/pragmatic-component'
 
 /** The route-side check of an internal link: the request's `authorization` header must carry the link's bearer, else
  *  a 401 with code `unauthorized`. Mounted on RouteAuth.Public routes (the caller is a service, not a session). */

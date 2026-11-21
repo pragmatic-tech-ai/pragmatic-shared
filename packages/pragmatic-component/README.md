@@ -15,5 +15,9 @@ and the ports and health endpoint it serves.
   defaults filled in.
 - `SecretReference` is what a secret setting holds: `secret:<store>/<name>[@<version>]`, a reference into the realm's
   secrets home, never the secret itself.
+- `InternalApiCredential` (`InternalApiSecretError`): one end's identity on an internal link between the platform's
+  servers, an HMAC-SHA256 bearer from a shared secret and a per-link label, matched in constant time. Here because this
+  package takes no dependency and no peer: the platform edge's link reaches it without the TODL peers of
+  pragmatic-app-host, which re-exports it.
 
 No dependencies.

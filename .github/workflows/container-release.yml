@@ -1,12 +1,22 @@
 # The image release of a container repository (dev-kit A3; the caller, rendered by pragmatic-container-template,
 # triggers on its tag `v<semver>`, which must equal the version of `version-manifest`: the component descriptor's
-# version is that package's version). The repository is built and tested first (`verify`). Each arch is then baked on
-# its own native runner (no QEMU) in two steps (`components`, then the image labelled with its component digest; the
-# image build runs the closure check itself) and pushed untagged, by digest, to ghcr.io/pragmatic-tech-ai/<app>; the
-# publish job joins the arches under :<version> and :git-<sha> (docker buildx imagetools create), writes the joined
-# digest as the job output `digest` and attaches component.json (the descriptor the image carries) and digest.txt to
-# the GitHub release of the tag (created when missing). Nothing is signed here: a platform release is assembled and
-# signed in pragmatic-platform-release, from these assets, and only there is its signing key.
+# version is that package's version). A release comes only from a commit on main (`check`: the tagged commit is an
+# ancestor of origin/main) that passes the same checks container-ci runs before its image bake (`verify`: install, the
+# render-drift check, build, typecheck, tests, UI unit tests, the closure check; its steps are container-ci's, held equal
+# by the toolkit's workflow test). Each arch is then baked on its own native runner (no QEMU) in two steps (`components`,
+# then the image labelled with its component digest; the image build runs the closure check itself) and pushed untagged,
+# by digest, to ghcr.io/pragmatic-tech-ai/<app>; the publish job joins the arches under :<version> and :git-<sha>
+# (docker buildx imagetools create), reads the image's component label back from the registry and compares it with the
+# descriptor, writes the joined digest as the job output `digest` and attaches component.json (the descriptor the image
+# carries) and digest.txt to the GitHub release of the tag (created when missing). Nothing is signed here: a platform
+# release is assembled and signed in pragmatic-platform-release, from these assets, and only there is its signing key.
+# A released version never moves: an existing :<version> or :git-<sha> tag that names another digest than this run
+# would write, or an attached asset whose bytes differ, stops the run (cut a new version instead); the same digest and
+# identical assets (a re-run of a failed publish job) pass without writing.
+# The digest: imagetools create pushes exactly the bytes its --dry-run prints. One source that already is an index (a
+# single arch pushed with buildx's provenance attestation is one) is reused as is; a manifest, or several arches, gets a
+# new index. So for a single arch the release digest is not the arch's push digest but whatever :<version> resolves to
+# after the create, read back from the registry (and checked against the dry run).
 # GHCR_TOKEN (optional, a token with write:packages): the nine GHCR packages were created by pragmatic-server and are
 # linked to it, so a new repository's GITHUB_TOKEN gets 403 on push until the package grants that repository Actions
 # access (package settings, "Manage Actions access"). Until then pass GHCR_TOKEN; without it the run uses its own
@@ -30,6 +40,22 @@ on:
         description: The package.json whose version the tag must equal (server/package.json in pragmatic-env-server).
         type: string
         default: package.json
+      node-test-glob:
+        description: As container-ci's (the tests to run with tsx --test; empty runs npm test).
+        type: string
+        default: ''
+      ui-dirs:
+        description: As container-ci's (UI projects whose unit tests run, space or newline separated).
+        type: string
+        default: ''
+      node:
+        description: As container-ci's (build and test the repository on the runner).
+        type: boolean
+        default: true
+      closure-check:
+        description: As container-ci's (run pragmatic-closure-check).
+        type: boolean
+        default: true
     secrets:
       PACKAGES_TOKEN:
         required: true
@@ -50,7 +76,14 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          fetch-depth: 0
           persist-credentials: false
+      - name: The tagged commit is on main
+        run: |
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::$GITHUB_SHA is not on main: only a commit of main is released"
+            exit 1
+          fi
       # Fails fast on a ref that is not a `v<semver>` tag or a tag that is not the manifest's version.
       - name: Resolve the version from the tag
         id: version
@@ -77,6 +110,7 @@ jobs:
           else
             echo 'arches=["amd64"]' >> "$GITHUB_OUTPUT"
           fi
+  # container-ci's build-test steps up to its image bake, copied verbatim (the toolkit's workflow test holds them equal).
   verify:
     needs: check
     runs-on: ubuntu-latest
@@ -96,13 +130,62 @@ jobs:
           umask 077
           printf '@pragmatic-tech-ai:registry=https://npm.pkg.github.com\n//npm.pkg.github.com/:_authToken=%s\n' "$PACKAGES_TOKEN" > "$RUNNER_TEMP/npmrc"
           echo "NPM_CONFIG_USERCONFIG=$RUNNER_TEMP/npmrc" >> "$GITHUB_ENV"
-      - name: Install, build and test
+      - name: Install
         env:
           NODE_AUTH_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
+        run: npm ci --no-audit --no-fund
+      # The repository's rendered files (Dockerfile, bake file, ignore files, tsconfigs, caller workflows, package.json's
+      # two fields) are what its installed toolkit renders from package.json `pragmaticContainerTemplate`; a repository
+      # without that field fails (every container repository keeps its render arguments).
+      - name: Rendered files match the template
         run: |
-          npm ci --no-audit --no-fund
-          npm run build
-          npm test
+          if ! node -e "process.exit(require('./package.json').pragmaticContainerTemplate ? 0 : 1)"; then
+            echo '::error::package.json has no pragmaticContainerTemplate: keep the render arguments there (pragmatic-container-template render writes them)'
+            exit 1
+          fi
+          npx --no-install pragmatic-container-template check
+      - name: Build
+        if: inputs.node
+        run: npm run build
+      - name: Typecheck
+        if: inputs.node
+        run: |
+          if node -e "process.exit(require('./package.json').scripts?.typecheck ? 0 : 1)"; then
+            npm run typecheck
+          else
+            echo 'No typecheck script: skipped'
+          fi
+      - name: Test
+        if: inputs.node
+        env:
+          TEST_GLOB: ${{ inputs.node-test-glob }}
+        run: |
+          if [ -n "$TEST_GLOB" ]; then
+            npx --no-install tsx --test "$TEST_GLOB"
+          else
+            npm test
+          fi
+      - name: UI unit tests
+        if: inputs.node && inputs.ui-dirs != ''
+        env:
+          UI_DIRS: ${{ inputs.ui-dirs }}
+          NODE_AUTH_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
+        run: |
+          for dir in $UI_DIRS; do
+            (
+              cd "$dir"
+              npm ci --no-audit --no-fund
+              npm test
+              if node -e "process.exit(require('./package.json').scripts?.typecheck ? 0 : 1)"; then
+                npm run typecheck
+              fi
+            )
+          done
+      # The image copies only what its entry reaches: closure.json, the Dockerfile and the code must agree (options from
+      # package.json `pragmaticClosureCheck`). The image build runs it again on the tree it is cut from.
+      - name: Image closure check
+        if: inputs.node && inputs.closure-check
+        run: npx --no-install pragmatic-closure-check
       - name: Remove credentials
         if: always()
         run: rm -f "$RUNNER_TEMP/npmrc"
@@ -196,6 +279,10 @@ jobs:
           done
           mkdir -p "$RUNNER_TEMP/assets"
           cp "$first" "$RUNNER_TEMP/assets/component.json"
+      # The tags already present must name the digest this run writes (a re-run of a failed publish job); one that names
+      # another digest stops the run, so a released version never moves. The planned digest is the sha256 of the bytes
+      # --dry-run prints (the ones create pushes, printed with one trailing newline); after the create, :<version> is
+      # read back from the registry and must name it.
       - name: Join the arches under the version tags
         id: join
         run: |
@@ -204,19 +291,79 @@ jobs:
           for file in "$RUNNER_TEMP"/images/digest-*; do
             sources+=("$image@$(cat "$file")")
           done
-          docker buildx imagetools create -t "$image:$VERSION" -t "$image:git-$GITHUB_SHA" "${sources[@]}"
+          docker buildx imagetools create --dry-run -t "$image:$VERSION" "${sources[@]}" > "$RUNNER_TEMP/planned.json"
+          planned="sha256:$(head -c -1 "$RUNNER_TEMP/planned.json" | sha256sum | cut -d ' ' -f 1)"
+          missing=()
+          for tag in "$VERSION" "git-$GITHUB_SHA"; do
+            if existing="$(docker buildx imagetools inspect "$image:$tag" --format '{{json .Manifest}}' 2> "$RUNNER_TEMP/inspect.err")"; then
+              existing="$(jq -r .digest <<< "$existing")"
+              if [ "$existing" != "$planned" ]; then
+                echo "::error::$image:$tag already names $existing, not $planned: a released tag is never moved (cut a new version)"
+                exit 1
+              fi
+              echo "$image:$tag already names $planned"
+            elif grep -qi 'not found' "$RUNNER_TEMP/inspect.err"; then
+              missing+=(-t "$image:$tag")
+            else
+              cat "$RUNNER_TEMP/inspect.err" >&2
+              echo "::error::cannot read $image:$tag"
+              exit 1
+            fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            docker buildx imagetools create "${missing[@]}" "${sources[@]}"
+          fi
           digest="$(docker buildx imagetools inspect "$image:$VERSION" --format '{{json .Manifest}}' | jq -r .digest)"
           grep -Eq '^sha256:[0-9a-f]{64}$' <<< "$digest"
+          if [ "$digest" != "$planned" ]; then
+            echo "::error::$image:$VERSION names $digest after the create, not the planned $planned"
+            exit 1
+          fi
           printf '%s\n' "$digest" > "$RUNNER_TEMP/assets/digest.txt"
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
           echo "$image:$VERSION@$digest"
+      # Every arch's image config, read from the registry, carries the label the descriptor hashes to.
+      - name: The pushed image's component label is the descriptor's digest
+        env:
+          DIGEST: ${{ steps.join.outputs.digest }}
+        run: |
+          image="ghcr.io/pragmatic-tech-ai/$APP"
+          expected="sha256:$(sha256sum "$RUNNER_TEMP/assets/component.json" | cut -d ' ' -f 1)"
+          arches="$(find "$RUNNER_TEMP/images" -name 'digest-*' | wc -l)"
+          docker buildx imagetools inspect "$image@$DIGEST" --format '{{json .Image}}' > "$RUNNER_TEMP/image-config.json"
+          labels="$(jq -r 'if has("config") then [.] else [.[]] end | .[] | .config.Labels["ai.pragmatic-tech.component.digest"] // "none"' "$RUNNER_TEMP/image-config.json")"
+          if [ "$(wc -l <<< "$labels")" != "$arches" ]; then
+            echo "::error::$image@$DIGEST has $(wc -l <<< "$labels") image configs, not $arches"
+            exit 1
+          fi
+          while read -r label; do
+            if [ "$label" != "$expected" ]; then
+              echo "::error::$image@$DIGEST is labelled $label, not $expected (sha256 of component.json)"
+              exit 1
+            fi
+          done <<< "$labels"
+          echo "ok $image@$DIGEST $expected"
+      # An asset already attached (a re-run) must be byte-identical; it is never replaced.
       - name: Attach component.json and digest.txt to the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cd "$RUNNER_TEMP/assets"
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
-            gh release upload "$TAG" component.json digest.txt --clobber --repo "$GITHUB_REPOSITORY"
+            attached="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
+            mkdir -p "$RUNNER_TEMP/attached"
+            for asset in component.json digest.txt; do
+              if grep -Fxq "$asset" <<< "$attached"; then
+                gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$asset" --dir "$RUNNER_TEMP/attached"
+                if ! cmp -s "$asset" "$RUNNER_TEMP/attached/$asset"; then
+                  echo "::error::the release $TAG already carries another $asset: a released asset is never replaced"
+                  exit 1
+                fi
+                echo "$asset: already attached, identical"
+              else
+                gh release upload "$TAG" "$asset" --repo "$GITHUB_REPOSITORY"
+              fi
+            done
           else
             gh release create "$TAG" component.json digest.txt --verify-tag --title "$APP $VERSION" \
               --notes "ghcr.io/pragmatic-tech-ai/$APP:$VERSION@$(cat digest.txt)" --repo "$GITHUB_REPOSITORY"

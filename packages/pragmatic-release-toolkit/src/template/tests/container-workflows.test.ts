@@ -340,7 +340,7 @@ describe('container workflows', () =>
     it('container-release.yml verifies, pushes by digest, joins the arches, outputs the digest and attaches the descriptor', () =>
     {
         const release = Workflows.Read(Workflows.Release)
-        assert.deepEqual([...Workflows.Inputs(release)], [['app', 'string'], ['arm64', 'boolean'], ['version-manifest', 'string']])
+        assert.deepEqual([...Workflows.Inputs(release)], [['app', 'string'], ['arm64', 'boolean'], ['version-manifest', 'string'], ['node-test-glob', 'string'], ['ui-dirs', 'string'], ['node', 'boolean'], ['closure-check', 'boolean']])
         assert.match(release, /^ {6}PACKAGES_TOKEN:\n {8}required: true\n {6}GHCR_TOKEN:\n {8}required: false$/m)
         // The digest output: workflow output <- publish job output <- the join step's GITHUB_OUTPUT.
         assert.match(release, /^ {4}outputs:\n {6}digest:\n {8}description: .*\n {8}value: \$\{\{ jobs\.publish\.outputs\.digest \}\}$/m)
@@ -369,5 +369,121 @@ describe('container workflows', () =>
         {
             assert.ok(release.includes(step), step)
         }
+    })
+
+    it('container-ci.yml fails a repository without render arguments: every container repository keeps them', () =>
+    {
+        const ci = Workflows.Read(Workflows.Ci)
+        const start = ci.indexOf('      - name: Rendered files match the template')
+        const step = ci.slice(start, ci.indexOf('      - name: Build', start))
+        assert.ok(step.includes("if ! node -e \"process.exit(require('./package.json').pragmaticContainerTemplate ? 0 : 1)\"; then"))
+        assert.match(step, /echo '::error::package\.json has no pragmaticContainerTemplate[^']*'\n {12}exit 1\n/)
+        assert.ok(!step.includes('::warning::'))
+    })
+
+    it('container-release.yml releases only a commit on main, checked before anything else', () =>
+    {
+        const release = Workflows.Read(Workflows.Release)
+        const check = Workflows.Jobs(release).find(job => job.Name === 'check')?.Lines.join('\n') ?? ''
+        assert.match(check, /with:\n {10}fetch-depth: 0\n {10}persist-credentials: false\n/)
+        const ancestry = check.indexOf('if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then')
+        assert.ok(ancestry > 0)
+        assert.ok(ancestry < check.indexOf('      - name: Resolve the version from the tag'))
+        assert.ok(check.includes('echo "::error::$GITHUB_SHA is not on main: only a commit of main is released"'))
+    })
+
+    it('container-release.yml verify runs container-ci\'s checks up to its image bake, step for step, with the same inputs', () =>
+    {
+        const ci = Workflows.Read(Workflows.Ci)
+        const release = Workflows.Read(Workflows.Release)
+        const build = Workflows.Jobs(ci).find(job => job.Name === 'build-test')?.Lines.join('\n') ?? ''
+        const verify = Workflows.Jobs(release).find(job => job.Name === 'verify')?.Lines.join('\n') ?? ''
+        const ciSteps = build.slice(build.indexOf('    steps:'), build.indexOf('      # Two steps: the descriptor'))
+        const verifySteps = verify.slice(verify.indexOf('    steps:'), verify.indexOf('      - name: Remove credentials'))
+        assert.ok(ciSteps.length > 1000)
+        assert.equal(verifySteps, ciSteps)
+        for (const step of ['Rendered files match the template', 'Build', 'Typecheck', 'Test', 'UI unit tests', 'Image closure check'])
+        {
+            assert.ok(verifySteps.includes('      - name: ' + step + '\n'), step)
+        }
+        assert.match(verify, /- name: Remove credentials\n {8}if: always\(\)\n {8}run: rm -f "\$RUNNER_TEMP\/npmrc"/)
+        const ciInputs = Workflows.Inputs(ci)
+        const releaseInputs = Workflows.Inputs(release)
+        for (const input of ['node-test-glob', 'ui-dirs', 'node', 'closure-check'])
+        {
+            assert.equal(releaseInputs.get(input), ciInputs.get(input), input)
+            const defaultOf = (text: string): string | undefined => new RegExp('^ {6}' + input + ':\\n {8}description: .*\\n {8}type: \\w+\\n {8}default: (.*)$', 'm').exec(text)?.[1]
+            assert.equal(defaultOf(release), defaultOf(ci), input + ' default')
+        }
+    })
+
+    it('container-release.yml never moves a released tag: :<version> and :git-<sha> must already name the digest the create writes', () =>
+    {
+        const release = Workflows.Read(Workflows.Release)
+        const publish = Workflows.Jobs(release).find(job => job.Name === 'publish')?.Lines.join('\n') ?? ''
+        const dryRun = publish.indexOf('docker buildx imagetools create --dry-run -t "$image:$VERSION" "${sources[@]}" > "$RUNNER_TEMP/planned.json"')
+        assert.ok(dryRun > 0)
+        assert.ok(publish.includes('planned="sha256:$(head -c -1 "$RUNNER_TEMP/planned.json" | sha256sum | cut -d \' \' -f 1)"'), 'the printed bytes less the newline')
+        const loop = publish.indexOf('for tag in "$VERSION" "git-$GITHUB_SHA"; do')
+        assert.ok(loop > dryRun)
+        assert.ok(publish.includes('if [ "$existing" != "$planned" ]; then'))
+        assert.ok(publish.includes('a released tag is never moved (cut a new version)'))
+        assert.ok(publish.includes("elif grep -qi 'not found' \"$RUNNER_TEMP/inspect.err\"; then"), 'only a missing tag is created; any other read failure stops')
+        const creates = publish.split('\n').filter(line => line.includes('docker buildx imagetools create') && !line.includes('--dry-run'))
+        assert.deepEqual(creates.map(line => line.trim()), ['docker buildx imagetools create "${missing[@]}" "${sources[@]}"'])
+        assert.ok(publish.indexOf(creates[0]) > loop)
+    })
+
+    it('container-release.yml outputs the digest :<version> resolves to after the create (for a single arch, not the arch\'s push digest)', () =>
+    {
+        const release = Workflows.Read(Workflows.Release)
+        const publish = Workflows.Jobs(release).find(job => job.Name === 'publish')?.Lines.join('\n') ?? ''
+        const create = publish.indexOf('docker buildx imagetools create "${missing[@]}" "${sources[@]}"')
+        const readBack = publish.indexOf('digest="$(docker buildx imagetools inspect "$image:$VERSION" --format \'{{json .Manifest}}\' | jq -r .digest)"')
+        assert.ok(readBack > create && create > 0)
+        assert.ok(publish.indexOf('if [ "$digest" != "$planned" ]; then') > readBack)
+        assert.ok(publish.indexOf('echo "digest=$digest" >> "$GITHUB_OUTPUT"') > readBack)
+        assert.equal(publish.split('\n').filter(line => line.includes('>> "$GITHUB_OUTPUT"')).length, 1)
+        assert.ok(publish.indexOf('printf \'%s\\n\' "$digest" > "$RUNNER_TEMP/assets/digest.txt"') > readBack)
+        assert.ok(release.includes('# new index. So for a single arch the release digest is not the arch\'s push digest but whatever :<version> resolves to\n# after the create, read back from the registry'))
+    })
+
+    it('container-release.yml reads the pushed image\'s component label back and compares it with the descriptor, before attaching it', () =>
+    {
+        const release = Workflows.Read(Workflows.Release)
+        const publish = Workflows.Jobs(release).find(job => job.Name === 'publish')?.Lines.join('\n') ?? ''
+        const step = publish.indexOf('      - name: The pushed image\'s component label is the descriptor\'s digest')
+        assert.ok(step > publish.indexOf('      - name: Join the arches under the version tags'))
+        assert.ok(step < publish.indexOf('      - name: Attach component.json and digest.txt to the GitHub release'))
+        const text = publish.slice(step, publish.indexOf('      - name: Attach'))
+        assert.ok(text.includes('DIGEST: ${{ steps.join.outputs.digest }}'))
+        assert.ok(text.includes('expected="sha256:$(sha256sum "$RUNNER_TEMP/assets/component.json" | cut -d \' \' -f 1)"'))
+        assert.ok(text.includes('docker buildx imagetools inspect "$image@$DIGEST" --format \'{{json .Image}}\''))
+        assert.ok(text.includes('.config.Labels["ai.pragmatic-tech.component.digest"] // "none"'))
+        assert.ok(text.includes('if [ "$label" != "$expected" ]; then'))
+        assert.ok(text.includes('if [ "$(wc -l <<< "$labels")" != "$arches" ]; then'), 'one labelled config per arch')
+    })
+
+    it('container-release.yml never replaces a release asset: an attached one must be byte-identical', () =>
+    {
+        const release = Workflows.Read(Workflows.Release)
+        assert.ok(!release.includes('--clobber'))
+        const publish = Workflows.Jobs(release).find(job => job.Name === 'publish')?.Lines.join('\n') ?? ''
+        assert.ok(publish.includes('attached="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq \'.assets[].name\')"'))
+        assert.ok(publish.includes('if ! cmp -s "$asset" "$RUNNER_TEMP/attached/$asset"; then'))
+        assert.ok(publish.includes('a released asset is never replaced'))
+        assert.ok(publish.includes('gh release upload "$TAG" "$asset" --repo "$GITHUB_REPOSITORY"'))
+    })
+
+    it('check-component-label.sh names an image without a descriptor (file=missing) instead of stopping bare', () =>
+    {
+        const script = readFileSync(join(Workflows.Directory, '..', '..', 'packages', 'pragmatic-release-toolkit', 'scripts', 'check-component-label.sh'), 'utf8')
+        assert.ok(script.includes('set -euo pipefail'))
+        assert.ok(script.includes('if ! docker run --rm --network none --entrypoint cat "$image" "$descriptor_path" > "$descriptor"; then'))
+        assert.ok(script.includes('content="$(sha256sum "$descriptor" | cut -d \' \' -f 1)"'), 'the bytes as stored, trailing newline included')
+        assert.ok(script.includes("trap 'rm -f \"$descriptor\"' EXIT"))
+        assert.ok(script.includes('echo "MISMATCH $image label=${label:-none} file=missing" >&2'))
+        assert.ok(script.includes('if ! label="$(docker image inspect --format'), 'an image that cannot be inspected is named too')
+        assert.ok(!script.includes('\r'))
     })
 })

@@ -158,6 +158,23 @@ describe('ContainerTemplateCli', () =>
         }
     })
 
+    it('takes --writable more than once and keeps the directories in the render arguments, re-rendered without flags', () =>
+    {
+        const out = CliFixture.Out('writable')
+        mkdirSync(out, { recursive: true })
+        writeFileSync(join(out, 'package.json'), JSON.stringify({ name: 'x', version: '0.1.0' }, null, 2) + '\n')
+        const render = CliFixture.Run(['render', '--app', 'pragmatic-hive-agent', '--entry', 'src/bin/pragmatic-agentd.ts', '--writable', 'dist/a', '--writable', 'cache', '--out', out])
+        assert.equal(render.Code, 0, render.Err.join('\n'))
+        const manifest = JSON.parse(readFileSync(join(out, 'package.json'), 'utf8'))
+        assert.deepEqual(manifest.pragmaticContainerTemplate.WritableDirs, ['dist/a', 'cache'])
+        const owned = 'chown 10001:10001 /workspace/pragmatic-hive-agent/dist/a /workspace/pragmatic-hive-agent/cache\n'
+        assert.ok(readFileSync(join(out, 'Dockerfile'), 'utf8').includes(owned))
+        assert.equal(CliFixture.Run(['check', '--out', out]).Code, 0)
+        writeFileSync(join(out, 'Dockerfile'), 'hand edit\n')
+        assert.equal(CliFixture.Run(['render', '--out', out]).Code, 0)
+        assert.ok(readFileSync(join(out, 'Dockerfile'), 'utf8').includes(owned), 'the field alone re-renders them')
+    })
+
     it('takes --ui and --copy more than once, in order', () =>
     {
         const out = CliFixture.Out('admin')

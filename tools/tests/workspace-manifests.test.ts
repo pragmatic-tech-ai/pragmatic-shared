@@ -81,6 +81,8 @@ class Workspace
         return [...root.scripts[Workspace.BuildScript].matchAll(Workspace.BuildStep)].map(match => match[1]);
     }
 
+    /** The package the platform edge installs for its link to the platform admin console (no TODL, no legacy-peer-deps). */
+    public static readonly EdgeLink = 'pragmatic-platform-link';
     private static readonly BuildScript = 'build';
     private static readonly BuildStep = /npm run build -w packages\/([a-z0-9-]+)/g;
 }
@@ -221,6 +223,41 @@ describe('workspace manifests', () =>
                     if (name.startsWith(Workspace.Scope) && dependency >= 0) assert.ok(dependency < position, `${manifest.Name} builds before ${name}`);
                 }
             }
+        }
+    });
+
+    it('typechecks every package, its tests included (tsconfig.json holds src, the build config leaves the tests out)', () =>
+    {
+        for (const manifest of packages)
+        {
+            const scripts = (manifest.Data as IPackageManifestData & { scripts?: Record<string, string> }).scripts ?? {};
+            assert.equal(scripts.typecheck, 'tsc --noEmit', manifest.Name);
+            const config = JSON.parse(fs.readFileSync(path.join(manifest.Directory, 'tsconfig.json'), 'utf8')) as { include?: string[] };
+            assert.deepEqual(config.include, ['src'], manifest.Name);
+        }
+    });
+
+    it('keeps the platform edge link peer-free: pragmatic-platform-link and every workspace package it reaches declare no peer', () =>
+    {
+        const byName = new Map(packages.map(manifest => [manifest.Name, manifest]));
+        const reached: string[] = [];
+        const queue = [Workspace.Scope + Workspace.EdgeLink];
+        while (queue.length > 0)
+        {
+            const name = queue.shift() as string;
+            const manifest = byName.get(name);
+            if (manifest === undefined || reached.includes(name))
+            {
+                continue;
+            }
+            reached.push(name);
+            queue.push(...Object.keys((manifest.Data as { dependencies?: Record<string, string> }).dependencies ?? {}));
+        }
+        assert.deepEqual(reached, [Workspace.Scope + Workspace.EdgeLink, Workspace.Scope + 'pragmatic-component']);
+        for (const name of reached)
+        {
+            const data = (byName.get(name) as PackageManifest).Data as { peerDependencies?: Record<string, string> };
+            assert.deepEqual(Object.keys(data.peerDependencies ?? {}), [], name);
         }
     });
 

@@ -1,6 +1,6 @@
 {
   "name": "@pragmatic-tech-ai/pragmatic-realm-custom",
-  "version": "0.17.6",
+  "version": "0.17.7",
   "license": "Apache-2.0",
   "description": "Adapters for the custom realm option (self-hosted, Node).",
   "repository": {
@@ -26,7 +26,8 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "test": "tsx --test \"src/**/*.test.ts\""
+    "test": "tsx --test \"src/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "pg": "^8.13.0",

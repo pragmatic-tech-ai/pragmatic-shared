@@ -18,7 +18,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3 make g+
 # The manifests and the lock first, so the install layer is reused while they do not change.
 COPY package.json package-lock.json ./
 {{WorkspaceManifests}}
-{{LegacyPeerDepsEnv}}
 RUN --mount=type=secret,id=npmrc,target=/root/.npmrc,required=true \
     npm ci --no-audit --no-fund
 
@@ -60,13 +59,15 @@ FROM compile AS build
 
 FROM node:22-slim@sha256:e9f565d32859f0cbfb52125eafe8be39390f24dac302dc3cdf566e8ba3ab21ee AS runtime
 ENV NODE_ENV=production
-# uid and gid are both 10001, so the --chown=10001:10001 copies below never leave files under an orphan group.
+# The service runs as 10001 (uid and gid); the app tree is root's and read-only to it, but for the directories the render
+# option WritableDirs names.
 RUN groupadd --system --gid 10001 pragmatic && useradd --system --create-home --uid 10001 --gid 10001 pragmatic
 WORKDIR /workspace/{{App}}
 
 FROM runtime AS {{App}}
 {{RuntimeSetup}}
 {{Copies}}
+{{WritableDirs}}
 {{Env}}
 ARG COMPONENT_DIGEST
 COPY --from=component /component/component.json /pragmatic/component.json

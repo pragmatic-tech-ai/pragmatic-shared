@@ -8,6 +8,8 @@ name: ci
 on:
   push:
   pull_request:
+# Nothing at the top level: each job grants what it needs.
+permissions: {}
 jobs:
   build-test:
     runs-on: ubuntu-latest
@@ -15,16 +17,17 @@ jobs:
       contents: read
       packages: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           path: pragmatic-shared
+          persist-credentials: false
       - name: Clone siblings
         working-directory: ${{ github.workspace }}
         run: |
           for pair in todl-runtime:todl-runtime todl:TODL; do
             git clone --depth 1 "https://github.com/pragmatic-tech-ai/${pair%%:*}.git" "${pair#*:}"
           done
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
       - name: Configure GitHub Packages auth
@@ -70,6 +73,10 @@ jobs:
       - name: Build
         working-directory: ${{ github.workspace }}/pragmatic-shared
         run: npm run build
+      # Every package's sources and tests (tsconfig.json includes both; the build compiles the sources only).
+      - name: Typecheck the packages and their tests
+        working-directory: ${{ github.workspace }}/pragmatic-shared
+        run: npm run typecheck --workspaces
       - name: Test the packages
         working-directory: ${{ github.workspace }}/pragmatic-shared
         run: npm test --workspaces

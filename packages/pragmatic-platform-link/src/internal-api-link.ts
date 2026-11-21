@@ -1,4 +1,4 @@
-import { InternalApiCredential, InternalApiSecretError } from '@pragmatic-tech-ai/pragmatic-app-host'
+import { InternalApiCredential, InternalApiSecretError } from '@pragmatic-tech-ai/pragmatic-component'
 
 /** The link's secret file is unusable (missing, unreadable, too short): names the setting and the reason, never the bytes. */
 export class InternalApiLinkError extends Error
@@ -14,7 +14,7 @@ export class InternalApiLinkError extends Error
 }
 
 /**
- * The edge to platform admin console link's credential: pragmatic-app-host's InternalApiCredential with its default
+ * The edge to platform admin console link's credential: pragmatic-component's InternalApiCredential with its default
  * label (bit-identical to the copy earlier releases carried), read from the secret file both ends are given.
  */
 export class InternalApiLink

@@ -38,9 +38,9 @@ else is a generic 500).
   carries `invalid-request`), `BodyTooLargeError`.
 - `JsonFields`: strict reading of a JSON object (strings, integers, booleans, enums, UTC timestamps, arrays, nested
   DTOs, integer maps; unknown members refused), each refusal a 400 naming the member's path, never its value.
-- Internal links between the platform's servers: `InternalApiCredential` (HMAC-SHA256 bearer from a shared secret and
-  a per-link label; constant-time match; the default label interoperates with the edge to platform admin console
-  internal API), `InternalApiGuard` (route-side 401 `unauthorized`), `JsonPostClient` (JSON POST with a deadline and a
+- Internal links between the platform's servers: `InternalApiCredential` (re-exported from pragmatic-component:
+  HMAC-SHA256 bearer from a shared secret and a per-link label; constant-time match; the default label interoperates
+  with the edge to platform admin console internal API), `InternalApiGuard` (route-side 401 `unauthorized`), `JsonPostClient` (JSON POST with a deadline and a
   reply cap, any status returned as a `JsonReply`; a transport failure is `JsonPostUnavailableError`).
 - `HostAllowList`, `OriginGuard` (trusted-proxy scheme), `ClientAddress` (trusted-proxy last hop, IP only).
 - `RateLimiter`, `LoginThrottle` over `IThrottleRepository` (in memory, or `SqlThrottleRepository`, shared by

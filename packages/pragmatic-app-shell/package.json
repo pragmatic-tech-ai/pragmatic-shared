@@ -1,6 +1,6 @@
 {
   "name": "@pragmatic-tech-ai/pragmatic-app-shell",
-  "version": "0.17.6",
+  "version": "0.17.7",
   "license": "Apache-2.0",
   "description": "The client shell of a Mural application: sign-in page, session handling, change-password dialog, one-time-secret page, pending-state holders and a JSON API client base for pragmatic-app-host.",
   "repository": {
@@ -28,7 +28,8 @@
   "scripts": {
     "compile:mu": "node scripts/mu-build.mjs compile",
     "build": "node scripts/mu-build.mjs compile && tsc -p tsconfig.build.json && node scripts/mu-build.mjs copy",
-    "test": "tsx --test \"src/**/tests/*.test.ts\""
+    "test": "tsx --test \"src/**/tests/*.test.ts\"",
+    "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
     "@pragmatic-tech-ai/mural": "file:../../../Mural",

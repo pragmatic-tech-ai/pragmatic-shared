@@ -28,7 +28,9 @@ export { JsonFields } from './http/json-fields.js'
 export type { JsonStringRule, JsonIntegerRule } from './http/json-fields.js'
 export { JsonPostClient, JsonReply, JsonPostUnavailableError } from './http/json-post-client.js'
 
-export { InternalApiCredential, InternalApiSecretError } from './internal/internal-api-credential.js'
+// The credential lives in pragmatic-component (no peers, so the platform edge's link takes it without the TODL peers);
+// re-exported for this package's consumers.
+export { InternalApiCredential, InternalApiSecretError } from '@pragmatic-tech-ai/pragmatic-component'
 export { InternalApiGuard } from './internal/internal-api-guard.js'
 
 export { HostAllowList } from './guards/host-allow-list.js'
