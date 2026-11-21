@@ -440,9 +440,10 @@ export class ClosureManifestError extends Error
 /**
  * Measures each app image's package closure: bundles the app's TypeScript entry points with esbuild (metafile only,
  * nothing written) and reports the sibling packages the build loaded against the packages its closure.json entry lists.
- * A loaded file belongs to the package of its nearest named package.json, so a sibling counts as reached whether it is
- * loaded through its own checkout (a `file:` link) or a copy nested in another package's node_modules: that keeps the
- * result the same on a dev box with npm-linked siblings and in CI / the image build with registry copies. Reaching any
+ * A loaded file counts as a sibling's only when it lies inside that sibling's checkout (esbuild follows `file:` links
+ * and junctions to their real path) and its nearest named package.json names the sibling; a package of the same name
+ * installed from the registry (in the repository's node_modules, or nested in another package's) is a third-party
+ * install, so a container repository cloned beside a pragmatic-shared checkout measures as it does in CI. Reaching any
  * sibling (linked from the repository's node_modules) or a third-party package installed there requires
  * `<RepoDir>/node_modules` (ClosureCheckConfig.Modules) in `files`, and every
  * entry point must sit inside a copied `files` dir. Reaching a pragmatic-shared package requires
@@ -589,8 +590,12 @@ export class ClosureCheck
             {
                 continue
             }
+            // A sibling's file lies inside that sibling's checkout (esbuild resolves links to their real path). A package of
+            // the same name elsewhere, such as a registry install in the repository's own node_modules beside a
+            // pragmatic-shared checkout, is that repository's.
             const owner = C.OwnerOf(dirname(file), root, owners)
-            const sibling = owner === undefined ? undefined : siblingByName.get(owner)
+            const named = owner === undefined ? undefined : siblingByName.get(owner)
+            const sibling = named !== undefined && file.startsWith(join(root, named) + sep) ? named : undefined
             if (sibling !== undefined)
             {
                 reached.add(sibling)

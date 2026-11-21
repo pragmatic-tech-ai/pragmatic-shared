@@ -63,7 +63,7 @@ class FixtureWorkspace
      * `dep`, a second workspace package `cloud` with its own hoisted `sdk`, and a lock whose `packages/s` entry declares the
      * given dependencies.
      */
-    public static AddShared(root: string, lockEntry: Record<string, unknown>, workspaces: readonly string[] = FixtureWorkspace.SharedWorkspaces): void
+    public static AddShared(root: string, lockEntry: Record<string, unknown>, workspaces: readonly string[] = FixtureWorkspace.SharedWorkspaces, linked: boolean = true): void
     {
         const shared = join(root, FixtureWorkspace.SharedDir)
         mkdirSync(shared, { recursive: true })
@@ -72,7 +72,10 @@ class FixtureWorkspace
         FixtureWorkspace.Package(join(shared, 'packages', 'cloud'), 'cloud', "export { Sdk } from 'sdk'\n")
         FixtureWorkspace.Package(join(shared, 'node_modules', 'dep'), 'dep', 'export const Dep = 4\n')
         FixtureWorkspace.Package(join(shared, 'node_modules', 'sdk'), 'sdk', 'export const Sdk = 5\n')
-        symlinkSync(join(shared, 'packages', 's'), join(root, FixtureWorkspace.RepoDir, 'node_modules', 's'), 'junction')
+        if (linked)
+        {
+            symlinkSync(join(shared, 'packages', 's'), join(root, FixtureWorkspace.RepoDir, 'node_modules', 's'), 'junction')
+        }
         const lock = {
             packages: {
                 'packages/s': lockEntry,
@@ -98,6 +101,20 @@ class FixtureWorkspace
             writeFileSync(manifest, JSON.stringify({ ...JSON.parse(readFileSync(manifest, 'utf8')), files: publishedFiles }))
         }
         return ClosureCheck.Run(root, { RepoDir: F.RepoDir, Siblings: F.Siblings, Apps: [F.App] })
+    }
+
+    /**
+     * A container repository cloned beside a pragmatic-shared checkout (the dev workspace, hive-laptop): it installs `s`
+     * from the registry, a plain copy in its own node_modules with the same package name as the shared workspace's `s`.
+     */
+    public static RegistryInstallReport(packages: readonly string[], files: readonly string[]): ClosureReport
+    {
+        const F = FixtureWorkspace
+        const root = F.Make(packages, files, F.ImportsShared)
+        F.AddShared(root, DeclaresDep, F.SharedWorkspaces, false)
+        F.Package(join(root, F.RepoDir, 'node_modules', 's'), 's', "export { Dep as Value } from 'dep'\n")
+        F.Package(join(root, F.RepoDir, 'node_modules', 's', 'node_modules', 'dep'), 'dep', 'export const Dep = 4\n')
+        return ClosureCheck.Run(root, { RepoDir: F.RepoDir, Siblings: [], Apps: [F.App] })
     }
 
     /** The published files of `s` when a test declares them. */
@@ -311,6 +328,18 @@ describe('ClosureCheck: pragmatic-shared dependencies', () =>
 
         const noManifest = F.SharedReport(DeclaresDep, published(F.CopyOf(F.SharedS + '/index.js')), F.PublishedIndex).Apps[0]
         assert.deepEqual(noManifest.Missing, ['Dockerfile: COPY ' + F.SharedS + '/package.json'])
+    })
+
+    it('counts a registry install beside a pragmatic-shared checkout as the repository\'s own node_modules, never as the sibling', () =>
+    {
+        const own = FixtureWorkspace.RegistryInstallReport([], [Dist, Modules])
+        assert.deepEqual(own.Apps[0].Reached, [])
+        assert.deepEqual(own.Apps[0].Missing, [])
+        assert.deepEqual(own.Apps[0].Extra, [])
+        assert.equal(own.Ok, true)
+
+        const listed = FixtureWorkspace.RegistryInstallReport([FixtureWorkspace.SharedS], [FixtureWorkspace.SharedModules, Dist, Modules])
+        assert.deepEqual(listed.Apps[0].Extra, [FixtureWorkspace.SharedS, FixtureWorkspace.SharedModules])
     })
 
     it('reads the shared siblings from the pragmatic-shared workspaces', () =>
