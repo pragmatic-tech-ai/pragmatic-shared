@@ -61,11 +61,12 @@ class FakeVerifier implements IImageVerifier
 {
     public verified: Array<[string, string | undefined]> = []
     public reject = false
+    public rejectRef: string | undefined = undefined
 
     public Verify(imageRef: string, trustRootRef?: string): Promise<void>
     {
         this.verified.push([imageRef, trustRootRef])
-        return this.reject ? Promise.reject(new Error('unverified ' + imageRef)) : Promise.resolve()
+        return this.reject || imageRef === this.rejectRef ? Promise.reject(new Error('unverified ' + imageRef)) : Promise.resolve()
     }
 }
 
@@ -85,6 +86,18 @@ class Fixture
             w.database = { image: 'postgres:16', user: 'u', database: 'd', passwordRef: 'p' }
         }
         return w
+    }
+
+    /** The workload with a UI app deployment whose init container runs `unpack:1`. */
+    public static WithApp(w: EnvironmentWorkload): EnvironmentWorkload
+    {
+        return {
+            ...w,
+            appDeployment: {
+                appName: 'crm', appVersion: '1.0.0', registryPullBase: 'http://reg:5000', repo: 'apps/crm', artifactTag: 'v1',
+                manifestDigest: 'sha256:' + 'a'.repeat(64), trustSecretName: 'dev1-ui-trust', trustKeyRef: 'root-1', unpackImage: 'unpack:1',
+            },
+        }
     }
 
     public static Deployment(ready: number, image: string): string
@@ -139,6 +152,24 @@ describe('KubectlHiveOrchestrator', () =>
         await o.Apply(Fixture.Workload(true))
         assert.deepEqual(v.verified, [['localhost:5000/srv:1', Fixture.Trust]])
         assert.deepEqual(k.calls, [Fixture.FindNamespace, ['Apply', new K8sManifestBuilder().Render({ ...Fixture.Workload(true), image: 'localhost:5000/srv:1' })]])
+    })
+
+    it('Apply verifies the UI unpack image too and the manifest carries both effective images', async () =>
+    {
+        const { k, v, o } = Fixture.Make('localhost:5000/')
+        const w = Fixture.WithApp(Fixture.Workload(false))
+        await o.Apply(w)
+        assert.deepEqual(v.verified, [['localhost:5000/srv:1', Fixture.Trust], ['localhost:5000/unpack:1', Fixture.Trust]])
+        const expected = { ...w, image: 'localhost:5000/srv:1', appDeployment: { ...w.appDeployment!, unpackImage: 'localhost:5000/unpack:1' } }
+        assert.deepEqual(k.calls, [Fixture.FindNamespace, ['Apply', new K8sManifestBuilder().Render(expected)]])
+    })
+
+    it('Apply never reaches kubectl when the UI unpack image fails verification', async () =>
+    {
+        const { k, v, o } = Fixture.Make('localhost:5000/')
+        v.rejectRef = 'localhost:5000/unpack:1'
+        await assert.rejects(o.Apply(Fixture.WithApp(Fixture.Workload(false))), /unverified localhost:5000\/unpack:1/)
+        assert.deepEqual(k.calls, [])
     })
 
     it('Apply never reaches kubectl when verification rejects', async () =>

@@ -106,7 +106,10 @@ describe('EnvironmentWorkloadFactory', () =>
             registryPullBase: WorkloadFixture.HttpScheme + InClusterRegistry.PullBase(),
             trustSecretName: EnvServerSeedSource.UiTrustSecretNameOf(WorkloadFixture.EnvName),
             trustKeyRef: WorkloadFixture.TrustRef,
+            unpackImage: EnvironmentWorkloadFactory.UiUnpackImage,
         })
+        assert.equal(EnvironmentWorkloadFactory.UiUnpackImage, 'pragmatic-ui-unpack:dev')
+        assert.deepEqual(EnvironmentWorkloadFactory.ImagesOf(w), [w.image, EnvironmentWorkloadFactory.UiUnpackImage])
         assert.equal(EnvServerSeedSource.UiTrustSecretNameOf(WorkloadFixture.EnvName), WorkloadFixture.UiTrustSecret)
     })
 
@@ -131,5 +134,6 @@ describe('EnvironmentWorkloadFactory', () =>
     {
         const w = EnvironmentWorkloadFactory.From(WorkloadFixture.Env(Template.DevBlank, EnvType.Development), WorkloadFixture.Hive())
         assert.equal(w.appDeployment, undefined)
+        assert.deepEqual(EnvironmentWorkloadFactory.ImagesOf(w), [w.image])
     })
 })

@@ -83,7 +83,14 @@ export class InClusterHiveOrchestrator implements IHiveOrchestrator
         }
         const image = this.registry.ImageRef(w.image)
         await this.setup.verifier.Verify(image, this.trustRootRef)
-        const items = InClusterHiveOrchestrator.ItemsOf(this.manifests.Render({ ...w, image }))
+        let rendered: EnvironmentWorkload = { ...w, image }
+        if (w.appDeployment !== undefined)
+        {
+            const unpackImage = this.registry.ImageRef(w.appDeployment.unpackImage)
+            await this.setup.verifier.Verify(unpackImage, this.trustRootRef)
+            rendered = { ...rendered, appDeployment: { ...w.appDeployment, unpackImage } }
+        }
+        const items = InClusterHiveOrchestrator.ItemsOf(this.manifests.Render(rendered))
         const namespaceItem = items.find(i => InClusterHiveOrchestrator.IsNamespace(i) && i.metadata.name === ns)
         if (namespaceItem === undefined)
         {

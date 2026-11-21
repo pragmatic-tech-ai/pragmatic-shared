@@ -51,10 +51,13 @@ export class KubectlHiveOrchestrator implements IHiveOrchestrator
     public async Apply(w: EnvironmentWorkload): Promise<void>
     {
         const image = await this.VerifiedImage(w.image)
+        const appDeployment = w.appDeployment === undefined
+            ? undefined
+            : { ...w.appDeployment, unpackImage: await this.VerifiedImage(w.appDeployment.unpackImage) }
         const ns = K8sManifestBuilder.NamespaceOf(w.environmentName)
         const existing = await this.kubectl.Find(ns, KubectlHiveOrchestrator.NamespacePrefix + ns)
         EnvNamespaceGuard.AssertHiveOwns(existing === undefined ? undefined : JSON.parse(existing), ns, w.hiveId)
-        await this.kubectl.Apply(this.manifests.Render({ ...w, image }))
+        await this.kubectl.Apply(this.manifests.Render(appDeployment === undefined ? { ...w, image } : { ...w, image, appDeployment }))
     }
 
     public async WaitHealthy(w: EnvironmentWorkload): Promise<void>

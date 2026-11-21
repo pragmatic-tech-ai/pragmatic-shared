@@ -34,6 +34,8 @@ export type WorkloadAppDeployment = {
     trustSecretName: string
     /** The hive's trust-root reference; empty when the hive has none (the actuator enforces presence). */
     trustKeyRef: string
+    /** The image the `ui-unpack` init container runs (pragmatic-ui-unpack, by its ENTRYPOINT); mapped and verified like `image`. */
+    unpackImage: string
 }
 
 /** Backend-neutral description of what to run for one environment. Carries secret names, never values. */
@@ -54,6 +56,8 @@ export type EnvironmentWorkload = {
 export class EnvironmentWorkloadFactory
 {
     private static readonly ServerImage = 'pragmatic-server:dev'
+    /** The UI unpack image an app deployment's init container runs, named like the server image (a hive-local dev build). */
+    public static readonly UiUnpackImage = 'pragmatic-ui-unpack:dev'
     private static readonly DatabaseImage = 'postgres:16'
     /** The env server's container + Service port. */
     public static readonly ServerPort = 8080
@@ -107,8 +111,15 @@ export class EnvironmentWorkloadFactory
                 manifestDigest: record.appDeployment.manifestDigest,
                 trustSecretName: EnvServerSeedSource.UiTrustSecretNameOf(record.name),
                 trustKeyRef: hive.trustRootRef ?? EnvironmentWorkloadFactory.NoTrustKeyRef,
+                unpackImage: EnvironmentWorkloadFactory.UiUnpackImage,
             }
         }
         return workload
+    }
+
+    /** Every image the workload's pod runs from the platform: the server and, with an app deployment, the UI unpacker. */
+    public static ImagesOf(workload: EnvironmentWorkload): string[]
+    {
+        return workload.appDeployment === undefined ? [workload.image] : [workload.image, workload.appDeployment.unpackImage]
     }
 }

@@ -241,6 +241,26 @@ test('Apply refuses a namespace that vanished between the 409 and the read', asy
     assert.deepEqual(t.Paths(KubeMethod.Patch), [])
 })
 
+test('Apply verifies the UI unpack image too and renders it from the hive registry', async () =>
+{
+    const unpack = 'reg:5000/pragmatic-ui-unpack:dev'
+    const w: EnvironmentWorkload = {
+        ...OrchestratorFixture.Workload(),
+        appDeployment: {
+            appName: 'crm', appVersion: '1.0.0', registryPullBase: 'http://reg:5000', repo: 'apps/crm', artifactTag: 'v1',
+            manifestDigest: 'sha256:' + 'a'.repeat(64), trustSecretName: 'a-ui-trust', trustKeyRef: 'root-1', unpackImage: 'pragmatic-ui-unpack:dev',
+        },
+    }
+    const refused = OrchestratorFixture.Make([OrchestratorFixture.Ref])
+    await assert.rejects(refused.o.Apply(w), (e: unknown) => e instanceof ImageVerificationError && e.ImageRef === unpack)
+    assert.deepEqual(refused.t.Calls, [])
+    const { t, o } = OrchestratorFixture.Make([OrchestratorFixture.Ref, unpack])
+    await o.Apply(w)
+    const deployment = t.Calls.find(c => c.method === KubeMethod.Patch && c.path.split('?')[0].endsWith('/deployments/pragmatic-env-a-server'))
+    const init = OrchestratorFixture.Body(deployment).spec.template.spec.initContainers.find((c: { name: string }) => c.name === 'ui-unpack')
+    assert.equal(init.image, unpack)
+})
+
 test('Apply refuses an image the platform did not verify', async () =>
 {
     const { t, o } = OrchestratorFixture.Make([])

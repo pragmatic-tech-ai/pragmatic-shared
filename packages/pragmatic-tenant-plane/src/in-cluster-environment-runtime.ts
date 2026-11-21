@@ -4,7 +4,7 @@ import type { EnvDefinition } from './seed/bundle.js'
 import type { ILogProcess } from './seed/log-process.js'
 import type { EnvEndpoint, EnvRuntimeContext, IEnvironmentRuntime } from './environment-runtime.js'
 import type { EnvironmentPlacement } from './environment-placement.js'
-import type { EnvironmentWorkload } from './environment-workload.js'
+import { EnvironmentWorkloadFactory, type EnvironmentWorkload } from './environment-workload.js'
 import type { HiveOrchestratorFactory } from './hive-orchestrator-factory.js'
 import type { IHiveOrchestrator } from './hive-orchestrator.js'
 import { EffectiveRegistry } from './effective-registry.js'
@@ -209,8 +209,8 @@ export class InClusterEnvironmentRuntime implements IEnvironmentRuntime
     }
 
     /**
-     * For a hive that trusts the platform signing key, signs the platform's server image (as the hive will pull it) so
-     * the hive's fail-closed verification accepts it. The image is the one placement chose for the template, never
+     * For a hive that trusts the platform signing key, signs the platform's server image and, with an app deployment, the
+     * UI unpack image (as the hive will pull them) so the hive's fail-closed verification accepts them. The image is the one placement chose for the template, never
      * caller input; signing per bring-up keeps a rebuilt image runnable. Any other hive (own trust root, or none) gets
      * nothing signed here and its verification decides. See the platform console's PlatformImageSigner for the trust trade-off.
      */
@@ -220,7 +220,11 @@ export class InClusterEnvironmentRuntime implements IEnvironmentRuntime
         {
             return
         }
-        await this.signer.Sign(EffectiveRegistry.For(hive).ImageRef(workload.image))
+        const registry = EffectiveRegistry.For(hive)
+        for (const image of EnvironmentWorkloadFactory.ImagesOf(workload))
+        {
+            await this.signer.Sign(registry.ImageRef(image))
+        }
     }
 
     private Resolve(ctx: EnvRuntimeContext): { hive: HiveRecord; orchestrator: IHiveOrchestrator; workload: EnvironmentWorkload }

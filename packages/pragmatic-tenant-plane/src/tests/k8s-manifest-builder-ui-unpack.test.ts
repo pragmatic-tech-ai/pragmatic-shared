@@ -7,6 +7,7 @@ class Fixture
 {
     public static readonly DataMount = '/pragmatic/data'
     public static readonly TrustKeyRef = 'hive-root'
+    public static readonly UnpackImage = 'localhost:5000/pragmatic-ui-unpack:dev'
     /** Where the env server reads its apps: `<base dir>/<environment id>/applications` (TenantRegistry.OptionsFor). */
     public static readonly AppsDir = '/pragmatic/data/env-dev1-id/applications'
 
@@ -32,6 +33,7 @@ class Fixture
                 manifestDigest: 'sha256:abc',
                 trustSecretName: 'dev1-ui-trust',
                 trustKeyRef: Fixture.TrustKeyRef,
+                unpackImage: Fixture.UnpackImage,
             }
         }
         return workload
@@ -51,7 +53,9 @@ describe('K8sManifestBuilder UI unpack', () =>
         const spec = Fixture.Deployment(true).spec.template.spec
         assert.equal(spec.initContainers.length, 2)
         const init = spec.initContainers[1]
-        assert.deepEqual(init.command, ['node', 'dist-tenant-admin/admin/control-plane/bin/pragmatic-ui-unpack.js'])
+        assert.equal(init.image, Fixture.UnpackImage, 'the pragmatic-ui-unpack image, not the env server image')
+        assert.equal(init.command, undefined, 'the image ENTRYPOINT runs the unpacker')
+        assert.equal(init.imagePullPolicy, 'IfNotPresent')
         const env = Object.fromEntries(init.env.map((e: any) => [e.name, e.value]))
         assert.deepEqual(env, {
             PRAGMATIC_UI_REGISTRY_BASE: 'localhost:30500',

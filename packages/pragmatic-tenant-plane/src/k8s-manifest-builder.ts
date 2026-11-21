@@ -264,7 +264,6 @@ export class K8sManifestBuilder
     private static readonly TenantAdminPrefix = 'pragmatic-tenant-admin-'
     private static readonly TenantAdminContainerName = 'tenant-admin'
     private static readonly TenantAdminSeedContainerName = 'seed'
-    private static readonly TenantAdminEntrypoint = ['node', 'dist-tenant-admin/admin/control-plane/bin/pragmatic-tenant-admind.js']
     /** Copies every seeded file into the writable data root; --no-preserve=mode so the app can rewrite its own state files, -f so a restart overwrites. */
     private static readonly TenantAdminSeedCommand = ['sh', '-c', 'cp -f --no-preserve=mode /seed/* /data/']
     private static readonly TenantAdminDataMount = '/data'
@@ -387,7 +386,6 @@ export class K8sManifestBuilder
     private static readonly NodeBinary = 'node'
     private static readonly NodeEvalFlag = '-e'
     private static readonly UiUnpackContainerName = 'ui-unpack'
-    private static readonly UiUnpackBinPath = 'dist-tenant-admin/admin/control-plane/bin/pragmatic-ui-unpack.js'
     private static readonly UiTrustVolume = 'ui-trust'
     private static readonly UiTrustMount = '/pragmatic/ui-trust'
     private static readonly UiPubSuffix = '.pub'
@@ -1685,7 +1683,6 @@ export class K8sManifestBuilder
             [K8sManifestBuilder.NameKey]: K8sManifestBuilder.TenantAdminContainerName,
             [K8sManifestBuilder.ImageKey]: spec.image,
             [K8sManifestBuilder.ImagePullPolicyKey]: K8sManifestBuilder.IfNotPresent,
-            [K8sManifestBuilder.CommandKey]: K8sManifestBuilder.TenantAdminEntrypoint,
             [K8sManifestBuilder.PortsKey]: [{ [K8sManifestBuilder.ContainerPortKey]: spec.port }],
             [K8sManifestBuilder.SecurityContextKey]: this.TenantAdminSecurityContext(),
             [K8sManifestBuilder.EnvKey]: [
@@ -2008,14 +2005,16 @@ export class K8sManifestBuilder
         }
     }
 
-    /** Pulls, verifies and unpacks the app UI artifact into the shared data dir. Same hardened context as the seed container; the data PVC (fsGroup) stays writable. */
+    /**
+     * Pulls, verifies and unpacks the app UI artifact into the shared data dir, run from the pragmatic-ui-unpack image by its
+     * own ENTRYPOINT. Same hardened context as the seed container; the data PVC (fsGroup) stays writable.
+     */
     private UiUnpackContainer(workload: EnvironmentWorkload, app: WorkloadAppDeployment): K8sObject
     {
         return {
             [K8sManifestBuilder.NameKey]: K8sManifestBuilder.UiUnpackContainerName,
-            [K8sManifestBuilder.ImageKey]: workload.image,
+            [K8sManifestBuilder.ImageKey]: app.unpackImage,
             [K8sManifestBuilder.ImagePullPolicyKey]: K8sManifestBuilder.IfNotPresent,
-            [K8sManifestBuilder.CommandKey]: [K8sManifestBuilder.NodeBinary, K8sManifestBuilder.UiUnpackBinPath],
             [K8sManifestBuilder.SecurityContextKey]: this.ServerSeedSecurityContext(),
             [K8sManifestBuilder.EnvKey]: [
                 this.EnvLiteral(K8sManifestBuilder.UiRegistryBaseVar, app.registryPullBase),
