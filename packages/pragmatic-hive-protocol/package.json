@@ -1,6 +1,6 @@
 {
   "name": "@pragmatic-tech-ai/pragmatic-hive-protocol",
-  "version": "0.17.2",
+  "version": "0.17.3",
   "license": "Apache-2.0",
   "description": "The agent channel's messages and their verification: hive identity and enrolment, platform-signed intents and the hive's approvals, closed-shape reports, the host agent's enrolment, capacity, placements and sealed cluster-credential handover, and the edge relay's tunnel control. Codecs, verifiers and a fake channel (./testing).",
   "repository": {
