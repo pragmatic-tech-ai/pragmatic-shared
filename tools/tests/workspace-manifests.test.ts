@@ -52,6 +52,16 @@ class Workspace
         const root = PackageManifest.Read(Workspace.Root).Data as IPackageManifestData & { workspaces: string[] };
         return root.workspaces.map(workspace => PackageManifest.Read(path.join(Workspace.Root, workspace)));
     }
+
+    /** The package directory names in the order the root `build` script builds them. */
+    public static BuildOrder(): string[]
+    {
+        const root = PackageManifest.Read(Workspace.Root).Data as IPackageManifestData & { scripts: Record<string, string> };
+        return [...root.scripts[Workspace.BuildScript].matchAll(Workspace.BuildStep)].map(match => match[1]);
+    }
+
+    private static readonly BuildScript = 'build';
+    private static readonly BuildStep = /npm run build -w packages\/([a-z0-9-]+)/g;
 }
 
 describe('workspace manifests', () =>
@@ -154,6 +164,26 @@ describe('workspace manifests', () =>
                 for (const [name, spec] of Object.entries(manifest.Data[section] ?? {}))
                 {
                     if (names.has(name)) assert.equal(spec, version, `${manifest.Name}: ${section}/${name}`);
+                }
+            }
+        }
+    });
+
+    it('builds every package once, after the workspace packages it depends on', () =>
+    {
+        const order = Workspace.BuildOrder();
+        assert.equal(new Set(order).size, order.length);
+        assert.equal(order.length, packages.length);
+        for (const manifest of packages)
+        {
+            const position = order.indexOf(manifest.Name.slice(Workspace.Scope.length));
+            assert.ok(position >= 0, manifest.Name);
+            for (const section of ['dependencies', 'peerDependencies'] as const)
+            {
+                for (const name of Object.keys(manifest.Data[section] ?? {}))
+                {
+                    const dependency = order.indexOf(name.slice(Workspace.Scope.length));
+                    if (name.startsWith(Workspace.Scope) && dependency >= 0) assert.ok(dependency < position, `${manifest.Name} builds before ${name}`);
                 }
             }
         }
