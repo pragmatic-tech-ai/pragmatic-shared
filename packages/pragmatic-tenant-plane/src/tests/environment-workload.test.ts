@@ -12,7 +12,7 @@ class WorkloadFixture
     public static readonly HiveId = 'hive-1'
     public static readonly EnvName = 'e1'
     public static readonly PlantedValue = 'planted-secret-value-token'
-    public static readonly Image = 'pragmatic-server:dev'
+    public static readonly Image = 'pragmatic-env-server:dev'
     public static readonly DbImage = 'postgres:16'
     public static readonly ServerPort = 8080
     public static readonly AppName = 'crm'
@@ -109,6 +109,7 @@ describe('EnvironmentWorkloadFactory', () =>
             unpackImage: EnvironmentWorkloadFactory.UiUnpackImage,
         })
         assert.equal(EnvironmentWorkloadFactory.UiUnpackImage, 'pragmatic-ui-unpack:dev')
+        assert.equal(EnvironmentWorkloadFactory.ServerImage, 'pragmatic-env-server:dev', 'the env server repository\'s own dev image')
         assert.deepEqual(EnvironmentWorkloadFactory.ImagesOf(w), [w.image, EnvironmentWorkloadFactory.UiUnpackImage])
         assert.equal(EnvServerSeedSource.UiTrustSecretNameOf(WorkloadFixture.EnvName), WorkloadFixture.UiTrustSecret)
     })

@@ -32,6 +32,15 @@ class EntryFixture
 
 describe('K8sManifestBuilder tenant-admin entry', () =>
 {
+    it('names the hive agent\'s own dev image, never the env server\'s, and renders the agent with the image it is given', () =>
+    {
+        assert.equal(K8sManifestBuilder.AgentImage, 'pragmatic-hive-agent:dev')
+        const released = 'ghcr.io/pragmatic-tech-ai/pragmatic-hive-agent@sha256:' + 'c'.repeat(64)
+        const doc = JSON.parse(new K8sManifestBuilder().RenderHiveAgent('hive-a', 'http://channel.example:7000', 'agent-token', released))
+        const deployment = doc.items.find((item: { kind: string }) => item.kind === 'Deployment')
+        assert.equal(deployment.spec.template.spec.containers[0].image, released)
+    })
+
     it('runs the tenant-admin image by its own ENTRYPOINT: no command, no args (both image layouts run the same program)', () =>
     {
         const container = EntryFixture.Container()

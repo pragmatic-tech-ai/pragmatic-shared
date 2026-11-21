@@ -55,7 +55,8 @@ export type EnvironmentWorkload = {
 
 export class EnvironmentWorkloadFactory
 {
-    private static readonly ServerImage = 'pragmatic-server:dev'
+    /** The env server image every environment runs, named like each container repository's dev build (`<app>:dev`). */
+    public static readonly ServerImage = 'pragmatic-env-server:dev'
     /** The UI unpack image an app deployment's init container runs, named like the server image (a hive-local dev build). */
     public static readonly UiUnpackImage = 'pragmatic-ui-unpack:dev'
     private static readonly DatabaseImage = 'postgres:16'

@@ -501,12 +501,19 @@ describe('ContainerTemplate', () =>
         }
     })
 
-    it('renders a start smoke refusal pattern where the profile names one (the platform admin console)', () =>
+    it('renders a start smoke refusal pattern where the profile names one (each app whose refusal the default misses)', () =>
     {
+        const refusals = new Map<ReleaseApp, string>([
+            [ReleaseApp.PlatformAdmin, 'PRAGMATIC_ADMIN_DATABASE_URL_FILE must name'],
+            [ReleaseApp.PlatformEdge, 'PRAGMATIC_EDGE_ADMIN_URL must be'],
+            [ReleaseApp.EnvGateway, 'are required for the gateway'],
+            [ReleaseApp.UiUnpack, 'pragmatic-ui-unpack: failed'],
+        ])
         for (const app of ReleaseApps.All)
         {
             const ci = TemplateFixture.File(TemplateFixture.Render(app), '.github/workflows/ci.yml')
-            const expected = app === ReleaseApp.PlatformAdmin ? "\n      start-smoke-refusal: 'PRAGMATIC_ADMIN_DATABASE_URL_FILE must name'\n" : undefined
+            const refusal = refusals.get(app)
+            const expected = refusal === undefined ? undefined : "\n      start-smoke-refusal: '" + refusal + "'\n"
             assert.equal(ci.includes('start-smoke-refusal:'), expected !== undefined, app)
             if (expected !== undefined)
             {

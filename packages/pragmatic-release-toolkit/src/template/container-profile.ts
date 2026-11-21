@@ -85,6 +85,12 @@ export class ContainerProfiles
     private static readonly IdpPortVariable = 'PRAGMATIC_IDP_PORT'
     /** With no configuration the platform admin console stops on its missing database setting. */
     private static readonly PlatformAdminRefusal = 'PRAGMATIC_ADMIN_DATABASE_URL_FILE must name'
+    /** The edge stops on its missing admin URL. */
+    private static readonly PlatformEdgeRefusal = 'PRAGMATIC_EDGE_ADMIN_URL must be'
+    /** The gateway stops on its missing TLS files. */
+    private static readonly EnvGatewayRefusal = 'are required for the gateway'
+    /** The unpacker prints one fixed sentence for any failure, a missing input included. */
+    private static readonly UiUnpackRefusal = 'pragmatic-ui-unpack: failed'
     private static readonly PlatformAdminDockerIgnore: readonly string[] = [
         '# Local dev data and generated seed secrets never enter the build context.',
         'src/data',
@@ -146,6 +152,7 @@ export class ContainerProfiles
             Healthcheck: { Scheme: HealthScheme.Http, PortVariable: ContainerProfiles.AgentChannelPortVariable, DefaultPort: ContainerProfiles.AgentChannelPort },
             ImageTest: false, StartSmoke: true, HelmChart: ContainerProfiles.NoChart, ClosureCheck: true, VersionManifest: ContainerProfiles.RootManifest,
             LegacyPeerDeps: true,
+            StartSmokeRefusal: ContainerProfiles.PlatformEdgeRefusal,
         }],
         [ReleaseApp.EnvServer, {
             Kind: ContainerKind.Node, MultiArch: false, AptPackages: ContainerProfiles.None, ProvisioningTools: false,
@@ -159,6 +166,7 @@ export class ContainerProfiles
             Env: [], Ports: [ContainerProfiles.HttpPort],
             Healthcheck: { Scheme: HealthScheme.Http, PortVariable: ContainerProfiles.HttpPortVariable, DefaultPort: ContainerProfiles.HttpPort },
             ImageTest: false, StartSmoke: true, HelmChart: ContainerProfiles.NoChart, ClosureCheck: true, VersionManifest: ContainerProfiles.RootManifest,
+            StartSmokeRefusal: ContainerProfiles.EnvGatewayRefusal,
         }],
         [ReleaseApp.HiveAgent, {
             Kind: ContainerKind.Node, MultiArch: false, AptPackages: ContainerProfiles.None, ProvisioningTools: false, Env: [], Ports: [],
@@ -178,6 +186,7 @@ export class ContainerProfiles
         [ReleaseApp.UiUnpack, {
             Kind: ContainerKind.Node, MultiArch: false, AptPackages: ContainerProfiles.None, ProvisioningTools: false, Env: [], Ports: [],
             ImageTest: false, StartSmoke: true, HelmChart: ContainerProfiles.NoChart, ClosureCheck: true, VersionManifest: ContainerProfiles.RootManifest,
+            StartSmokeRefusal: ContainerProfiles.UiUnpackRefusal,
         }],
         [ReleaseApp.Postgres, {
             Kind: ContainerKind.ExternalDockerfile, MultiArch: true, AptPackages: ContainerProfiles.None, ProvisioningTools: false, Env: [], Ports: [],

@@ -128,8 +128,11 @@ export class K8sManifestBuilder
 
     // Pull-agent conventions.
     private static readonly AgentSuffix = 'agent'
-    /** The agent's image; the automatic install prepares the cluster with it (a kind node loads it). */
-    public static readonly AgentImage = 'pragmatic-server:dev'
+    /**
+     * The hive agent's dev image (its repository's dev build, `<app>:dev`); RenderHiveAgent takes the image to run, which
+     * a released platform takes from its release (the hive agent's image, never the env server's).
+     */
+    public static readonly AgentImage = 'pragmatic-hive-agent:dev'
     private static readonly AgentContainerName = 'agent'
     private static readonly AgentEntrypoint = ['node', 'dist/bin/pragmatic-agentd.js']
     private static readonly AgentRegistryUrlVar = 'PRAGMATIC_AGENT_REGISTRY_URL'
