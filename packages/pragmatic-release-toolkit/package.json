@@ -1,6 +1,6 @@
 {
   "name": "@pragmatic-tech-ai/pragmatic-release-toolkit",
-  "version": "0.17.3",
+  "version": "0.17.4",
   "license": "Apache-2.0",
   "description": "The platform release toolkit: release tags and apps, the signed release descriptor and its publisher, the OCI registry client, image and UI-artifact signing and verification, component image labels, the vendored component descriptor set, and the image closure check.",
   "repository": {
@@ -39,7 +39,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@pragmatic-tech-ai/pragmatic-component": "0.17.3"
+    "@pragmatic-tech-ai/pragmatic-component": "0.17.4"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",
