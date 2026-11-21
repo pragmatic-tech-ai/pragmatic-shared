@@ -387,7 +387,7 @@ describe('ContainerTemplate', () =>
         const release = TemplateFixture.File(files, '.github/workflows/release.yml')
         assert.ok(release.includes('uses: pragmatic-tech-ai/pragmatic-shared/.github/workflows/container-release.yml@main'))
         assert.match(release, /tags: \['v\*\.\*\.\*'\]/)
-        assert.match(release, /^concurrency:\n {2}group: release\n {2}cancel-in-progress: false$/m)
+        assert.ok(release.includes('\nconcurrency:\n  group: release-${{ github.ref }}\n  cancel-in-progress: false\n'))
         assert.ok(release.includes('contents: write'))
         assert.ok(release.includes('packages: write'))
         assert.ok(release.includes('version-manifest: server/package.json'))

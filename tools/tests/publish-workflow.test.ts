@@ -73,6 +73,7 @@ describe('publish workflow', () =>
         assert.ok(test.includes("root.workspaces.map(w => require('./' + w + '/package.json').version)"));
         assert.ok(test.includes('if (versions.length !== 1)'));
         assert.ok(test.includes('if [ "$REF_TYPE" = tag ] && [ "$REF_NAME" != "v$version" ]; then'));
+        assert.ok(test.includes('if [ "$REF_TYPE" != tag ] && ! grep -qx "v$version" <<< "$(git tag --points-at "$GITHUB_SHA")"; then'), 'on demand: a tag names the commit');
     });
 
     it('tests with a read-only token; only the publish job, in environment packages, holds packages: write', () =>
@@ -95,6 +96,7 @@ describe('publish workflow', () =>
         assert.ok(!publish.includes('actions/checkout'));
         assert.doesNotMatch(publish, /npm (ci|install|run|test)\b/);
         assert.ok(publish.includes('actions/download-artifact@'));
+        assert.match(test, /retention-days: 7\n {10}if-no-files-found: error\n {10}overwrite: true\n/);
         assert.ok(publish.includes('npm publish "./$file" --ignore-scripts --registry https://npm.pkg.github.com'));
         assert.ok(publish.indexOf('npm view "$name@$version" version') < publish.indexOf('npm publish'), 'a published version is skipped');
     });

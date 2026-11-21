@@ -2,7 +2,7 @@ import { OciRegistryClient } from '../oci-registry-client.js'
 import type { IComponentAssetSource } from './component-asset-source.js'
 import { ComponentImageLabel, ComponentLabelError } from './component-image-label.js'
 import { ReleaseDescriptorCodec, type ReleaseDescriptor, type ReleaseImage } from './release-descriptor.js'
-import { ReleaseManifest, type ReleaseManifestDocument, type ReleaseManifestInspection, type ReleaseManifestProblem } from './release-manifest.js'
+import { ReleaseManifest, ReleaseManifestProblemKind, type ReleaseManifestDocument, type ReleaseManifestInspection, type ReleaseManifestProblem } from './release-manifest.js'
 import { ReleaseRegistry } from './release-registry.js'
 import { ReleaseSignature } from './release-signature.js'
 import { ReleaseApps, ReleaseTag, type ReleaseApp } from './release-tag.js'
@@ -249,17 +249,40 @@ export class ReleasePublisher
         const descriptorDigest = OciRegistryClient.DigestOf(bytes)
         const signature = ReleaseSignature.Sign(descriptorDigest, input.PrivateKeyPem)
         S.AssertVerifies(bytes, descriptorDigest, signature, input.SigningKeyId, input.TrustedPublicKeyPem)
+        // The checks above took a while: another publish of the version may have finished or begun tagging meanwhile.
+        await this.CheckVersionFree(tag.Version)
+        await this.CheckImageTagsFree(input.Manifest, tag.Version)
         for (const app of ReleaseApps.All)
         {
             await this.registry.TagManifest(this.repo(app), input.Manifest.components[app].digest, ReleaseManifest.ImageTagOf(tag.Version))
         }
-        // Again just before the push: another publish of the same version may have finished meanwhile.
+        // Again just before the push. A rival publish that pushes its descriptor between this check and the push below
+        // can still overwrite it: the registry offers no conditional put, so two runs must not publish one version at
+        // once (publish.yml and the release repository's workflow run one at a time).
         await this.CheckVersionFree(tag.Version)
         await this.registry.PushArtifact(this.repo(S.DescriptorRepository), tag.Version, S.ArtifactType, S.LayerMediaType, bytes, {
             [S.SignatureAnnotation]: signature,
             [S.KeyAnnotation]: input.SigningKeyId,
         })
         return { descriptor, descriptorDigest }
+    }
+
+    /** Every image's `release-<version>` tag is free or already names the manifest digest (a re-run); else nothing is tagged. */
+    private async CheckImageTagsFree(manifest: ReleaseManifestDocument, version: string): Promise<void>
+    {
+        const problems: ReleaseManifestProblem[] = []
+        for (const app of ReleaseApps.All)
+        {
+            const tagged = await this.registry.HeadManifest(this.repo(app), ReleaseManifest.ImageTagOf(version))
+            if (tagged !== undefined && tagged !== manifest.components[app].digest)
+            {
+                problems.push({ App: app, Kind: ReleaseManifestProblemKind.VersionTagTaken })
+            }
+        }
+        if (problems.length > 0)
+        {
+            throw new ReleaseManifestProblemsError(problems)
+        }
     }
 
     /**

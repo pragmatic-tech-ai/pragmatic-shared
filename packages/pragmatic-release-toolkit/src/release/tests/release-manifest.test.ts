@@ -225,6 +225,26 @@ describe('ReleaseManifest.Check', () =>
             [{ App: ReleaseApp.UiUnpack, Kind: ReleaseManifestProblemKind.CommitForeign }])
     })
 
+    it('reports CommitForeign when only the <version> tag moved, and when the image has no git-<commit> tag', async () =>
+    {
+        const versionMoved = new ReleaseWorld()
+        const doc = ReleaseManifest.Parse(versionMoved.ManifestText())
+        const repo = ReleaseWorld.ImageRepo(ReleaseApp.EnvGateway)
+        const client = versionMoved.Client()
+        const other = await client.PullManifest(ReleaseWorld.ImageRepo(ReleaseApp.EnvServer), versionMoved.Digests.get(ReleaseApp.EnvServer) as string)
+        versionMoved.Registry.PutManifest(repo, ReleaseWorld.ComponentVersion, other, FakeReleaseImage.ManifestType)
+        assert.equal(await client.HeadManifest(repo, ReleaseManifest.CommitTagOf(ReleaseWorld.CommitOf(ReleaseApp.EnvGateway))), versionMoved.Digests.get(ReleaseApp.EnvGateway))
+        assert.deepEqual(await ReleaseManifest.Check(doc, client, versionMoved.Assets, ReleaseWorld.Namespace),
+            [{ App: ReleaseApp.EnvGateway, Kind: ReleaseManifestProblemKind.CommitForeign }])
+
+        const noCommitTag = new ReleaseWorld()
+        const key = FakeComponentAssets.KeyOf(ReleaseWorld.Repository(ReleaseApp.TenantIdp), ReleaseWorld.ComponentVersion)
+        noCommitTag.Assets.Commits.set(key, 'e'.repeat(40))
+        assert.equal(await noCommitTag.Client().HeadManifest(ReleaseWorld.ImageRepo(ReleaseApp.TenantIdp), ReleaseManifest.CommitTagOf('e'.repeat(40))), undefined)
+        assert.deepEqual(await ReleaseManifest.Check(ReleaseManifest.Parse(noCommitTag.ManifestText()), noCommitTag.Client(), noCommitTag.Assets, ReleaseWorld.Namespace),
+            [{ App: ReleaseApp.TenantIdp, Kind: ReleaseManifestProblemKind.CommitForeign }])
+    })
+
     it('asks each repository for its release commit once, whichever apps share it', async () =>
     {
         const world = new ReleaseWorld()

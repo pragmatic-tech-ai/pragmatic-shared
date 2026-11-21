@@ -1,3 +1,5 @@
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { DependencyRewriter, IManifestReader, IRewrittenDependency } from './dependency-rewriter.js';
 import { DependencySection, PackageManifest } from './package-manifest.js';
 import { PackageStager } from './package-stager.js';
@@ -112,6 +114,10 @@ export class PackagePublisher implements IManifestReader
             PackageStager.Remove(staging);
         }
         const file = PackagePublisher.TarballName(manifest.Name, manifest.Version);
+        if (!fs.existsSync(path.join(destination, file)))
+        {
+            throw new Error(PackagePublisher.TarballMissing(id, file, destination));
+        }
         this.log(`${id}: ${PublishOutcome.Packed} as ${file}`);
         return { Name: manifest.Name, Version: manifest.Version, File: file };
     }
@@ -154,6 +160,11 @@ export class PackagePublisher implements IManifestReader
     private static UnpublishedTargets(id: string, missing: string[]): string
     {
         return `${id}: dependencies not on the registry (publish them first): ${missing.join(', ')}`;
+    }
+
+    private static TarballMissing(id: string, file: string, destination: string): string
+    {
+        return `${id}: npm pack wrote no ${file} into ${destination}`;
     }
 
     private static CommandFailed(command: string, cwd: string, status: number | null): string

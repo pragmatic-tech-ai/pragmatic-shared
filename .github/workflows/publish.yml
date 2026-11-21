@@ -7,8 +7,12 @@
 #   uploads them as the `packages` artifact.
 # - `publish` (packages: write, environment `packages`): checks nothing out and runs no repository code; it publishes
 #   the packed tarballs in order and skips a version already on the registry, so a re-run finishes a partial publish.
-# One publish at a time (concurrency group `publish`). No other secret is read; a 403 from GitHub Packages means the
-# package does not grant this repository write access (package settings, Manage Actions access).
+# One publish at a time, whatever the ref (concurrency group `publish`): every run writes the same packages. A run
+# from workflow_dispatch publishes only a commit that a `v<version>` tag names. The artifact is kept 7 days: a failed
+# publish job can be re-run alone within that time, after it the whole workflow. If the `packages` environment gets
+# deployment protection, its branch and tag rule must allow `v*` tags (and main). No other secret is read; a 403 from
+# GitHub Packages means the package does not grant this repository write access (package settings, Manage Actions
+# access).
 name: publish
 on:
   push:
@@ -46,6 +50,10 @@ jobs:
           version="$(node -e "const root = require('./package.json'); const versions = [...new Set(root.workspaces.map(w => require('./' + w + '/package.json').version))]; if (versions.length !== 1) { console.error('the packages carry several versions: ' + versions.join(', ')); process.exit(1) } console.log(versions[0])")"
           if [ "$REF_TYPE" = tag ] && [ "$REF_NAME" != "v$version" ]; then
             echo "::error::tag $REF_NAME does not name the workspace version $version"
+            exit 1
+          fi
+          if [ "$REF_TYPE" != tag ] && ! grep -qx "v$version" <<< "$(git tag --points-at "$GITHUB_SHA")"; then
+            echo "::error::no tag v$version names $GITHUB_SHA: tag the commit first"
             exit 1
           fi
           echo "publishing $version"
@@ -117,6 +125,7 @@ jobs:
           path: ${{ runner.temp }}/bundle
           retention-days: 7
           if-no-files-found: error
+          overwrite: true
       - name: Remove credentials
         if: always()
         run: rm -f ~/.npmrc

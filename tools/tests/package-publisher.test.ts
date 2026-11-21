@@ -5,6 +5,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { IPackageManifestData } from '../publishing/package-manifest.js';
 import { PackagePublisher, PublishOutcome } from '../publishing/package-publisher.js';
+import { PublishCli } from '../publishing/publish-cli.js';
 import { IProcessResult, IProcessRunner, NpmProcessRunner } from '../publishing/process-runner.js';
 import { IRegistryLookup, NpmRegistryLookup } from '../publishing/registry-lookup.js';
 
@@ -21,6 +22,22 @@ class FakeRunner implements IProcessRunner
         const stagedFiles = fs.existsSync(cwd) ? fs.readdirSync(cwd).sort() : [];
         this.Calls.push({ Args: args, Cwd: cwd, StagedFiles: stagedFiles });
         return { Status: this.status, Stdout: this.stdout };
+    }
+}
+
+/** Answers like FakeRunner and, for `npm pack --pack-destination <dir>`, writes the tarball npm would name there. */
+class PackingRunner extends FakeRunner
+{
+    public override Run(args: string[], cwd: string): IProcessResult
+    {
+        const result = super.Run(args, cwd);
+        const destination = args.indexOf('--pack-destination');
+        if (args[0] === 'pack' && destination >= 0)
+        {
+            const manifest = JSON.parse(fs.readFileSync(path.join(cwd, 'package.json'), 'utf8')) as { name: string; version: string };
+            fs.writeFileSync(path.join(args[destination + 1], PackagePublisher.TarballName(manifest.name, manifest.version)), 'tarball');
+        }
+        return result;
     }
 }
 
@@ -171,7 +188,7 @@ describe('PackagePublisher', () =>
         const destination = fs.mkdtempSync(path.join(os.tmpdir(), 'publisher-pack-'));
         try
         {
-            const runner = new FakeRunner();
+            const runner = new PackingRunner();
             const registry = new FakeRegistry(['@scope/todl@0.66.2']);
             const packed = new PackagePublisher(false, Silent.Log, runner, registry).Pack(disk.Directory, destination);
             assert.deepEqual(packed, { Name: '@scope/pkg', Version: '0.1.1', File: 'scope-pkg-0.1.1.tgz' });
@@ -180,11 +197,61 @@ describe('PackagePublisher', () =>
             assert.ok(!fs.existsSync(runner.Calls[0].Cwd), 'the staging folder is removed');
             assert.deepEqual(registry.Asked, ['@scope/todl@0.66.2'], 'only the rewritten peer target is looked up');
             assert.throws(() => new PackagePublisher(false, Silent.Log, new FakeRunner(1), registry).Pack(disk.Directory, destination), /npm pack failed/);
+            const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), 'publisher-pack-empty-'));
+            try
+            {
+                assert.throws(() => new PackagePublisher(false, Silent.Log, new FakeRunner(), registry).Pack(disk.Directory, elsewhere), /npm pack wrote no scope-pkg-0\.1\.1\.tgz/);
+            }
+            finally
+            {
+                fs.rmSync(elsewhere, { recursive: true, force: true });
+            }
         }
         finally
         {
             disk.Dispose();
             fs.rmSync(destination, { recursive: true, force: true });
+        }
+    });
+
+    it('--pack-into packs every package in the order given and lists them in packages.json', () =>
+    {
+        const first = new PackageOnDisk({});
+        const second = new PackageOnDisk({});
+        const out = fs.mkdtempSync(path.join(os.tmpdir(), 'publisher-cli-'));
+        try
+        {
+            const manifest = path.join(second.Directory, 'package.json');
+            fs.writeFileSync(manifest, JSON.stringify({ ...JSON.parse(fs.readFileSync(manifest, 'utf8')), name: '@scope/second' }));
+            const bundle = path.join(out, 'bundle');
+            assert.equal(PublishCli.Main(['--pack-into', bundle, first.Directory, second.Directory], new PackingRunner(), new FakeRegistry([])), 0);
+            assert.deepEqual(JSON.parse(fs.readFileSync(path.join(bundle, PublishCli.BundleFile), 'utf8')), [
+                { Name: '@scope/pkg', Version: '0.1.1', File: 'scope-pkg-0.1.1.tgz' },
+                { Name: '@scope/second', Version: '0.1.1', File: 'scope-second-0.1.1.tgz' },
+            ]);
+        }
+        finally
+        {
+            first.Dispose();
+            second.Dispose();
+            fs.rmSync(out, { recursive: true, force: true });
+        }
+    });
+
+    it('refuses --pack-into without a folder, followed by a flag, or with --dry-run', () =>
+    {
+        const quiet = console.error;
+        console.error = Silent.Log;
+        try
+        {
+            for (const args of [['--pack-into'], ['--pack-into', '--dry-run', 'packages/a'], ['--pack-into', 'out', '--dry-run', 'packages/a'], ['--pack-into', 'out']])
+            {
+                assert.equal(PublishCli.Main(args, new FakeRunner(), new FakeRegistry([])), 2, JSON.stringify(args));
+            }
+        }
+        finally
+        {
+            console.error = quiet;
         }
     });
 

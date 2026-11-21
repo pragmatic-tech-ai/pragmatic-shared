@@ -11,9 +11,9 @@ name: release
 on:
   push:
     tags: ['v*.*.*']
-# One image release at a time: two tags pushed together never race on the image tags or the GitHub release.
+# One release per tag at a time: a re-run or a second push of the same tag never races on its image tags or release.
 concurrency:
-  group: release
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 permissions:
   contents: write

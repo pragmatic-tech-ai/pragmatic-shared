@@ -2,6 +2,7 @@ import { OciRegistryClient } from '../../oci-registry-client.js'
 import { FakeOciRegistry } from '../../tests/fake-oci-registry.js'
 import { FakeImageLayout, FakeReleaseImage } from '../../tests/fake-release-image.js'
 import type { IComponentAssetSource } from '../component-asset-source.js'
+import { ReleaseManifest } from '../release-manifest.js'
 import { ReleaseApp, ReleaseApps } from '../release-tag.js'
 
 /** IComponentAssetSource over two maps: `<repository>@<version>` to the component.json bytes and to the tag's commit. */
@@ -44,7 +45,6 @@ export class ReleaseWorld
     public static readonly ManifestSchema = 1
     public static readonly ImagePrefix = 'image '
     private static readonly PathSeparator = '/'
-    public static readonly CommitTagPrefix = 'git-'
     private static readonly HexDigits = '0123456789abcdef'
     private static readonly CommitLength = 40
     /** The platform images are multi-arch indexes; the rest single image manifests (as the container releases push them). */
@@ -111,7 +111,7 @@ export class ReleaseWorld
     {
         const layout = ReleaseWorld.IndexApps.includes(app) ? FakeImageLayout.Index : FakeImageLayout.Single
         const repo = ReleaseWorld.ImageRepo(app)
-        this.Images.Put(repo, ReleaseWorld.CommitTagPrefix + ReleaseWorld.CommitOf(app), content, layout, label)
+        this.Images.Put(repo, ReleaseManifest.CommitTagOf(ReleaseWorld.CommitOf(app)), content, layout, label)
         return this.Images.Put(repo, ReleaseWorld.ComponentVersion, content, layout, label)
     }
 

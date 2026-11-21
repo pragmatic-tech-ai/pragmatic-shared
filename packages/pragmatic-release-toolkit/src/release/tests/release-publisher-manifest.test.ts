@@ -38,6 +38,8 @@ class AssembleFixture
     public static readonly MethodGet = 'GET'
     public static readonly MethodPut = 'PUT'
     public static readonly DescriptorRepo = ReleaseWorld.Namespace + '/' + ReleasePublisher.DescriptorRepository
+    public static readonly ManifestType = 'application/vnd.oci.image.manifest.v1+json'
+    public static readonly EmptyManifest = new TextEncoder().encode('{}')
 
     public readonly World: ReleaseWorld
     public readonly Key = new Keys()
@@ -234,10 +236,47 @@ describe('ReleasePublisher from a release manifest', () =>
         }
     })
 
+    it('checks the version and every release-<version> tag again before tagging: a rival that landed meanwhile stops it untagged', async () =>
+    {
+        const f = new AssembleFixture()
+        let landed = false
+        const fetch: OciFetch = async (url, init) =>
+        {
+            if (!landed && url.includes('/blobs/'))
+            {
+                landed = true
+                f.World.Registry.PutManifest(AssembleFixture.DescriptorRepo, ReleaseWorld.ReleaseVersion, AssembleFixture.EmptyManifest, AssembleFixture.ManifestType)
+            }
+            return f.World.Registry.Fetch(url, init)
+        }
+        const publisher = new ReleasePublisher(new OciRegistryClient(f.World.Registry.Origin, fetch), ReleaseWorld.Namespace)
+        await assert.rejects(publisher.PublishManifest(f.Input()), ReleaseVersionExistsError)
+        assert.ok(landed)
+        assert.ok(!f.World.Registry.Requests.some(r => r.method === AssembleFixture.MethodPut), 'nothing is tagged or pushed after the rival lands')
+
+        const taken = new AssembleFixture()
+        let tagged = false
+        const tagFetch: OciFetch = async (url, init) =>
+        {
+            // After Inspect looked at the hive agent: the last app's label read.
+            if (!tagged && url.includes('/' + ReleaseApp.Postgres + '/blobs/'))
+            {
+                tagged = true
+                const own = await taken.World.Client().PullManifest(ReleaseWorld.ImageRepo(ReleaseApp.EnvServer), taken.World.Digests.get(ReleaseApp.EnvServer) as string)
+                taken.World.Registry.PutManifest(ReleaseWorld.ImageRepo(ReleaseApp.HiveAgent), ReleaseManifest.ImageTagOf(ReleaseWorld.ReleaseVersion), own, AssembleFixture.ManifestType)
+            }
+            return taken.World.Registry.Fetch(url, init)
+        }
+        const second = new ReleasePublisher(new OciRegistryClient(taken.World.Registry.Origin, tagFetch), ReleaseWorld.Namespace)
+        await assert.rejects(second.PublishManifest(taken.Input()), (error: unknown) =>
+            error instanceof ReleaseManifestProblemsError && error.Problems.length === 1 && error.Problems[0].App === ReleaseApp.HiveAgent
+            && error.Problems[0].Kind === ReleaseManifestProblemKind.VersionTagTaken)
+        assert.ok(!taken.World.Registry.Requests.some(r => r.method === AssembleFixture.MethodPut && r.url.includes('/manifests/release-')))
+    })
+
     it('checks the version is free again just before the descriptor push: a publish that finished meanwhile wins', async () =>
     {
         const f = new AssembleFixture()
-        const rival = new AssembleFixture()
         const descriptorPath = '/v2/' + AssembleFixture.DescriptorRepo + '/manifests/' + ReleaseWorld.ReleaseVersion
         let raced = false
         const fetch: OciFetch = async (url, init) =>
@@ -245,9 +284,7 @@ describe('ReleasePublisher from a release manifest', () =>
             if (!raced && init.method === AssembleFixture.MethodPut && url.includes('/manifests/release-'))
             {
                 raced = true
-                const head = await rival.World.Client().HeadManifest(AssembleFixture.DescriptorRepo, ReleaseWorld.ReleaseVersion)
-                assert.equal(head, undefined)
-                f.World.Registry.PutManifest(AssembleFixture.DescriptorRepo, ReleaseWorld.ReleaseVersion, new TextEncoder().encode('{}'), 'application/vnd.oci.image.manifest.v1+json')
+                f.World.Registry.PutManifest(AssembleFixture.DescriptorRepo, ReleaseWorld.ReleaseVersion, AssembleFixture.EmptyManifest, AssembleFixture.ManifestType)
             }
             return f.World.Registry.Fetch(url, init)
         }

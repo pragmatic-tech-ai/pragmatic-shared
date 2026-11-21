@@ -27,23 +27,45 @@ class RecordingSigner implements IHiveImageSigner
     }
 }
 
+/** Refuses its Apply (so BringUp stops there) and records how many images were signed by then. */
+class RefusingOrchestrator
+{
+    public SignedAtApply: number | undefined = undefined
+
+    public constructor(private readonly signer: RecordingSigner)
+    {
+    }
+
+    public async Apply(): Promise<void>
+    {
+        this.SignedAtApply = this.signer.Signed.length
+        throw new Error(SigningFixture.ApplyRefused)
+    }
+}
+
 class SigningFixture
 {
     public static readonly HiveId = 'hive-a'
+    public static readonly TenantId = 'acme'
+    public static readonly EnvName = 'dev1'
+    public static readonly EnvId = 'dev1-id'
+    public static readonly ServerImage = 'pragmatic-server:dev'
     public static readonly Registry = 'reg.local:5000'
+    public static readonly Slash = '/'
     public static readonly ApplyRefused = 'apply refused (the test stops here)'
+    public static readonly CreatedAt = '2026-11-21T00:00:00.000Z'
 
     public static readonly Hive: HiveRecord = {
-        id: SigningFixture.HiveId, tenantId: 'acme', displayName: 'Hive A',
+        id: SigningFixture.HiveId, tenantId: SigningFixture.TenantId, displayName: SigningFixture.HiveId,
         cluster: { backend: HiveBackend.Local, mode: InfraMode.Attach },
         registry: { mode: InfraMode.Attach, endpoint: SigningFixture.Registry },
-        createdAt: '2026-11-21T00:00:00.000Z',
+        createdAt: SigningFixture.CreatedAt,
     }
 
     public static Workload(withApp: boolean): EnvironmentWorkload
     {
         const workload: EnvironmentWorkload = {
-            environmentName: 'dev1', environmentId: 'dev1-id', hiveId: SigningFixture.HiveId, image: 'pragmatic-server:dev',
+            environmentName: SigningFixture.EnvName, environmentId: SigningFixture.EnvId, hiveId: SigningFixture.HiveId, image: SigningFixture.ServerImage,
             serverPort: 8080, env: {}, secretRefs: [],
         }
         if (withApp)
@@ -61,14 +83,17 @@ class SigningFixture
     public static async SignedOnBringUp(withApp: boolean): Promise<string[]>
     {
         const signer = new RecordingSigner()
-        const orchestrator = { Apply: async () => { throw new Error(SigningFixture.ApplyRefused) } } as unknown as IHiveOrchestrator
+        const refusing = new RefusingOrchestrator(signer)
+        const orchestrator = refusing as unknown as IHiveOrchestrator
         const orchestrators = { For: () => orchestrator } as unknown as HiveOrchestratorFactory
         const placement = { WorkloadFor: () => SigningFixture.Workload(withApp) } as unknown as EnvironmentPlacement
         const directory = { GetHive: () => SigningFixture.Hive } as unknown as ITenantDirectory
         const bundle = {} as IBundleBuilder
         const runtime = new InClusterEnvironmentRuntime(orchestrators, placement, directory, bundle, signer)
-        const ctx = { record: { name: 'dev1', hiveId: SigningFixture.HiveId }, def: {}, bundleDir: 'unused' } as unknown as EnvRuntimeContext
-        await assert.rejects(runtime.BringUp(ctx), InClusterOperationFailedError)
+        const ctx = { record: { name: SigningFixture.EnvName, hiveId: SigningFixture.HiveId }, def: {}, bundleDir: SigningFixture.EnvId } as unknown as EnvRuntimeContext
+        await assert.rejects(runtime.BringUp(ctx), (error: unknown) =>
+            error instanceof InClusterOperationFailedError && (error.Detail ?? '').includes(SigningFixture.ApplyRefused))
+        assert.equal(refusing.SignedAtApply, signer.Signed.length, 'every image is signed before the apply')
         return signer.Signed
     }
 }
@@ -77,10 +102,8 @@ describe('InClusterEnvironmentRuntime signing', () =>
 {
     it('signs the server image and, with an app deployment, the UI unpack image, as the hive pulls them, before the apply', async () =>
     {
-        assert.deepEqual(await SigningFixture.SignedOnBringUp(false), [SigningFixture.Registry + '/pragmatic-server:dev'])
-        assert.deepEqual(await SigningFixture.SignedOnBringUp(true), [
-            SigningFixture.Registry + '/pragmatic-server:dev',
-            SigningFixture.Registry + '/' + EnvironmentWorkloadFactory.UiUnpackImage,
-        ])
+        const S = SigningFixture
+        assert.deepEqual(await S.SignedOnBringUp(false), [S.Registry + S.Slash + S.ServerImage])
+        assert.deepEqual(await S.SignedOnBringUp(true), [S.Registry + S.Slash + S.ServerImage, S.Registry + S.Slash + EnvironmentWorkloadFactory.UiUnpackImage])
     })
 })

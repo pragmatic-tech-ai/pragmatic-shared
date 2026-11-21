@@ -199,6 +199,12 @@ export class ReleaseManifest
         return ReleaseManifest.ImageTagPrefix + releaseVersion
     }
 
+    /** The tag a container release gives its image beside `<version>`: `git-<commit>` (container-release.yml). */
+    public static CommitTagOf(commit: string): string
+    {
+        return ReleaseManifest.CommitTagPrefix + commit
+    }
+
     /** The repository's name without its owner: the key of the release descriptor's `siblingCommits`. */
     public static RepositoryName(repository: string): string
     {
@@ -259,7 +265,7 @@ export class ReleaseManifest
     {
         const S = ReleaseManifest
         return await registry.HeadManifest(repo, component.version) === component.digest
-            && await registry.HeadManifest(repo, S.CommitTagPrefix + commit) === component.digest
+            && await registry.HeadManifest(repo, S.CommitTagOf(commit)) === component.digest
     }
 
     /** `<app>: <sentence>`. */
