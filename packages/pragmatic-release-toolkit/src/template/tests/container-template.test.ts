@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { DockerfileTargets } from '../../closure/closure-check.js'
 import { ReleaseApp, ReleaseApps } from '../../release/release-tag.js'
+import { ContainerProfiles } from '../container-profile.js'
 import { ContainerTemplate, ContainerTemplateError, type ContainerTemplateOptions } from '../container-template.js'
 
 /** Reads a rendered Dockerfile by stage: each stage's lines, continuations joined. */
@@ -450,6 +451,37 @@ describe('ContainerTemplate', () =>
         ])
         {
             assert.throws(() => ContainerTemplate.Render(options), ContainerTemplateError, JSON.stringify(options))
+        }
+    })
+
+    it('appends the extra .dockerignore lines after the common ones, in order', () =>
+    {
+        const base = { App: ReleaseApp.PlatformAdmin, Entry: 'src/server.ts', UiDirs: [], ExtraCopies: [] }
+        const common = TemplateFixture.File(ContainerTemplate.Render(base), '.dockerignore')
+        const extra = ['**/*.local.json', 'secrets/', '!secrets/README.md']
+        const rendered = TemplateFixture.File(ContainerTemplate.Render({ ...base, DockerIgnore: extra }), '.dockerignore')
+        assert.equal(rendered, common + extra.join('\n') + '\n')
+        assert.ok(common.endsWith('test-results\n'))
+    })
+
+    it('refuses an extra .dockerignore line that is empty, a comment, or holds a line break', () =>
+    {
+        const base = { App: ReleaseApp.HiveAgent, Entry: 'src/bin/pragmatic-agentd.ts', UiDirs: [], ExtraCopies: [] }
+        for (const line of ['', '   ', '# note', 'a\nb', 'a\rb'])
+        {
+            assert.throws(() => ContainerTemplate.Render({ ...base, DockerIgnore: [line] }), ContainerTemplateError, JSON.stringify(line))
+        }
+    })
+
+    it('runs the image test for tenant-admin, env-server and postgres, and the start smoke everywhere but postgres', () =>
+    {
+        for (const app of ReleaseApps.All)
+        {
+            const ci = TemplateFixture.File(TemplateFixture.Render(app), '.github/workflows/ci.yml')
+            const imageTest = [ReleaseApp.TenantAdmin, ReleaseApp.EnvServer, ReleaseApp.Postgres].includes(app)
+            assert.ok(ci.includes('image-test: ' + imageTest), app)
+            assert.equal(ContainerProfiles.Of(app)?.ImageTest, imageTest, app)
+            assert.ok(ci.includes('start-smoke: ' + (app !== ReleaseApp.Postgres)), app)
         }
     })
 

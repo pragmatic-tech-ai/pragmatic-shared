@@ -1,10 +1,12 @@
 # The CI of a container repository (dev-kit A3; the caller is rendered by pragmatic-container-template): the repository
 # builds from its lock alone, every @pragmatic-tech-ai package read from GitHub Packages with the caller's
-# PACKAGES_TOKEN (no sibling checkout). Steps: install, build, tests, UI unit tests (and typecheck where a UI has one),
-# the image closure check, the two-step image bake (`components` exports the component descriptor and the override that
-# labels the image with its digest, then the image), the label check (the image's /pragmatic/component.json hashes to
-# its label), the optional image test and the optional Helm lint/render. With `arm64` the image is also baked and
-# checked on a native arm64 runner. `closure-check: false` skips only the closure check (pragmatic-postgres, whose
+# PACKAGES_TOKEN (no sibling checkout). Steps: install, build, the typecheck (when the repository has a `typecheck`
+# script), tests, UI unit tests (and typecheck where a UI has one), the image closure check, the two-step image bake
+# (`components` exports the component descriptor and the override that labels the image with its digest, then the
+# image), the label check (the image's /pragmatic/component.json hashes to its label), the start smoke (the image is
+# started once with no configuration: a module-resolution error, or a death that is not a configuration refusal, fails;
+# still running after 20 s passes; `start-smoke: false` turns it off), the optional image test and the optional Helm
+# lint/render. With `arm64` the image is also baked and checked on a native arm64 runner. `closure-check: false` skips only the closure check (pragmatic-postgres, whose
 # image is not a Node closure); `node: false` also skips the build and tests (a repository with no Node code of its own).
 # A pull request from a fork gets no PACKAGES_TOKEN: the gate job says so and every other job is skipped.
 # Inputs reach scripts only through env, never interpolated into a script. The npm credentials are written under umask
@@ -46,6 +48,18 @@ on:
         description: Run pragmatic-closure-check (false where the image is not a Node closure).
         type: boolean
         default: true
+      start-smoke:
+        description: Start the baked image once with no configuration and fail on a module error or a non-configuration death.
+        type: boolean
+        default: true
+      start-smoke-args:
+        description: Extra docker run arguments for the start smoke (space separated, e.g. -e NAME=value).
+        type: string
+        default: ''
+      start-smoke-refusal:
+        description: An extended grep pattern (case-insensitive) a configuration refusal prints; a non-zero exit without it fails.
+        type: string
+        default: 'required|must be|not set|missing|not found|refus|invalid'
     secrets:
       PACKAGES_TOKEN:
         required: false
@@ -97,6 +111,14 @@ jobs:
       - name: Build
         if: inputs.node
         run: npm run build
+      - name: Typecheck
+        if: inputs.node
+        run: |
+          if node -e "process.exit(require('./package.json').scripts?.typecheck ? 0 : 1)"; then
+            npm run typecheck
+          else
+            echo 'No typecheck script: skipped'
+          fi
       - name: Test
         if: inputs.node
         env:
@@ -137,6 +159,37 @@ jobs:
             -f .components/docker-bake.components.json --allow=fs.read="$RUNNER_TEMP/npmrc" "$APP"
       - name: Component descriptor in the image matches its label
         run: bash node_modules/@pragmatic-tech-ai/pragmatic-release-toolkit/scripts/check-component-label.sh "$IMAGE"
+      - name: Start smoke
+        if: inputs.start-smoke
+        env:
+          SMOKE_ARGS: ${{ inputs.start-smoke-args }}
+          SMOKE_REFUSAL: ${{ inputs.start-smoke-refusal }}
+        run: |
+          name="start-smoke-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          # SMOKE_ARGS is split into words on purpose: it holds docker run flags.
+          # shellcheck disable=SC2086
+          docker run -d --name "$name" $SMOKE_ARGS "$IMAGE" > /dev/null
+          running=true
+          for _ in $(seq 1 20); do
+            if [ "$(docker inspect -f '{{.State.Running}}' "$name")" != true ]; then
+              running=false
+              break
+            fi
+            sleep 1
+          done
+          logs="$(docker logs "$name" 2>&1)"
+          code="$(docker inspect -f '{{.State.ExitCode}}' "$name")"
+          docker rm -f "$name" > /dev/null
+          printf '%s\n' "$logs"
+          if printf '%s' "$logs" | grep -Eq 'ERR_MODULE_NOT_FOUND|Cannot find module|Cannot find package|ERR_PACKAGE_PATH_NOT_EXPORTED'; then
+            echo '::error::the image cannot resolve a module'
+            exit 1
+          fi
+          if [ "$running" = false ] && [ "$code" != 0 ] && ! printf '%s' "$logs" | grep -Eiq "$SMOKE_REFUSAL"; then
+            echo "::error::the image died (exit $code) without a configuration refusal"
+            exit 1
+          fi
+          echo "start smoke passed (running after 20 s: $running, exit $code)"
       - name: Image test
         if: inputs.image-test
         run: bash tests/image.test.sh "$IMAGE"
@@ -186,6 +239,37 @@ jobs:
             -f .components/docker-bake.components.json --allow=fs.read="$RUNNER_TEMP/npmrc" --load "$APP"
       - name: Component descriptor in the image matches its label (arm64)
         run: bash node_modules/@pragmatic-tech-ai/pragmatic-release-toolkit/scripts/check-component-label.sh "$IMAGE"
+      - name: Start smoke (arm64)
+        if: inputs.start-smoke
+        env:
+          SMOKE_ARGS: ${{ inputs.start-smoke-args }}
+          SMOKE_REFUSAL: ${{ inputs.start-smoke-refusal }}
+        run: |
+          name="start-smoke-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          # SMOKE_ARGS is split into words on purpose: it holds docker run flags.
+          # shellcheck disable=SC2086
+          docker run -d --name "$name" $SMOKE_ARGS "$IMAGE" > /dev/null
+          running=true
+          for _ in $(seq 1 20); do
+            if [ "$(docker inspect -f '{{.State.Running}}' "$name")" != true ]; then
+              running=false
+              break
+            fi
+            sleep 1
+          done
+          logs="$(docker logs "$name" 2>&1)"
+          code="$(docker inspect -f '{{.State.ExitCode}}' "$name")"
+          docker rm -f "$name" > /dev/null
+          printf '%s\n' "$logs"
+          if printf '%s' "$logs" | grep -Eq 'ERR_MODULE_NOT_FOUND|Cannot find module|Cannot find package|ERR_PACKAGE_PATH_NOT_EXPORTED'; then
+            echo '::error::the image cannot resolve a module'
+            exit 1
+          fi
+          if [ "$running" = false ] && [ "$code" != 0 ] && ! printf '%s' "$logs" | grep -Eiq "$SMOKE_REFUSAL"; then
+            echo "::error::the image died (exit $code) without a configuration refusal"
+            exit 1
+          fi
+          echo "start smoke passed (running after 20 s: $running, exit $code)"
       - name: Image test (arm64)
         if: inputs.image-test
         run: bash tests/image.test.sh "$IMAGE"

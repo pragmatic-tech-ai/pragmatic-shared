@@ -52,6 +52,15 @@ describe('ContainerTemplateCli', () =>
         assert.ok(readFileSync(join(out, 'Dockerfile'), 'utf8').includes('ENTRYPOINT ["node", "dist/bin/pragmatic-idpd.js"]'))
     })
 
+    it('takes --dockerignore more than once, appending each line to the .dockerignore in order', () =>
+    {
+        const out = CliFixture.Out('ignores')
+        const result = CliFixture.Run(['render', '--app', 'pragmatic-platform-admin', '--entry', 'src/server.ts',
+            '--dockerignore', '**/*.local.json', '--dockerignore', 'secrets/', '--out', out])
+        assert.equal(result.Code, 0, result.Err.join('\n'))
+        assert.ok(readFileSync(join(out, '.dockerignore'), 'utf8').endsWith('test-results\n**/*.local.json\nsecrets/\n'))
+    })
+
     it('takes --ui and --copy more than once, in order', () =>
     {
         const out = CliFixture.Out('admin')

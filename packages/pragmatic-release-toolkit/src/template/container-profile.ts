@@ -45,6 +45,11 @@ export interface IContainerProfile
     Healthcheck?: IContainerHealthcheck
     /** CI runs `tests/image.test.sh <image>` on the baked image. */
     ImageTest: boolean
+    /**
+     * CI starts the baked image once with no configuration (container-ci.yml `start-smoke`): false where the image
+     * has its own start test and is no Node entry (pragmatic-postgres).
+     */
+    StartSmoke: boolean
     /** A Helm chart CI lints and renders; empty for none. */
     HelmChart: string
     /** The image closure check runs (CI and the image build); false where the image is not a Node closure. */
@@ -85,7 +90,7 @@ export class ContainerProfiles
             Env: [[ContainerProfiles.RoleVariable, ContainerProfiles.AdminRole]],
             Ports: [ContainerProfiles.AdminPort, ContainerProfiles.AdminInternalPort],
             Healthcheck: { Scheme: HealthScheme.Http, PortVariable: ContainerProfiles.AdminPortVariable, DefaultPort: ContainerProfiles.AdminPort },
-            ImageTest: false, HelmChart: ContainerProfiles.NoChart, ClosureCheck: true, VersionManifest: ContainerProfiles.RootManifest,
+            ImageTest: false, StartSmoke: true, HelmChart: ContainerProfiles.NoChart, ClosureCheck: true, VersionManifest: ContainerProfiles.RootManifest,
         }],
         [ReleaseApp.PlatformEdge, {
             Kind: ContainerKind.Node, MultiArch: true, AptPackages: ContainerProfiles.None, ProvisioningTools: false,
@@ -96,48 +101,48 @@ export class ContainerProfiles
             ],
             Ports: [ContainerProfiles.AgentChannelPort],
             Healthcheck: { Scheme: HealthScheme.Http, PortVariable: ContainerProfiles.AgentChannelPortVariable, DefaultPort: ContainerProfiles.AgentChannelPort },
-            ImageTest: false, HelmChart: ContainerProfiles.NoChart, ClosureCheck: true, VersionManifest: ContainerProfiles.RootManifest,
+            ImageTest: false, StartSmoke: true, HelmChart: ContainerProfiles.NoChart, ClosureCheck: true, VersionManifest: ContainerProfiles.RootManifest,
         }],
         [ReleaseApp.EnvServer, {
             Kind: ContainerKind.Node, MultiArch: false, AptPackages: ContainerProfiles.None, ProvisioningTools: false,
             RuntimeDevPackages: ContainerProfiles.TodlRuntimeDevPackages,
             Env: [], Ports: [ContainerProfiles.HttpPort],
             Healthcheck: { Scheme: HealthScheme.Http, PortVariable: ContainerProfiles.HttpPortVariable, DefaultPort: ContainerProfiles.HttpPort },
-            ImageTest: false, HelmChart: ContainerProfiles.EnvServerChart, ClosureCheck: true, VersionManifest: ContainerProfiles.EnvServerManifest,
+            ImageTest: true, StartSmoke: true, HelmChart: ContainerProfiles.EnvServerChart, ClosureCheck: true, VersionManifest: ContainerProfiles.EnvServerManifest,
         }],
         [ReleaseApp.EnvGateway, {
             Kind: ContainerKind.Node, MultiArch: false, AptPackages: ContainerProfiles.None, ProvisioningTools: false,
             RuntimeDevPackages: ContainerProfiles.None,
             Env: [], Ports: [ContainerProfiles.HttpPort],
             Healthcheck: { Scheme: HealthScheme.Http, PortVariable: ContainerProfiles.HttpPortVariable, DefaultPort: ContainerProfiles.HttpPort },
-            ImageTest: false, HelmChart: ContainerProfiles.NoChart, ClosureCheck: true, VersionManifest: ContainerProfiles.RootManifest,
+            ImageTest: false, StartSmoke: true, HelmChart: ContainerProfiles.NoChart, ClosureCheck: true, VersionManifest: ContainerProfiles.RootManifest,
         }],
         [ReleaseApp.HiveAgent, {
             Kind: ContainerKind.Node, MultiArch: false, AptPackages: ContainerProfiles.None, ProvisioningTools: false,
             RuntimeDevPackages: ContainerProfiles.None, Env: [], Ports: [],
-            ImageTest: false, HelmChart: ContainerProfiles.NoChart, ClosureCheck: true, VersionManifest: ContainerProfiles.RootManifest,
+            ImageTest: false, StartSmoke: true, HelmChart: ContainerProfiles.NoChart, ClosureCheck: true, VersionManifest: ContainerProfiles.RootManifest,
         }],
         [ReleaseApp.TenantAdmin, {
             Kind: ContainerKind.Node, MultiArch: false, AptPackages: ContainerProfiles.None, ProvisioningTools: false,
             RuntimeDevPackages: ContainerProfiles.TodlRuntimeDevPackages, Env: [], Ports: [],
             Healthcheck: { Scheme: HealthScheme.Http, PortVariable: ContainerProfiles.TenantAdminPortVariable },
-            ImageTest: false, HelmChart: ContainerProfiles.NoChart, ClosureCheck: true, VersionManifest: ContainerProfiles.RootManifest,
+            ImageTest: true, StartSmoke: true, HelmChart: ContainerProfiles.NoChart, ClosureCheck: true, VersionManifest: ContainerProfiles.RootManifest,
         }],
         [ReleaseApp.TenantIdp, {
             Kind: ContainerKind.Node, MultiArch: true, AptPackages: ContainerProfiles.OpenSsl, ProvisioningTools: false,
             RuntimeDevPackages: ContainerProfiles.TodlRuntimeDevPackages, Env: [], Ports: [ContainerProfiles.IdpPort],
             Healthcheck: { Scheme: HealthScheme.Https, PortVariable: ContainerProfiles.IdpPortVariable, DefaultPort: ContainerProfiles.IdpPort, Insecure: true },
-            ImageTest: false, HelmChart: ContainerProfiles.NoChart, ClosureCheck: true, VersionManifest: ContainerProfiles.RootManifest,
+            ImageTest: false, StartSmoke: true, HelmChart: ContainerProfiles.NoChart, ClosureCheck: true, VersionManifest: ContainerProfiles.RootManifest,
         }],
         [ReleaseApp.UiUnpack, {
             Kind: ContainerKind.Node, MultiArch: false, AptPackages: ContainerProfiles.None, ProvisioningTools: false,
             RuntimeDevPackages: ContainerProfiles.None, Env: [], Ports: [],
-            ImageTest: false, HelmChart: ContainerProfiles.NoChart, ClosureCheck: true, VersionManifest: ContainerProfiles.RootManifest,
+            ImageTest: false, StartSmoke: true, HelmChart: ContainerProfiles.NoChart, ClosureCheck: true, VersionManifest: ContainerProfiles.RootManifest,
         }],
         [ReleaseApp.Postgres, {
             Kind: ContainerKind.ExternalDockerfile, MultiArch: true, AptPackages: ContainerProfiles.None, ProvisioningTools: false,
             RuntimeDevPackages: ContainerProfiles.None, Env: [], Ports: [],
-            ImageTest: true, HelmChart: ContainerProfiles.NoChart, ClosureCheck: false, VersionManifest: ContainerProfiles.RootManifest,
+            ImageTest: true, StartSmoke: false, HelmChart: ContainerProfiles.NoChart, ClosureCheck: false, VersionManifest: ContainerProfiles.RootManifest,
         }],
     ])
 

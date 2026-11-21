@@ -211,7 +211,8 @@ describe('container workflows', () =>
         const ci = Workflows.Read(Workflows.Ci)
         const inputs = Workflows.Inputs(ci)
         assert.deepEqual([...inputs], [['app', 'string'], ['node-test-glob', 'string'], ['ui-dirs', 'string'], ['image-test', 'boolean'],
-            ['arm64', 'boolean'], ['helm-chart', 'string'], ['node', 'boolean'], ['closure-check', 'boolean']])
+            ['arm64', 'boolean'], ['helm-chart', 'string'], ['node', 'boolean'], ['closure-check', 'boolean'], ['start-smoke', 'boolean'],
+            ['start-smoke-args', 'string'], ['start-smoke-refusal', 'string']])
         assert.match(ci, /^ {6}PACKAGES_TOKEN:\n {8}required: false$/m)
         const jobs = Workflows.Jobs(ci)
         assert.equal(jobs[0].Name, 'gate')
@@ -226,6 +227,45 @@ describe('container workflows', () =>
         {
             assert.ok(ci.includes(step), step)
         }
+    })
+
+    it('container-ci.yml typechecks the repository after the build, skipping only a repository without a typecheck script', () =>
+    {
+        const ci = Workflows.Read(Workflows.Ci)
+        const build = ci.indexOf('        run: npm run build\n')
+        const typecheck = ci.indexOf('      - name: Typecheck\n')
+        assert.ok(build > 0 && typecheck > build, 'after the build')
+        assert.ok(typecheck < ci.indexOf('      - name: Test\n'), 'before the tests')
+        const step = ci.slice(typecheck, ci.indexOf('      - name: Test\n'))
+        assert.match(step, /if: inputs\.node\n/)
+        assert.ok(step.includes("require('./package.json').scripts?.typecheck"))
+        assert.ok(step.includes('npm run typecheck'))
+    })
+
+    it('container-ci.yml starts every baked image once: a module error or a non-configuration death fails, a running image passes and is removed', () =>
+    {
+        const ci = Workflows.Read(Workflows.Ci)
+        const jobs = new Map(Workflows.Jobs(ci).map(job => [job.Name, job.Lines.join('\n')]))
+        for (const [job, label] of [['build-test', 'Component descriptor in the image matches its label\n'], ['image-arm64', 'Component descriptor in the image matches its label (arm64)\n']])
+        {
+            const body = jobs.get(job) ?? ''
+            const start = body.indexOf('      - name: Start smoke')
+            assert.ok(start > body.indexOf(label), job + ': after the bake and the label check')
+            const step = body.slice(start, body.indexOf('      - name: Image test', start))
+            assert.match(step, /if: inputs\.start-smoke\n/, job)
+            assert.match(step, /SMOKE_ARGS: \$\{\{ inputs\.start-smoke-args \}\}/, job)
+            assert.ok(step.includes('docker run -d --name "$name" $SMOKE_ARGS "$IMAGE"'), job + ': no configuration but the extra args')
+            assert.ok(step.includes('seq 1 20'), job + ': about 20 s')
+            for (const marker of ['ERR_MODULE_NOT_FOUND', 'Cannot find module', 'ERR_PACKAGE_PATH_NOT_EXPORTED'])
+            {
+                assert.ok(step.includes(marker), job + ' ' + marker)
+            }
+            assert.ok(step.includes('[ "$running" = false ] && [ "$code" != 0 ] && ! printf'), job + ': dies without a refusal')
+            assert.ok(step.includes('grep -Eiq "$SMOKE_REFUSAL"'), job)
+            assert.ok(step.includes('docker rm -f "$name"'), job + ': stopped and removed')
+        }
+        const inputs = Workflows.Block(ci, 'on').join('\n')
+        assert.match(inputs, / {6}start-smoke:\n {8}description: .*\n {8}type: boolean\n {8}default: true\n/)
     })
 
     it('every bake names its bake file, also the first (components) step', () =>
