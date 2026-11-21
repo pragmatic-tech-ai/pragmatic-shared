@@ -22,17 +22,6 @@ class SiblingReader implements IManifestReader
 }
 
 /** The workspace's package manifests, read from the root package.json's `workspaces`. */
-/** Peers only a package's ./testing entry loads (pg-mem behind SqlTestSessions); never installed for production. */
-class OptionalPeers
-{
-    private static readonly ByPackage: Record<string, string[]> = { 'pragmatic-realm-adapters': ['pg-mem'] };
-
-    public static Of(name: string): string[]
-    {
-        return OptionalPeers.ByPackage[name] ?? [];
-    }
-}
-
 class Workspace
 {
     public static readonly Root = path.resolve(__dirname, '..', '..');
@@ -114,7 +103,7 @@ describe('workspace manifests', () =>
         }
     });
 
-    it('declares every singleton a package imports as a required peer; test-only peers are optional', () =>
+    it('declares every singleton a package imports as a required peer, and no optional peer', () =>
     {
         const expected: Record<string, string[]> = {
             'pragmatic-identity': ['@pragmatic-tech-ai/todl-runtime'],
@@ -145,10 +134,12 @@ describe('workspace manifests', () =>
         {
             const manifest = packages.find(candidate => candidate.Name === Workspace.Scope + name);
             assert.ok(manifest !== undefined, name);
-            const optional = manifest.Data.peerDependenciesMeta ?? {};
+            // GitHub Packages drops `peerDependenciesMeta` from the registry metadata, so an optional peer installs as a
+            // required one in every consumer's lock: a test-only dependency (pg-mem behind the ./testing entry) stays a
+            // devDependency, and the consumer that runs those helpers installs it itself.
+            assert.equal(manifest.Data.peerDependenciesMeta, undefined, name);
             const peers = Object.keys(manifest.Data.peerDependencies ?? {});
-            assert.deepEqual(peers.filter(peer => optional[peer]?.optional !== true).sort(), singletons, name);
-            assert.deepEqual(peers.filter(peer => optional[peer]?.optional === true).sort(), OptionalPeers.Of(name), name);
+            assert.deepEqual(peers.sort(), singletons, name);
         }
     });
 
