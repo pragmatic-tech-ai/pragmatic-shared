@@ -1,5 +1,5 @@
 import type { IPageLocation, IPageNavigator } from '../browser/browser-page.js'
-import type { AppShellConfig } from '../config/app-shell-config.js'
+import { AppShellConfig } from '../config/app-shell-config.js'
 import { SignInMethod } from '../config/sign-in-method.js'
 import { ApiClientBase, AuthFailureSignal, type FetchFunction } from './api-client-base.js'
 import { ApiError } from './api-error.js'
@@ -34,6 +34,8 @@ export class AppSessionClient extends ApiClientBase
     private static readonly NoOidcSignIn = 'AppSessionClient: this application does not offer OIDC sign-in'
     private static readonly NoChangePassword = 'AppSessionClient: no change-password path is configured'
     private static readonly NoTicket = 'AppSessionClient: the ticket reply carries no ticket'
+    private static readonly RedirectField = 'redirect'
+    private static readonly WebProtocols: ReadonlySet<string> = new Set(['https:', 'http:'])
 
     public constructor(config: AppShellConfig, fetcher?: FetchFunction)
     {
@@ -79,10 +81,26 @@ export class AppSessionClient extends ApiClientBase
         navigator.Assign(this.Url(this.Config.Paths.OidcBegin))
     }
 
-    /** Ends the session (the cookie is cleared by the reply). */
-    public async Logout(): Promise<void>
+    /**
+     * Ends the session (the cookie is cleared by the reply) and answers where the browser goes next: an OIDC host's
+     * `{ redirect }`, the IdP's end-session endpoint (so its SSO session ends too) or a signed-out page; undefined for a
+     * 204 (a password-only host: reload). The session is gone either way, so an answer it cannot trust (not an http(s)
+     * URL nor an own-origin path) leads to Paths.SignedOut, or undefined without one.
+     */
+    public async Logout(): Promise<string | undefined>
     {
-        await this.Post<unknown>(this.Config.Paths.Logout)
+        const reply = await this.Post<unknown>(this.Config.Paths.Logout)
+        if (reply === undefined)
+        {
+            return undefined
+        }
+        const redirect = typeof reply === 'object' && reply !== null ? (reply as Record<string, unknown>)[AppSessionClient.RedirectField] : undefined
+        if (typeof redirect === 'string' && AppSessionClient.IsDestination(redirect))
+        {
+            return redirect
+        }
+        const signedOut = this.Config.Paths.SignedOut
+        return signedOut === undefined ? undefined : this.Url(signedOut)
     }
 
     /** A single-use ticket (30 s) for one WebSocket upgrade; it travels as the socket's only subprotocol. */
@@ -102,6 +120,23 @@ export class AppSessionClient extends ApiClientBase
     {
         const scheme = location.protocol === AppSessionClient.HttpsProtocol ? AppSessionClient.SecureSocketScheme : AppSessionClient.SocketScheme
         return scheme + location.host + this.Url(route)
+    }
+
+    /** An absolute http(s) URL, or an absolute path on the own origin. */
+    private static IsDestination(text: string): boolean
+    {
+        if (text.length > 0 && AppShellConfig.IsOwnOriginPath(text))
+        {
+            return true
+        }
+        try
+        {
+            return AppSessionClient.WebProtocols.has(new URL(text).protocol)
+        }
+        catch
+        {
+            return false
+        }
     }
 
     /** Whether the application offers an own-password change. */

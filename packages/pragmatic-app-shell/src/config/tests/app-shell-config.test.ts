@@ -20,6 +20,7 @@ describe('AppShellConfig', () =>
             OidcBegin: '/auth/oidc/begin',
             WsTicket: '/api/ws-ticket',
             ChangePassword: undefined,
+            SignedOut: undefined,
         })
         assert.equal(config.MinPasswordLength, 12)
         assert.equal(config.EmailClaim, 'email')
@@ -59,6 +60,27 @@ describe('AppShellConfig', () =>
     {
         assert.throws(() => new AppShellConfig({ ProductName: 'A', Paths: { Session: 'https://idp.example/session' } }), /path/)
         assert.throws(() => new AppShellConfig({ ProductName: 'A', Paths: { Logout: '//idp.example/logout' } }), /path/)
+    })
+
+    it('takes a signed-out page path (where the IdP returns a signed-out browser), refusing one off the origin', () =>
+    {
+        assert.equal(new AppShellConfig({ ProductName: 'A', Paths: { SignedOut: '/signed-out' } }).Paths.SignedOut, '/signed-out')
+        assert.throws(() => new AppShellConfig({ ProductName: 'A', Paths: { SignedOut: 'https://idp.example/x' } }), /path/)
+    })
+
+    it('matches the signed-out page under the base path, ignoring a trailing slash and a query', () =>
+    {
+        const config = new AppShellConfig({ ProductName: 'A', ApiBasePath: '/c', Paths: { SignedOut: '/signed-out' } })
+        for (const path of ['/c/signed-out', '/c/signed-out/', '/c/signed-out?x=1', '/c/signed-out/#top'])
+        {
+            assert.equal(config.IsSignedOutPage(path), true, path)
+        }
+        for (const path of ['/signed-out', '/c/signed-outx', '/c', '/'])
+        {
+            assert.equal(config.IsSignedOutPage(path), false, path)
+        }
+        assert.equal(new AppShellConfig({ ProductName: 'A', Paths: { SignedOut: '/signed-out/' } }).IsSignedOutPage('/signed-out'), true)
+        assert.equal(new AppShellConfig({ ProductName: 'A' }).IsSignedOutPage('/'), false)
     })
 
     it('refuses a minimum password length below one', () =>

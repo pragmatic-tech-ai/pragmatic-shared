@@ -10,8 +10,9 @@ import { RouteAuth } from '../routing/route.js'
 import type { RequestContext } from '../routing/request-context.js'
 import { HttpMethod } from '../http/http-method.js'
 import { CacheControl } from '../http/cache-control.js'
-import { SessionEndpoint } from '../endpoints/session-endpoint.js'
-import type { SessionEndpointPaths } from '../endpoints/session-endpoint.js'
+import { SessionEndpoint, type SessionEndpointPaths } from '../endpoints/session-endpoint.js'
+import { OidcSignOut } from './oidc-sign-out.js'
+import type { OidcSignOutDiagnostics } from './oidc-sign-out.js'
 
 export interface OidcLoginEndpointOptions
 {
@@ -32,6 +33,14 @@ export interface OidcLoginEndpointOptions
     Policy?: SessionPolicy
     /** The session and logout paths, or false when another endpoint registers them. */
     SessionPaths?: SessionEndpointPaths | false
+    /** The application's signed-out page, an absolute http(s) URL registered at the IdP as the client's post-logout
+     *  redirect URI (e.g. `https://console.example/signed-out`, pragmatic-app-shell's `Paths.SignedOut`): logout sends
+     *  it to the IdP's end-session endpoint as `post_logout_redirect_uri`, and lands there when the IdP names none.
+     *  Default none: no `post_logout_redirect_uri` is sent (logged once), and the fallback is `/`, the origin root,
+     *  whatever prefix the application is mounted under: set it for a mounted application. */
+    PostLogoutRedirectUri?: string
+    /** The logout's failure reports and clock (OidcSignOut, SessionEndpoint). */
+    SignOut?: OidcSignOutDiagnostics
 }
 
 /**
@@ -40,7 +49,11 @@ export interface OidcLoginEndpointOptions
  * and a `return` path, admitted by the ReturnPaths policy and carried in the flow state, never in the authorize URL),
  * callback (exchanges the code, issues the session
  * cookie, 302 to the begin's admitted return path, else AfterSignInPath), and the session and logout routes. The client comes from the application's
- * IOidcClientProvider, per request. The token travels only in the Set-Cookie of a successful callback; a failed sign-in
+ * IOidcClientProvider, per request. Logout signs out at the IdP too (OpenID Connect RP-Initiated Logout, OidcSignOut):
+ * it ends the session and answers 200 `{ redirect }`, the issuer's end-session endpoint with the session's ID token as
+ * `id_token_hint` (retained tokens only), `client_id` and PostLogoutRedirectUri; without an end-session endpoint, the
+ * signed-out page. That ID token leaves the server, as RP-Initiated Logout provides: it travels in the redirect URL,
+ * so the browser's history and the IdP's request logs see it. The session token travels only in the Set-Cookie of a successful callback; a failed sign-in
  * is a generic 401 with no cookie; neither the token nor the code is ever logged or echoed. Every answer is no-store.
  * The session cookie defaults to SameSite=Lax under it (SessionCookie.AdmitCrossSiteSignIn). With a
  * SessionTokenRetention on the gate the sign-in's upstream tokens are retained beside the session (opt-in).
@@ -72,6 +85,7 @@ export class OidcLoginEndpoint
     private readonly afterSignIn: string
     private readonly returnPaths: ReturnPathPolicy
     private readonly signInFailed: string | undefined
+    private readonly signOut: OidcSignOut
 
     public constructor(private readonly rp: OidcRelyingParty, private readonly clients: IOidcClientProvider, private readonly gate: SessionGate, private readonly options: OidcLoginEndpointOptions = {})
     {
@@ -82,6 +96,7 @@ export class OidcLoginEndpoint
         {
             throw new Error(OidcLoginEndpoint.BadFailedPathMessage + JSON.stringify(this.signInFailed))
         }
+        this.signOut = new OidcSignOut(rp, clients, { ...options.SignOut, PostLogoutRedirectUri: options.PostLogoutRedirectUri })
         // The callback arrives as a cross-site redirect from the login page: a Strict cookie would not be sent on the
         // navigation that follows it, so the session cookie defaults to Lax (a configured mode stays).
         gate.Cookie.AdmitCrossSiteSignIn()
@@ -93,7 +108,7 @@ export class OidcLoginEndpoint
         table.Add({ Method: HttpMethod.Get, Pattern: this.options.CallbackPath ?? OidcLoginEndpoint.DefaultCallbackPath, Auth: RouteAuth.Public, Handler: ctx => this.Callback(ctx) })
         if (this.options.SessionPaths !== false)
         {
-            new SessionEndpoint(this.gate).Register(table, this.options.SessionPaths ?? {})
+            new SessionEndpoint(this.gate, { SignOut: this.signOut, Log: this.options.SignOut?.Log }).Register(table, this.options.SessionPaths ?? {})
         }
     }
 

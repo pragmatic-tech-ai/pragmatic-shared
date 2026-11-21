@@ -17,6 +17,9 @@ export enum BootOutcome
     /** No session, back from a sign-in that did not complete (`?sign_in=failed`): the sign-in page says so, and an
      *  OIDC-only application does not send the browser straight back to the identity provider. */
     SignInFailed = 'sign-in-failed',
+    /** At the signed-out page (AppShellPaths.SignedOut, where the IdP returns a browser after logout): the sign-in page
+     *  is mounted without probing the session, and an OIDC-only application does not send the browser to the IdP. */
+    SignedOut = 'signed-out',
 }
 
 /**
@@ -41,8 +44,10 @@ export interface IShellApplications<TApp>
 /**
  * Boots an application in a plain browser tab. Probes the session cookie, then loads exactly one application: the
  * shell when there is a session, else either the identity provider (an OIDC-only application) or the sign-in page.
- * A probe that fails for another reason shows the sign-in page saying the application cannot be reached. Signing in,
- * signing out and expiry all reload the page, so each boot starts from a clean slate.
+ * A probe that fails for another reason shows the sign-in page saying the application cannot be reached. At the
+ * signed-out page (Paths.SignedOut) it shows the sign-in page straight away: sending the browser back to the IdP there
+ * would sign the person in again. Signing in, signing out and expiry all reload (or leave) the page, so each boot starts
+ * from a clean slate.
  */
 export class AppShellBoot<TApp>
 {
@@ -51,13 +56,23 @@ export class AppShellBoot<TApp>
     private static readonly FailedPrefix = 'Signing in to '
     private static readonly FailedSuffix = " didn't complete."
 
-    /** `search` is the page's query (`window.location.search`): the host's failure marker lands there. */
-    public constructor(private readonly client: AppSessionClient, private readonly apps: IShellApplications<TApp>, private readonly navigator: IPageNavigator, private readonly search: string = '')
+    /** `search` is the page's query (`window.location.search`): the host's failure marker lands there. `path` is the
+     *  page's path (`window.location.pathname`), compared with Paths.SignedOut. */
+    public constructor(private readonly client: AppSessionClient, private readonly apps: IShellApplications<TApp>, private readonly navigator: IPageNavigator, private readonly search: string = '', private readonly path: string = '')
     {
     }
 
     public async Run(): Promise<BootOutcome>
     {
+        if (this.client.Config.IsSignedOutPage(this.path))
+        {
+            if (AppShellConfig.IsSignInFailure(this.search))
+            {
+                return await this.ShowSignInFailed()
+            }
+            this.apps.Mount(await this.apps.LoadSignIn())
+            return BootOutcome.SignedOut
+        }
         let session: AppSession | null
         try
         {
@@ -74,18 +89,7 @@ export class AppShellBoot<TApp>
         {
             if (AppShellConfig.IsSignInFailure(this.search))
             {
-                const app = await this.apps.LoadSignIn()
-                const text = AppShellBoot.FailedPrefix + this.client.Config.ProductName + AppShellBoot.FailedSuffix
-                if (this.apps.ShowSignInFailed !== undefined)
-                {
-                    this.apps.ShowSignInFailed(app, text)
-                }
-                else
-                {
-                    this.apps.ShowSignInError(app, text)
-                }
-                this.apps.Mount(app)
-                return BootOutcome.SignInFailed
+                return await this.ShowSignInFailed()
             }
             if (this.client.Config.RedirectsWhenSignedOut)
             {
@@ -100,6 +104,22 @@ export class AppShellBoot<TApp>
         this.apps.Mount(shell)
         await started
         return BootOutcome.Shell
+    }
+
+    private async ShowSignInFailed(): Promise<BootOutcome>
+    {
+        const app = await this.apps.LoadSignIn()
+        const text = AppShellBoot.FailedPrefix + this.client.Config.ProductName + AppShellBoot.FailedSuffix
+        if (this.apps.ShowSignInFailed !== undefined)
+        {
+            this.apps.ShowSignInFailed(app, text)
+        }
+        else
+        {
+            this.apps.ShowSignInError(app, text)
+        }
+        this.apps.Mount(app)
+        return BootOutcome.SignInFailed
     }
 
     private UnreachableText(failure: unknown): string

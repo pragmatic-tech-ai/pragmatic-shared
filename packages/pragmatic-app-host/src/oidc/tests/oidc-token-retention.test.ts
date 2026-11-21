@@ -152,7 +152,7 @@ describe('OIDC sign-in with upstream token retention', () =>
         {
             const signIn = await f.SignIn(async nonce => ({ id_token: await f.IdToken(nonce) }))
             assert.equal(await f.Repository.DeleteExpired(new Date(0)), 0)
-            assert.equal((await f.Host.Send('/api/logout', { Method: 'POST', Cookie: signIn.Cookie })).Status, 204)
+            assert.equal((await f.Host.Send('/api/logout', { Method: 'POST', Cookie: signIn.Cookie })).Status, 200)
             assert.equal(await f.Repository.DeleteExpired(new Date(8_000_000_000_000)), 0)
         })
     })

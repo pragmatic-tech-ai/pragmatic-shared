@@ -76,13 +76,32 @@ describe('AppSessionClient', () =>
         assert.throws(() => Kit.Client(new FetchStub(), { SignInMethods: [SignInMethod.Password] }).BeginOidcSignIn(new FakePage()), /OIDC sign-in/)
     })
 
-    it('logs out with a POST (the public, Origin-guarded logout route)', async () =>
+    it('logs out with a POST (the public, Origin-guarded logout route); a 204 answers no destination', async () =>
     {
         const fetch = new FetchStub().Empty(204)
-        await Kit.Client(fetch).Logout()
+        assert.equal(await Kit.Client(fetch).Logout(), undefined)
         assert.equal(fetch.Last.Url, '/api/logout')
         assert.equal(fetch.Last.Init.method, 'POST')
         assert.deepEqual(fetch.BodyOf(0), {})
+    })
+
+    it('logout answers where the host sends the browser next (the IdP end-session, or a signed-out page)', async () =>
+    {
+        const endSession = 'https://idp.example/logout?id_token_hint=t&client_id=console'
+        assert.equal(await Kit.Client(new FetchStub().Json(200, { redirect: endSession })).Logout(), endSession)
+        assert.equal(await Kit.Client(new FetchStub().Json(200, { redirect: 'http://localhost:8080/signed-out' })).Logout(), 'http://localhost:8080/signed-out')
+        assert.equal(await Kit.Client(new FetchStub().Json(200, { redirect: '/' })).Logout(), '/')
+    })
+
+    it('a logout answer it cannot trust (not http(s), not an own-origin path) leads to the signed-out page, or none', async () =>
+    {
+        for (const redirect of ['javascript:alert(1)', '//evil.example/x', '', 42, null])
+        {
+            const fetch = new FetchStub().Json(200, { redirect })
+            assert.equal(await Kit.Client(fetch, { ApiBasePath: '/c', Paths: { SignedOut: '/signed-out' } }).Logout(), '/c/signed-out', String(redirect))
+            assert.equal(await Kit.Client(new FetchStub().Json(200, { redirect })).Logout(), undefined, String(redirect))
+        }
+        assert.equal(await Kit.Client(new FetchStub().Json(200, {})).Logout(), undefined)
     })
 
     it('mints a WebSocket ticket with a POST and builds the socket URL on the page origin', async () =>

@@ -62,6 +62,23 @@ else is a generic 500).
   where they started: relative, same-origin, under one of the endpoint's `ReturnPaths` prefixes (`ReturnPathPolicy`),
   carried in the flow state and checked again at the callback; anything else lands on `AfterSignInPath`. A client
   config's `RequiredClaims` (e.g. `iat`, `email`) refuses an ID token without them.
+- Logout under OIDC sign-in is RP-initiated logout (`OidcSignOut`, OpenID Connect RP-Initiated Logout 1.0): POST
+  `/api/logout` ends the session (and its retained tokens), clears the cookie and answers 200 `{ redirect }`, the
+  issuer's `end_session_endpoint` with `id_token_hint`, `client_id` and `post_logout_redirect_uri` = the endpoint's
+  `PostLogoutRedirectUri` (an absolute http(s) URL registered at the IdP, e.g. the shell's `Paths.SignedOut` page).
+  The hint is the session's stored ID token (`SessionGate.StoredIdToken`: read before the session ends, never
+  refreshed, possibly expired, which the IdP accepts from its own client; only with upstream token retention, without
+  it the IdP asks the person to confirm). The ID token so leaves the server in the redirect URL, as RP-Initiated
+  Logout provides: the browser's history and the IdP's request logs see it. Without an end-session endpoint (not
+  advertised, not https, discovery failed, the client provider refused) the redirect is `PostLogoutRedirectUri`, else
+  `/`; the local session is gone either way. Unset, no `post_logout_redirect_uri` is sent (logged once, at the first
+  sign-out) and the `/` fallback is the origin root, whatever prefix the application is mounted under: set it for a
+  mounted application. The endpoint is read through the relying party's discovery cache (shared with sign-in, its
+  TTL); a failed or empty read is not retried for `OidcSignOut.FailureBackoffMs` (60 s). Failures (discovery, a
+  revocation, a token deletion, the destination itself) are reported through `SignOut.Log` (default console.error;
+  never a token); a destination that fails answers the signed-out page. Ending only the local session would not sign
+  anyone out: the next page load would go to the IdP, whose live SSO session signs them straight back in.
+  Password-only applications (`SessionEndpoint` without a sign-out destination) keep the 204.
 - Upstream token retention (opt-in): a `SessionTokenRetention` on the `SessionGate` keeps each sign-in's ID token (and
   access token if issued) server-side beside the session, sealed by `SessionTokenVault` (AES-256-GCM, key from the
   application's secret and the session bearer) in an `ISessionTokenRepository` (`SqlSessionTokenRepository`); route
@@ -69,7 +86,8 @@ else is a generic 500).
   without one the session ends with the ID token (less a 30 s margin; `EndWithIdToken: false` keeps the endpoint's
   policy). Logout forgets them.
 - `PasswordLoginEndpoint` over an application's `IPasswordAuthenticator` (optional break-glass sign-in).
-- `SessionEndpoint`, `WsTicketEndpoint`.
+- `SessionEndpoint` (an optional `SignOut` destination, `ISignOutDestination`, makes its logout answer `{ redirect }`;
+  `Log` reports failed revocations), `WsTicketEndpoint`.
 - `AuditTrail` over `IAuditRepository`.
 
 Every repository has an in-memory implementation (tests) and a Postgres one (`Sql*Repository.Open(session)`, its

@@ -4,7 +4,8 @@ import { ServiceProvider } from '@pragmatic-tech-ai/mural/runtime'
 import { AppSessionService } from '../app-session-service.js'
 import { ApiClientBase } from '../../api/api-client-base.js'
 import { SessionKit } from './session-kit.js'
-import { Deferred, RoutedFetch, Tick } from '../../tests/support.js'
+import { Deferred, FakePage, RoutedFetch, Tick } from '../../tests/support.js'
+import type { IPageReloader } from '../../browser/browser-page.js'
 
 // An application client: its own route, the same session signals.
 class ThingsRoute
@@ -84,6 +85,60 @@ describe('AppSessionService', () =>
         held.Resolve()
         await first
         assert.equal(kit.Fetch.Count('POST', '/api/logout'), 1)
+        assert.equal(kit.Page.Reloads, 1)
+    })
+
+    it('Logout answered with a destination (the IdP end-session) sends the browser there instead of reloading, once', async () =>
+    {
+        const kit = new SessionKit()
+        const endSession = 'https://idp.example/logout?client_id=console'
+        kit.Fetch.On('POST', '/api/logout', () => RoutedFetch.Json(200, { redirect: endSession }))
+        await Promise.all([kit.Service.Logout(), kit.Service.Logout()])
+        await kit.Service.Logout()
+        kit.Service.Expire()
+        assert.deepEqual(kit.Page.Assigned, [endSession])
+        assert.equal(kit.Page.Reloads, 0)
+        assert.equal(kit.Fetch.Count('POST', '/api/logout'), 1)
+    })
+
+    it('Logout navigates through the navigator Initialize was given when the reloader cannot navigate', async () =>
+    {
+        const kit = new SessionKit()
+        const navigator = new FakePage()
+        let reloads = 0
+        const reloader: IPageReloader = { Reload: () => { reloads++ } }
+        kit.Service.Initialize(kit.Client, kit.Service.Session!, reloader, navigator)
+        kit.Fetch.On('POST', '/api/logout', () => RoutedFetch.Json(200, { redirect: '/' }))
+        await kit.Service.Logout()
+        assert.deepEqual(navigator.Assigned, ['/'])
+        assert.equal(reloads, 0)
+        const plain = new SessionKit()
+        plain.Service.Initialize(plain.Client, plain.Service.Session!, reloader)
+        plain.Fetch.On('POST', '/api/logout', () => RoutedFetch.Json(200, { redirect: '/' }))
+        await plain.Service.Logout()
+        assert.equal(reloads, 1)
+    })
+
+    it('a 401 elsewhere while the logout is in flight reloads once; the logout then does not navigate over it', async () =>
+    {
+        const kit = new SessionKit()
+        const held = new Deferred<void>()
+        kit.Fetch.On('POST', '/api/logout', async () => { await held.Promise; return RoutedFetch.Json(200, { redirect: 'https://idp.example/logout' }) })
+        kit.Fetch.On('GET', '/api/things', () => RoutedFetch.Json(401, { error: 'Not signed in' }))
+        const logout = kit.Service.Logout()
+        await assert.rejects(ThingsRoute.Read(kit.Client))
+        held.Resolve()
+        await logout
+        assert.equal(kit.Page.Reloads, 1)
+        assert.deepEqual(kit.Page.Assigned, [])
+    })
+
+    it('a logout answered 401 (the session was already gone) is a plain reload', async () =>
+    {
+        const kit = new SessionKit()
+        kit.Fetch.On('POST', '/api/logout', () => RoutedFetch.Json(401, { error: 'Not signed in' }))
+        await kit.Service.Logout()
+        assert.deepEqual(kit.Page.Assigned, [])
         assert.equal(kit.Page.Reloads, 1)
     })
 

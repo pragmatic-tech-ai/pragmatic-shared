@@ -42,4 +42,16 @@ export class SessionGate
         }
         return await this.Tokens.Current(req, token)
     }
+
+    /** The ID token stored with the request's live session, as it was sealed: not refreshed, and possibly expired (an
+     *  `id_token_hint` may be); undefined when the application retains none or there is no live session. */
+    public async StoredIdToken(req: IncomingMessage): Promise<string | undefined>
+    {
+        const token = this.Token(req)
+        if (this.Tokens === undefined || token === null || await this.Sessions.Validate(token) === null)
+        {
+            return undefined
+        }
+        return (await this.Tokens.Peek(token))?.IdToken
+    }
 }

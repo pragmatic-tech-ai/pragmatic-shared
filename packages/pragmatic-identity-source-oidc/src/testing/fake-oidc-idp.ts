@@ -1,5 +1,4 @@
-import { SignJWT, exportJWK, generateKeyPair } from "jose";
-import type { JWK, CryptoKey } from "jose";
+import { SignJWT, exportJWK, generateKeyPair, type JWK, type CryptoKey } from "jose";
 import type { IHttpClient } from "../http/http-client.js";
 
 export interface MintOptions
@@ -39,6 +38,8 @@ export class FakeOidcIdp
     public readonly DiscoveryUrl: string;
     /** Advertised as `prompt_values_supported` when set (entries of any type, to model a sloppy document). */
     public PromptValues: readonly unknown[] | null = null;
+    /** Advertised as `end_session_endpoint` (RP-Initiated Logout) when set; default not advertised. */
+    public EndSessionEndpoint: string | null = null;
 
     private constructor(
         private readonly privateKey: CryptoKey,
@@ -71,6 +72,7 @@ export class FakeOidcIdp
             token_endpoint: this.TokenEndpoint,
             jwks_uri: this.JwksUri,
             ...(this.PromptValues === null ? {} : { prompt_values_supported: this.PromptValues }),
+            ...(this.EndSessionEndpoint === null ? {} : { end_session_endpoint: this.EndSessionEndpoint }),
         };
     }
 

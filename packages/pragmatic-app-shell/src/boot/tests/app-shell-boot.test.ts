@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { AppShellBoot, BootOutcome, type IShellApplications } from '../app-shell-boot.js'
 import { AppSessionClient } from '../../api/app-session-client.js'
 import type { AppSession } from '../../api/app-session.js'
-import { AppShellConfig } from '../../config/app-shell-config.js'
+import { AppShellConfig, type AppShellOptions } from '../../config/app-shell-config.js'
 import { SignInMethod } from '../../config/sign-in-method.js'
 import { FakePage, FetchStub } from '../../tests/support.js'
 
@@ -59,10 +59,10 @@ class Kit
     public readonly Apps = new FakeApplications()
     public readonly Page = new FakePage()
 
-    public Boot(fetch: FetchStub, methods: SignInMethod[] = [SignInMethod.Oidc], search = ''): AppShellBoot<FakeApp>
+    public Boot(fetch: FetchStub, methods: SignInMethod[] = [SignInMethod.Oidc], search = '', path = '', options: Partial<AppShellOptions> = {}): AppShellBoot<FakeApp>
     {
-        const client = new AppSessionClient(new AppShellConfig({ ProductName: 'Tenant Admin', SignInMethods: methods }), fetch.Fetch)
-        return new AppShellBoot(client, this.Apps, this.Page, search)
+        const client = new AppSessionClient(new AppShellConfig({ ProductName: 'Tenant Admin', SignInMethods: methods, ...options }), fetch.Fetch)
+        return new AppShellBoot(client, this.Apps, this.Page, search, path)
     }
 }
 
@@ -101,6 +101,38 @@ describe('AppShellBoot', () =>
         assert.equal(await signedIn.Boot(new FetchStub().Json(200, { subject: 's', claims: {} }), [SignInMethod.Oidc], '?sign_in=failed').Run(), BootOutcome.Shell)
         const other = new Kit()
         assert.equal(await other.Boot(new FetchStub().Json(401, {}), [SignInMethod.Oidc], '?sign_in=ok').Run(), BootOutcome.Redirected)
+    })
+
+    it('at the signed-out page (Paths.SignedOut) an OIDC-only application shows the sign-in page, without probing or leaving for the IdP', async () =>
+    {
+        const kit = new Kit()
+        const fetch = new FetchStub().Json(401, {})
+        const outcome = await kit.Boot(fetch, [SignInMethod.Oidc], '', '/signed-out', { Paths: { SignedOut: '/signed-out' } }).Run()
+        assert.equal(outcome, BootOutcome.SignedOut)
+        assert.deepEqual(kit.Apps.Steps, ['load sign-in', 'mount sign-in'])
+        assert.deepEqual(kit.Page.Assigned, [])
+        assert.equal(fetch.Calls.length, 0)
+    })
+
+    it('at the signed-out page back from a failed sign-in (?sign_in=failed) it says the sign-in failed, still without probing or redirecting', async () =>
+    {
+        const kit = new Kit()
+        const fetch = new FetchStub().Json(401, {})
+        const outcome = await kit.Boot(fetch, [SignInMethod.Oidc], '?sign_in=failed', '/signed-out', { Paths: { SignedOut: '/signed-out' } }).Run()
+        assert.equal(outcome, BootOutcome.SignInFailed)
+        assert.deepEqual(kit.Apps.Steps, ['load sign-in', "failed on sign-in: Signing in to Tenant Admin didn't complete.", 'mount sign-in'])
+        assert.deepEqual(kit.Page.Assigned, [])
+        assert.equal(fetch.Calls.length, 0)
+    })
+
+    it('the signed-out page sits under the base path; elsewhere, or without Paths.SignedOut, the boot redirects as before', async () =>
+    {
+        const based = new Kit()
+        assert.equal(await based.Boot(new FetchStub().Json(401, {}), [SignInMethod.Oidc], '', '/c/signed-out', { ApiBasePath: '/c', Paths: { SignedOut: '/signed-out' } }).Run(), BootOutcome.SignedOut)
+        const elsewhere = new Kit()
+        assert.equal(await elsewhere.Boot(new FetchStub().Json(401, {}), [SignInMethod.Oidc], '', '/', { Paths: { SignedOut: '/signed-out' } }).Run(), BootOutcome.Redirected)
+        const unconfigured = new Kit()
+        assert.equal(await unconfigured.Boot(new FetchStub().Json(401, {}), [SignInMethod.Oidc], '', '/signed-out').Run(), BootOutcome.Redirected)
     })
 
     it('without a session shows the sign-in page when the application offers a password', async () =>

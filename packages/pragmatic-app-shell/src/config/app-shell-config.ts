@@ -15,6 +15,11 @@ export interface AppShellPaths
     readonly WsTicket: string
     /** The application's own-password change (the host leaves it to each application); undefined: none offered. */
     readonly ChangePassword: string | undefined
+    /** The signed-out page under the base path: where the IdP returns a browser after logout, so its path must match
+     *  the host's `PostLogoutRedirectUri` (a trailing slash, a query and a fragment are ignored when matching). The boot
+     *  shows the sign-in page there instead of sending the browser straight back to the IdP, and an untrusted logout
+     *  answer leads there. Absent: none. */
+    readonly SignedOut?: string
 }
 
 /** What an application tells the shell about itself. Only the product name is required. */
@@ -56,6 +61,7 @@ export class AppShellConfig
         OidcBegin: '/auth/oidc/begin',
         WsTicket: '/api/ws-ticket',
         ChangePassword: undefined,
+        SignedOut: undefined,
     }
     public static readonly DefaultMinPasswordLength = 12
     public static readonly DefaultEmailClaim = 'email'
@@ -71,6 +77,8 @@ export class AppShellConfig
     private static readonly ProtocolRelativePrefix = '//'
     private static readonly Backslash = '\\'
     private static readonly SchemeSeparator = ':'
+    private static readonly QueryStart = '?'
+    private static readonly FragmentStart = '#'
     private static readonly NoProductName = 'AppShellConfig: a product name is required'
     private static readonly NoSignInMethod = 'AppShellConfig: at least one sign-in method is required'
     private static readonly BadBasePath = 'AppShellConfig: the base path must be empty or an own-origin path prefix like /console: '
@@ -149,6 +157,14 @@ export class AppShellConfig
         return oidcOnly && this.redirect !== false
     }
 
+    /** Whether the page path `path` (`window.location.pathname`) is the signed-out page under the base path; a trailing
+     *  slash, a query and a fragment are ignored. */
+    public IsSignedOutPage(path: string): boolean
+    {
+        const signedOut = this.Paths.SignedOut
+        return signedOut !== undefined && AppShellConfig.PathOnly(path) === AppShellConfig.PathOnly(this.ApiBasePath + signedOut)
+    }
+
     /** Whether the application offers an own-password change (a ChangePassword path is configured). */
     public get ChangesPassword(): boolean
     {
@@ -162,6 +178,26 @@ export class AppShellConfig
             && !path.startsWith(AppShellConfig.ProtocolRelativePrefix)
             && !path.includes(AppShellConfig.Backslash)
             && !path.includes(AppShellConfig.SchemeSeparator)
+    }
+
+    // The path without its query, fragment and trailing slash (the root stays `/`).
+    private static PathOnly(path: string): string
+    {
+        let end = path.length
+        for (const marker of [AppShellConfig.QueryStart, AppShellConfig.FragmentStart])
+        {
+            const at = path.indexOf(marker)
+            if (at >= 0 && at < end)
+            {
+                end = at
+            }
+        }
+        let bare = path.slice(0, end)
+        while (bare.length > 1 && bare.endsWith(AppShellConfig.PathPrefix))
+        {
+            bare = bare.slice(0, -1)
+        }
+        return bare
     }
 
     private static IsBasePath(path: string): boolean

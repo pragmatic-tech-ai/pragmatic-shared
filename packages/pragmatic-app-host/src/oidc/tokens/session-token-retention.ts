@@ -101,6 +101,19 @@ export class SessionTokenRetention
         return this.IsDue(tokens.IdTokenExpiresAt) ? null : tokens
     }
 
+    /** The stored tokens of the session `bearer` names, as sealed: no expiry check and no refresh (nothing is written,
+     *  the IdP is not called), e.g. the ID token a logout sends as `id_token_hint`; null when there are none. */
+    public async Peek(bearer: string): Promise<OidcTokenSet | null>
+    {
+        const sessionId = SessionStore.DigestOf(bearer)
+        const row = await this.options.Repository.Find(sessionId)
+        if (row === undefined || row.SessionId !== sessionId)
+        {
+            return null
+        }
+        return this.options.Vault.Open(bearer, row.Sealed) ?? null
+    }
+
     /** Drops the session's tokens (its session ended). */
     public async Forget(bearer: string): Promise<void>
     {

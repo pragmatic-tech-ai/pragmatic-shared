@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { WebSocket } from 'ws'
 import { HostFixture } from '../../tests/support/host-fixture.js'
 import { SessionEndpoint } from '../session-endpoint.js'
+import type { ISignOutDestination } from '../session-endpoint.js'
 import { WsTicketEndpoint } from '../ws-ticket-endpoint.js'
 import { WsTicketStore } from '../../session/ws-ticket-store.js'
 import { InMemoryTicketRepository } from '../../session/ticket-repository.js'
@@ -65,6 +66,45 @@ describe('SessionEndpoint', () =>
         const cookie = await fixture.SignIn('alice', [])
         assert.equal((await fixture.Send('/api/logout', { Method: 'POST', Cookie: cookie, Origin: 'http://evil.example' })).Status, 403)
         assert.equal((await fixture.Send('/api/session', { Cookie: cookie })).Status, 200)
+    })
+})
+
+/** A sign-out destination that cannot answer. */
+class RejectingDestination implements ISignOutDestination
+{
+    public readonly SignedOut = 'https://console.example/signed-out'
+
+    public async For(): Promise<string>
+    {
+        throw new Error('destination unreachable')
+    }
+}
+
+describe('SessionEndpoint with a sign-out destination', () =>
+{
+    let fixture: HostFixture
+    const logged: string[] = []
+
+    beforeEach(async () =>
+    {
+        logged.length = 0
+        fixture = new HostFixture()
+        new SessionEndpoint(fixture.Gate, { SignOut: new RejectingDestination(), Log: (message, err) => { logged.push(message + ' ' + String(err)) } }).Register(fixture.Routes)
+        await fixture.Start()
+    })
+
+    afterEach(async () => await fixture.Stop())
+
+    it('a destination that rejects still ends the session, clears the cookie and answers its signed-out page, no-store', async () =>
+    {
+        const cookie = await fixture.SignIn('alice', [])
+        const answer = await fixture.Send('/api/logout', { Method: 'POST', Cookie: cookie })
+        assert.equal(answer.Status, 200)
+        assert.deepEqual(answer.Json(), { redirect: 'https://console.example/signed-out' })
+        assert.equal(answer.Header('cache-control'), 'no-store')
+        assert.match(answer.Header('set-cookie') ?? '', /^app_session=;.*Max-Age=0/)
+        assert.equal((await fixture.Send('/api/session', { Cookie: cookie })).Status, 401)
+        assert.ok(logged.some(line => line.includes('destination unreachable')))
     })
 })
 

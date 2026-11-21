@@ -4,14 +4,16 @@ import type { IDisposable } from '@pragmatic-tech-ai/todl-runtime'
 import { ApiError } from '../api/api-error.js'
 import type { AppSession } from '../api/app-session.js'
 import type { AppSessionClient } from '../api/app-session-client.js'
-import type { IPageReloader } from '../browser/browser-page.js'
+import type { IPageNavigator, IPageReloader } from '../browser/browser-page.js'
 import { ChangePasswordDialogViewModel } from '../dialogs/change-password-dialog-view-model.js'
 
 /**
  * The signed-in session for the shell: the application's client, who is signed in (subject, email, roles from the
  * session's claims) and the account actions in the header. Registered at the application root; the boot initializes
  * it before any section resolves it. Every 401 the client receives expires the session (one reload, which lands on
- * sign-in); every 403 says so in AccessNotice. Logout reloads too. Change password opens the own-password dialog when
+ * sign-in); every 403 says so in AccessNotice. Logout reloads too, unless the host answers where the browser goes
+ * next (an OIDC host: the IdP's end-session endpoint, so its SSO session ends too): the page is assigned there instead.
+ * Change password opens the own-password dialog when
  * the application offers one and the session carries an email; once it lands, AccountNotice says what it did.
  * Applications derive from it for their own header facts (role labels, the tenant plate).
  */
@@ -39,6 +41,7 @@ export class AppSessionService extends ServiceBase
     private client: AppSessionClient | undefined
     private session: AppSession | undefined
     private reloader: IPageReloader | undefined
+    private navigator: IPageNavigator | undefined
     private subscriptions: IDisposable[] = []
     private expired = false
     private logoutError = AppSessionService.NoText
@@ -59,8 +62,10 @@ export class AppSessionService extends ServiceBase
             () => !this.changingPassword && this.CanChangePassword, { Text: AppSessionService.ChangePasswordText })
     }
 
-    /** Binds the session and listens to the client's 401 / 403 (a previous client's are released). */
-    public Initialize(client: AppSessionClient, session: AppSession, reloader: IPageReloader): void
+    /** Binds the session and listens to the client's 401 / 403 (a previous client's are released). `navigator` takes
+     *  the browser where a logout says; default the reloader when it can navigate too (BrowserPage), else none (a
+     *  logout then reloads). */
+    public Initialize(client: AppSessionClient, session: AppSession, reloader: IPageReloader, navigator?: IPageNavigator): void
     {
         const before = [this.Email, this.Subject, this.IsSignedIn, this.ProductName, this.ShowsChangePassword] as const
         for (const subscription of this.subscriptions)
@@ -70,6 +75,7 @@ export class AppSessionService extends ServiceBase
         this.client = client
         this.session = session
         this.reloader = reloader
+        this.navigator = navigator ?? AppSessionService.NavigatorOf(reloader)
         this.expired = false
         this.subscriptions = [
             client.Unauthorized.subscribe(() => this.Expire()),
@@ -260,20 +266,22 @@ export class AppSessionService extends ServiceBase
     }
 
     /**
-     * Signs out, then reloads to sign-in. A 401 means the session is already gone, so it reloads too; any other
-     * failure leaves the person signed in, so it reports the error and stays. A second call in flight is a no-op.
+     * Signs out, then reloads to sign-in, or leaves for where the host said (the IdP's end-session endpoint). A 401
+     * means the session is already gone, so it reloads too; any other failure leaves the person signed in, so it reports
+     * the error and stays. A second call in flight, or once the page is leaving, is a no-op.
      */
     public async Logout(): Promise<void>
     {
-        if (this.loggingOut)
+        if (this.loggingOut || this.expired)
         {
             return
         }
         this.SetLoggingOut(true)
         this.SetLogoutError(AppSessionService.NoText)
+        let destination: string | undefined
         try
         {
-            await this.Client.Logout()
+            destination = await this.Client.Logout()
         }
         catch (e)
         {
@@ -288,6 +296,17 @@ export class AppSessionService extends ServiceBase
         finally
         {
             this.SetLoggingOut(false)
+        }
+        if (this.expired)
+        {
+            // A 401 elsewhere already reloads the page; navigating now would race it.
+            return
+        }
+        if (destination !== undefined && this.navigator !== undefined)
+        {
+            this.expired = true
+            this.navigator.Assign(destination)
+            return
         }
         this.Expire()
     }
@@ -304,6 +323,13 @@ export class AppSessionService extends ServiceBase
         {
             this.RaisePropertyChanged(name, old, next)
         }
+    }
+
+    // The reloader when it is a navigator too (the browser page is both).
+    private static NavigatorOf(reloader: IPageReloader): IPageNavigator | undefined
+    {
+        const candidate = reloader as IPageReloader & Partial<IPageNavigator>
+        return typeof candidate.Assign === 'function' ? candidate as IPageNavigator : undefined
     }
 
     private get CanChangePassword(): boolean

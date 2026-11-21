@@ -115,3 +115,28 @@ test("Endpoints reads prompt_values_supported (OIDC Initiating User Registration
     idp.PromptValues = ["none", "login", "create", 7];
     assert.deepEqual((await new OidcDiscovery(new FakeOidcHttpClient(idp)).Endpoints(idp.DiscoveryUrl)).PromptValues, ["none", "login", "create"]);
 });
+
+test("Endpoints reads the optional https end_session_endpoint (RP-Initiated Logout), undefined when absent", async () =>
+{
+    const idp = await FakeOidcIdp.Create();
+    assert.equal((await new OidcDiscovery(new FakeOidcHttpClient(idp)).Endpoints(idp.DiscoveryUrl)).EndSessionEndpoint, undefined);
+    idp.EndSessionEndpoint = idp.Issuer + "/logout";
+    assert.equal((await new OidcDiscovery(new FakeOidcHttpClient(idp)).Endpoints(idp.DiscoveryUrl)).EndSessionEndpoint, idp.Issuer + "/logout");
+});
+
+test("Endpoints ignores an end_session_endpoint that is not an https URL (sign-in still works without it)", async () =>
+{
+    for (const endSession of ["http://x/logout", "not a url", "", 7, null])
+    {
+        const doc = {
+            issuer: "https://x",
+            authorization_endpoint: "https://x/auth",
+            token_endpoint: "https://x/token",
+            jwks_uri: "https://x/jwks",
+            end_session_endpoint: endSession
+        };
+        const e = await new OidcDiscovery(new StubHttpClient(doc)).Endpoints("https://x/.well-known/openid-configuration");
+        assert.equal(e.EndSessionEndpoint, undefined, String(endSession));
+        assert.equal(e.TokenEndpoint, "https://x/token");
+    }
+});

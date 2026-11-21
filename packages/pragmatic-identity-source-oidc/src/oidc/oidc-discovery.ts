@@ -15,6 +15,7 @@ export class OidcDiscovery
     private static readonly TokenEndpointField = "token_endpoint";
     private static readonly JwksUriField = "jwks_uri";
     private static readonly PromptValuesField = "prompt_values_supported";
+    private static readonly EndSessionEndpointField = "end_session_endpoint";
     private static readonly HttpsProtocol = "https:";
     private static readonly InvalidDocumentError = "OIDC discovery document is invalid";
     private static readonly InsecureEndpointError = "OIDC discovery endpoint must use https";
@@ -46,7 +47,8 @@ export class OidcDiscovery
         OidcDiscovery.RequireHttps(token);
         OidcDiscovery.RequireHttps(jwks);
 
-        const value = new OidcEndpoints(issuer, authorization, token, jwks, OidcDiscovery.StringList(doc, OidcDiscovery.PromptValuesField));
+        const value = new OidcEndpoints(issuer, authorization, token, jwks, OidcDiscovery.StringList(doc, OidcDiscovery.PromptValuesField),
+            OidcDiscovery.OptionalHttps(doc, OidcDiscovery.EndSessionEndpointField));
         this.cache.set(discoveryUrl, { value, expiresAt: this.now().getTime() + OidcDiscovery.TtlMs });
         return value;
     }
@@ -68,18 +70,29 @@ export class OidcDiscovery
         return Array.isArray(v) ? v.filter((entry): entry is string => typeof entry === "string") : [];
     }
 
-    private static RequireHttps(url: string): void
+    /** An optional https URL; anything else (absent, not a string, not an https URL) reads as undefined, so an
+     *  optional endpoint the issuer gets wrong never takes sign-in down with it. */
+    private static OptionalHttps(doc: Record<string, unknown> | null, field: string): string | undefined
     {
-        let protocol: string;
+        const v = doc?.[field];
+        return typeof v === "string" && OidcDiscovery.IsHttps(v) ? v : undefined;
+    }
+
+    private static IsHttps(url: string): boolean
+    {
         try
         {
-            protocol = new URL(url).protocol;
+            return new URL(url).protocol === OidcDiscovery.HttpsProtocol;
         }
         catch
         {
-            throw new Error(OidcDiscovery.InsecureEndpointError);
+            return false;
         }
-        if (protocol !== OidcDiscovery.HttpsProtocol)
+    }
+
+    private static RequireHttps(url: string): void
+    {
+        if (!OidcDiscovery.IsHttps(url))
         {
             throw new Error(OidcDiscovery.InsecureEndpointError);
         }

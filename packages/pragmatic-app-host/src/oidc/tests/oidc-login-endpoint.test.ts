@@ -97,10 +97,12 @@ describe('OidcLoginEndpoint', () =>
         assert.equal((await fixture.Send('/auth/oidc/begin')).Status, 401)
     })
 
-    it('registers the session and logout routes too', async () =>
+    it('registers the session and logout routes too; logout answers where the browser goes next (/ without an end-session endpoint)', async () =>
     {
         assert.equal((await fixture.Send('/api/session')).Status, 401)
-        assert.equal((await fixture.Send('/api/logout', { Method: 'POST' })).Status, 204)
+        const logout = await fixture.Send('/api/logout', { Method: 'POST' })
+        assert.equal(logout.Status, 200)
+        assert.deepEqual(logout.Json(), { redirect: '/' })
     })
 })
 

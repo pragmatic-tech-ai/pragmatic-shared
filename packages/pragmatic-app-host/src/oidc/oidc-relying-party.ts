@@ -1,6 +1,5 @@
 import { AuthMethod, AuthenticatedResult, Credential, DelegationDepth, IdentityConfig, PresentedSecret, Realm, RealmKind, RealmRoleClaims } from '@pragmatic-tech-ai/pragmatic-identity'
-import { ClaimsMapper, GenericOidcProfile, JwksCache, OidcAuthenticator, OidcDiscovery, OidcHttpClients, OidcResolvedConfig, OidcSignInOutcome } from '@pragmatic-tech-ai/pragmatic-identity-source-oidc'
-import type { IHttpClient, IOidcFlowStateStore, OidcBeginOptions, OidcTokenSet } from '@pragmatic-tech-ai/pragmatic-identity-source-oidc'
+import { ClaimsMapper, GenericOidcProfile, JwksCache, OidcAuthenticator, OidcDiscovery, OidcHttpClients, OidcResolvedConfig, OidcSignInOutcome, type IHttpClient, type IOidcFlowStateStore, type OidcBeginOptions, type OidcTokenSet } from '@pragmatic-tech-ai/pragmatic-identity-source-oidc'
 import type { IOidcClientConfig } from './oidc-client-config.js'
 import { OidcLoginError } from './oidc-login-error.js'
 import { ClientSecretStore } from './client-secret-store.js'
@@ -131,15 +130,35 @@ export class OidcRelyingParty
         return await this.Authenticator(client).Refresh(refreshToken, subject)
     }
 
-    private Authenticator(client: IOidcClientConfig): OidcAuthenticator
+    /** The issuer's end-session endpoint (`end_session_endpoint`, https only; RP-Initiated Logout), from its discovery
+     *  document (cached with the sign-in's); undefined when not advertised. Rejects when discovery fails. */
+    public async EndSessionEndpoint(client: IOidcClientConfig): Promise<string | undefined>
     {
-        const http = client.Http ?? (client.CaBundleFile === undefined ? this.http : this.CaClient(client.CaBundleFile))
+        const caches = this.CachesOf(client)
+        return (await caches.Discovery.Endpoints(client.DiscoveryUrl)).EndSessionEndpoint
+    }
+
+    private CachesOf(client: IOidcClientConfig): OidcCaches
+    {
+        const http = this.HttpOf(client)
         let caches = this.caches.get(http)
         if (caches === undefined)
         {
             caches = new OidcCaches(http, this.now)
             this.caches.set(http, caches)
         }
+        return caches
+    }
+
+    private HttpOf(client: IOidcClientConfig): IHttpClient
+    {
+        return client.Http ?? (client.CaBundleFile === undefined ? this.http : this.CaClient(client.CaBundleFile))
+    }
+
+    private Authenticator(client: IOidcClientConfig): OidcAuthenticator
+    {
+        const http = this.HttpOf(client)
+        const caches = this.CachesOf(client)
         const scopes = client.Scopes ?? OidcRelyingParty.DefaultScopes
         const mapping = client.ClaimsMapping ?? OidcRelyingParty.DefaultClaimsMapping
         const profile = new GenericOidcProfile(client.Issuer, client.DiscoveryUrl, scopes, mapping, new RealmRoleGroupStrategy(client.RolesClaim ?? RealmRoleClaims.RolesClaim), OidcRelyingParty.ClientSecretParam)
