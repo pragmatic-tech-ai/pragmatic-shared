@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, it } from 'node:test'
-import { OciRegistryClient } from '../../oci-registry-client.js'
+import { OciRegistryClient, type OciFetch } from '../../oci-registry-client.js'
 import { FakeReleaseImage } from '../../tests/fake-release-image.js'
 import { Channel } from '../../channel.js'
 import { ReleaseDescriptorCodec } from '../release-descriptor.js'
@@ -57,12 +57,12 @@ class AssembleFixture
     public Input()
     {
         return {
-            manifest: ReleaseManifest.Parse(this.World.ManifestText()),
-            assets: this.World.Assets,
-            releaseCommit: AssembleFixture.ReleaseCommit,
-            signingKeyId: AssembleFixture.KeyId,
-            privateKeyPem: this.Key.Private,
-            trustedPublicKeyPem: this.Trusted,
+            Manifest: ReleaseManifest.Parse(this.World.ManifestText()),
+            Assets: this.World.Assets,
+            ReleaseCommit: AssembleFixture.ReleaseCommit,
+            SigningKeyId: AssembleFixture.KeyId,
+            PrivateKeyPem: this.Key.Private,
+            TrustedPublicKeyPem: this.Trusted,
         }
     }
 
@@ -234,10 +234,33 @@ describe('ReleasePublisher from a release manifest', () =>
         }
     })
 
+    it('checks the version is free again just before the descriptor push: a publish that finished meanwhile wins', async () =>
+    {
+        const f = new AssembleFixture()
+        const rival = new AssembleFixture()
+        const descriptorPath = '/v2/' + AssembleFixture.DescriptorRepo + '/manifests/' + ReleaseWorld.ReleaseVersion
+        let raced = false
+        const fetch: OciFetch = async (url, init) =>
+        {
+            if (!raced && init.method === AssembleFixture.MethodPut && url.includes('/manifests/release-'))
+            {
+                raced = true
+                const head = await rival.World.Client().HeadManifest(AssembleFixture.DescriptorRepo, ReleaseWorld.ReleaseVersion)
+                assert.equal(head, undefined)
+                f.World.Registry.PutManifest(AssembleFixture.DescriptorRepo, ReleaseWorld.ReleaseVersion, new TextEncoder().encode('{}'), 'application/vnd.oci.image.manifest.v1+json')
+            }
+            return f.World.Registry.Fetch(url, init)
+        }
+        const publisher = new ReleasePublisher(new OciRegistryClient(f.World.Registry.Origin, fetch), ReleaseWorld.Namespace)
+        await assert.rejects(publisher.PublishManifest(f.Input()), ReleaseVersionExistsError)
+        assert.ok(raced)
+        assert.ok(!f.World.Registry.Requests.some(r => r.method === AssembleFixture.MethodPut && r.url.endsWith(descriptorPath)), 'the descriptor is not pushed over it')
+    })
+
     it('refuses a release commit that is not 40 hex before any request', async () =>
     {
         const f = new AssembleFixture()
-        await assert.rejects(f.Publisher().PublishManifest({ ...f.Input(), releaseCommit: 'main' }), /40-hex/)
+        await assert.rejects(f.Publisher().PublishManifest({ ...f.Input(), ReleaseCommit: 'main' }), /40-hex/)
         assert.equal(f.World.Registry.Requests.length, 0)
     })
 })

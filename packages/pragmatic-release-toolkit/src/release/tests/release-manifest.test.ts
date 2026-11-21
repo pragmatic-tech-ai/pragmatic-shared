@@ -210,6 +210,21 @@ describe('ReleaseManifest.Check', () =>
             [{ App: ReleaseApp.EnvServer, Kind: ReleaseManifestProblemKind.VersionTagTaken }])
     })
 
+    it('reports an image its repository release tag does not describe: a moved v<version> tag, or a <version> tag on another image', async () =>
+    {
+        const moved = new ReleaseWorld()
+        const key = FakeComponentAssets.KeyOf(ReleaseWorld.Repository(ReleaseApp.HiveAgent), ReleaseWorld.ComponentVersion)
+        moved.Assets.Commits.set(key, 'f'.repeat(40))
+        assert.deepEqual(await ReleaseManifest.Check(ReleaseManifest.Parse(moved.ManifestText()), moved.Client(), moved.Assets, ReleaseWorld.Namespace),
+            [{ App: ReleaseApp.HiveAgent, Kind: ReleaseManifestProblemKind.CommitForeign }])
+
+        const repushed = new ReleaseWorld()
+        const doc = ReleaseManifest.Parse(repushed.ManifestText())
+        repushed.PutImage(ReleaseApp.UiUnpack, repushed.ComponentDigests.get(ReleaseApp.UiUnpack) as string, ReleaseWorld.ImagePrefix + 'rebuilt')
+        assert.deepEqual(await ReleaseManifest.Check(doc, repushed.Client(), repushed.Assets, ReleaseWorld.Namespace),
+            [{ App: ReleaseApp.UiUnpack, Kind: ReleaseManifestProblemKind.CommitForeign }])
+    })
+
     it('asks each repository for its release commit once, whichever apps share it', async () =>
     {
         const world = new ReleaseWorld()

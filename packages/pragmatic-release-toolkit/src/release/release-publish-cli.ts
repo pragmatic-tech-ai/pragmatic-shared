@@ -185,7 +185,14 @@ export class ReleasePublishCli
         const signingKeyId = S.Flag(flags, S.FlagKeyId)
         const trustedPublicKeyPem = S.TrustedKey(flags.get(S.FlagTrustDir) ?? S.DefaultTrustDir(), signingKeyId)
         const privateKeyPem = S.ReadFile(S.Env(env, S.EnvKeyFile), S.UnreadableKeyMessage)
-        const input = { manifest, assets: assets ?? S.NewAssets(env), releaseCommit, signingKeyId, privateKeyPem, trustedPublicKeyPem }
+        const input = {
+            Manifest: manifest,
+            Assets: assets ?? S.NewAssets(env),
+            ReleaseCommit: releaseCommit,
+            SigningKeyId: signingKeyId,
+            PrivateKeyPem: privateKeyPem,
+            TrustedPublicKeyPem: trustedPublicKeyPem,
+        }
         const result = await S.NewPublisher(env, fetchFn).PublishManifest(input)
         S.PrintPublished(result.descriptor, result.descriptorDigest, output)
     }

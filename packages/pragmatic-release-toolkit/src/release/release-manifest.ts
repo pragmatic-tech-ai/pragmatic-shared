@@ -88,6 +88,7 @@ export enum ReleaseManifestProblemKind
     AssetMismatch = 'the image component label is not the digest of the component.json asset',
     AssetForeign = 'the component.json asset is not this app at the manifest version',
     CommitMissing = 'the repository has no tag v<version>',
+    CommitForeign = 'the image tags <version> and git-<commit of v<version>> do not both name the manifest digest',
 }
 
 export type ReleaseManifestProblem = { readonly App: ReleaseApp; readonly Kind: ReleaseManifestProblemKind }
@@ -107,7 +108,8 @@ export type ReleaseManifestInspection = {
  * releases hold (`Check`): each image exists at its digest, carries a component label, and that label is the digest of
  * the `component.json` the repository's release `v<version>` attached (whose `component` and `version` are the app's);
  * the image tag `release-<version>` (ImageTagOf) is free on every image repository or already names the same digest
- * (a re-run after a partial publish); the repository tag `v<version>` exists.
+ * (a re-run after a partial publish); the repository tag `v<version>` exists and its commit is the one the image was
+ * released from (the image's `<version>` and `git-<commit>` tags both name the manifest digest).
  * Imports only node builtins and builtin-only relative modules.
  */
 export class ReleaseManifest
@@ -134,6 +136,8 @@ export class ReleaseManifest
     private static readonly FieldSeparator = ': '
     /** The image tag a platform release adds: prefixed, so it never meets a container release's `<version>` tag. */
     private static readonly ImageTagPrefix = 'release-'
+    /** The tag a container release gives its image beside `<version>` (container-release.yml). */
+    private static readonly CommitTagPrefix = 'git-'
     private static readonly BadComponentPrefix = 'ill-shaped component: '
     private static readonly BadRepositoryPrefix = 'repository is not <owner>/<name>: '
     private static readonly BadComponentVersionPrefix = 'version is not X.Y.Z[-pre-release]: '
@@ -231,13 +235,31 @@ export class ReleaseManifest
                     commits.set(name, commit)
                 }
             }
-            if (!commits.has(name))
+            const commit = commits.get(name)
+            if (commit === undefined)
             {
                 kinds.push(ReleaseManifestProblemKind.CommitMissing)
+            }
+            else if (!kinds.includes(ReleaseManifestProblemKind.ImageMissing)
+                && !await S.ImageIsOf(registry, ReleaseRegistry.RepositoryPath(namespace, app), component, commit))
+            {
+                kinds.push(ReleaseManifestProblemKind.CommitForeign)
             }
             problems.push(...kinds.map(kind => ({ App: app, Kind: kind })))
         }
         return { Problems: problems, ComponentDigests: componentDigests, Commits: commits }
+    }
+
+    /**
+     * The image is the one the repository's release `v<version>` pushed from `commit`: container-release.yml tags it
+     * `<version>` and `git-<commit>`, and both must still name the manifest digest (a moved tag, a re-pushed image or
+     * a digest from another build fails), so the signed `siblingCommits` describe the images they sit beside.
+     */
+    private static async ImageIsOf(registry: OciRegistryClient, repo: string, component: ReleaseManifestComponent, commit: string): Promise<boolean>
+    {
+        const S = ReleaseManifest
+        return await registry.HeadManifest(repo, component.version) === component.digest
+            && await registry.HeadManifest(repo, S.CommitTagPrefix + commit) === component.digest
     }
 
     /** `<app>: <sentence>`. */

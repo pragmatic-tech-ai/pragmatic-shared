@@ -44,6 +44,7 @@ export class ReleaseWorld
     public static readonly ManifestSchema = 1
     public static readonly ImagePrefix = 'image '
     private static readonly PathSeparator = '/'
+    public static readonly CommitTagPrefix = 'git-'
     private static readonly HexDigits = '0123456789abcdef'
     private static readonly CommitLength = 40
     /** The platform images are multi-arch indexes; the rest single image manifests (as the container releases push them). */
@@ -102,11 +103,16 @@ export class ReleaseWorld
         return commit
     }
 
-    /** Stores the app's image under its container release tag `0.1.0` labelled `label` (null: none); returns its digest. */
+    /**
+     * Stores the app's image as its container release pushes it, under `0.1.0` and `git-<commit>`, labelled `label`
+     * (null: none); returns its digest.
+     */
     public PutImage(app: ReleaseApp, label: string | null, content: string = ReleaseWorld.ImagePrefix + app): string
     {
         const layout = ReleaseWorld.IndexApps.includes(app) ? FakeImageLayout.Index : FakeImageLayout.Single
-        return this.Images.Put(ReleaseWorld.ImageRepo(app), ReleaseWorld.ComponentVersion, content, layout, label)
+        const repo = ReleaseWorld.ImageRepo(app)
+        this.Images.Put(repo, ReleaseWorld.CommitTagPrefix + ReleaseWorld.CommitOf(app), content, layout, label)
+        return this.Images.Put(repo, ReleaseWorld.ComponentVersion, content, layout, label)
     }
 
     public Client(): OciRegistryClient

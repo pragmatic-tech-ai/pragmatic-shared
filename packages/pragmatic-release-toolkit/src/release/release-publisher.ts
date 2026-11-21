@@ -27,12 +27,12 @@ export type ReleasePublishInput = {
  * repository's commit) is recorded as the descriptor's `serverCommit`; `siblingCommits` holds each container repository's.
  */
 export type ReleaseManifestPublishInput = {
-    manifest: ReleaseManifestDocument
-    assets: IComponentAssetSource
-    releaseCommit: string
-    signingKeyId: string
-    privateKeyPem: string
-    trustedPublicKeyPem: string
+    Manifest: ReleaseManifestDocument
+    Assets: IComponentAssetSource
+    ReleaseCommit: string
+    SigningKeyId: string
+    PrivateKeyPem: string
+    TrustedPublicKeyPem: string
 }
 
 /** The manifest cannot be assembled: ReleaseManifest.Check found problems; nothing was pushed. */
@@ -196,7 +196,7 @@ export class ReleasePublisher
         const bytes = ReleaseDescriptorCodec.Encode(descriptor)
         const descriptorDigest = OciRegistryClient.DigestOf(bytes)
         const signature = ReleaseSignature.Sign(descriptorDigest, input.privateKeyPem)
-        S.AssertVerifies(bytes, descriptorDigest, signature, input)
+        S.AssertVerifies(bytes, descriptorDigest, signature, input.signingKeyId, input.trustedPublicKeyPem)
         await this.registry.PushArtifact(this.repo(S.DescriptorRepository), version, S.ArtifactType, S.LayerMediaType, bytes, {
             [S.SignatureAnnotation]: signature,
             [S.KeyAnnotation]: input.signingKeyId,
@@ -213,13 +213,13 @@ export class ReleasePublisher
     public async PublishManifest(input: ReleaseManifestPublishInput): Promise<ReleasePublishResult>
     {
         const S = ReleasePublisher
-        if (!ReleaseDescriptorCodec.IsCommit(input.releaseCommit))
+        if (!ReleaseDescriptorCodec.IsCommit(input.ReleaseCommit))
         {
             throw new ReleaseCommitInvalidError()
         }
-        const tag = ReleaseTag.FromVersion(input.manifest.version)
+        const tag = ReleaseTag.FromVersion(input.Manifest.version)
         await this.CheckVersionFree(tag.Version)
-        const inspection = await this.Assemble(input.manifest, input.assets)
+        const inspection = await this.Assemble(input.Manifest, input.Assets)
         if (inspection.Problems.length > 0)
         {
             throw new ReleaseManifestProblemsError(inspection.Problems)
@@ -227,35 +227,37 @@ export class ReleasePublisher
         const images: Partial<Record<ReleaseApp, ReleaseImage>> = {}
         for (const app of ReleaseApps.All)
         {
-            const digest = input.manifest.components[app].digest
+            const digest = input.Manifest.components[app].digest
             const componentDigest = inspection.ComponentDigests.get(app)
             if (componentDigest === undefined)
             {
                 throw new ReleaseComponentMissingError(app, tag.Version)
             }
-            images[app] = { repository: this.repo(app), digest, signature: ReleaseSignature.Sign(digest, input.privateKeyPem), componentDigest }
+            images[app] = { repository: this.repo(app), digest, signature: ReleaseSignature.Sign(digest, input.PrivateKeyPem), componentDigest }
         }
         const descriptor: ReleaseDescriptor = {
             schema: ReleaseDescriptorCodec.CurrentSchema,
             version: tag.Version,
             channel: tag.Channel,
-            serverCommit: input.releaseCommit,
+            serverCommit: input.ReleaseCommit,
             siblingCommits: Object.fromEntries(inspection.Commits),
             builtAt: this.clock().toISOString(),
-            signingKeyId: input.signingKeyId,
+            signingKeyId: input.SigningKeyId,
             images: images as ReleaseDescriptor['images'],
         }
         const bytes = ReleaseDescriptorCodec.Encode(descriptor)
         const descriptorDigest = OciRegistryClient.DigestOf(bytes)
-        const signature = ReleaseSignature.Sign(descriptorDigest, input.privateKeyPem)
-        S.AssertVerifies(bytes, descriptorDigest, signature, input)
+        const signature = ReleaseSignature.Sign(descriptorDigest, input.PrivateKeyPem)
+        S.AssertVerifies(bytes, descriptorDigest, signature, input.SigningKeyId, input.TrustedPublicKeyPem)
         for (const app of ReleaseApps.All)
         {
-            await this.registry.TagManifest(this.repo(app), input.manifest.components[app].digest, ReleaseManifest.ImageTagOf(tag.Version))
+            await this.registry.TagManifest(this.repo(app), input.Manifest.components[app].digest, ReleaseManifest.ImageTagOf(tag.Version))
         }
+        // Again just before the push: another publish of the same version may have finished meanwhile.
+        await this.CheckVersionFree(tag.Version)
         await this.registry.PushArtifact(this.repo(S.DescriptorRepository), tag.Version, S.ArtifactType, S.LayerMediaType, bytes, {
             [S.SignatureAnnotation]: signature,
-            [S.KeyAnnotation]: input.signingKeyId,
+            [S.KeyAnnotation]: input.SigningKeyId,
         })
         return { descriptor, descriptorDigest }
     }
@@ -264,19 +266,19 @@ export class ReleasePublisher
      * What the platform's catalogue will check, run on the bytes about to be pushed: the descriptor decodes, and its signature
      * and every image signature verify against the trusted public key. Throws before any push when one does not.
      */
-    private static AssertVerifies(bytes: Uint8Array, descriptorDigest: string, signature: string, input: { signingKeyId: string; trustedPublicKeyPem: string }): void
+    private static AssertVerifies(bytes: Uint8Array, descriptorDigest: string, signature: string, signingKeyId: string, trustedPublicKeyPem: string): void
     {
         const decoded = ReleaseDescriptorCodec.Decode(bytes)
-        const key = input.trustedPublicKeyPem
+        const key = trustedPublicKeyPem
         if (!ReleaseSignature.Verifies(descriptorDigest, signature, key))
         {
-            throw new ReleaseSigningKeyMismatchError(input.signingKeyId)
+            throw new ReleaseSigningKeyMismatchError(signingKeyId)
         }
         for (const [, image] of ReleaseDescriptorCodec.ImagesOf(decoded))
         {
             if (!ReleaseSignature.Verifies(image.digest, image.signature, key))
             {
-                throw new ReleaseSigningKeyMismatchError(input.signingKeyId)
+                throw new ReleaseSigningKeyMismatchError(signingKeyId)
             }
         }
     }
