@@ -31,3 +31,10 @@ export type { UiBundleFile, UiArtifactConfig, UiArtifactPacked } from './ui-arti
 export { UiSignatureError, UiArtifactSigner, UiArtifactVerifier } from './ui-artifact-signer.js';
 export { EsbuildLocator, ClosureCheckConfig, ClosureReport, DockerfileTargets, SharedLockClosure, ClosureManifestError, ClosureCheck } from './closure/closure-check.js';
 export type { IEsbuildMetafile, IEsbuild, IClosureEntry, IAppClosure, IClosureCheckOptions, IStageCopy, ILockPackage } from './closure/closure-check.js';
+export { ContainerKind, HealthScheme, ContainerProfiles } from './template/container-profile.js';
+export type { IContainerHealthcheck, IContainerProfile } from './template/container-profile.js';
+export { ContainerTemplateError, ContainerTemplate } from './template/container-template.js';
+export type { ContainerTemplateOptions, ContainerAsset } from './template/container-template.js';
+export { ContainerWorkspaces } from './template/container-workspaces.js';
+export { ContainerTemplateCli } from './template/container-template-cli.js';
+export { ContainerComponentSource } from './template/container-component-source.js';

@@ -73,7 +73,10 @@ export interface IClosureCheckOptions
     RepoDir: string
     /** closure.json, relative to the repository; default `docker/images/closure.json`. */
     Manifest?: string
-    /** The images' Dockerfile, relative to the repository; default `docker/images/Dockerfile` (not compared when absent). */
+    /**
+     * The images' Dockerfile, relative to the repository; default `docker/images/Dockerfile`, not compared when absent.
+     * One named here must exist (ClosureManifestError otherwise).
+     */
     Dockerfile?: string
     /** The sibling dirs the image build copies besides the pragmatic-shared packages; default none. */
     Siblings?: readonly string[]
@@ -98,6 +101,8 @@ export class ClosureCheckConfig
     public readonly RepoDir: string
     public readonly Manifest: string
     public readonly Dockerfile: string
+    /** True when the options name the Dockerfile: then it must exist. */
+    public readonly DockerfileConfigured: boolean
     public readonly Siblings: readonly string[]
     public readonly CompiledRoots: ReadonlyArray<readonly [string, string]>
     public readonly Apps: readonly string[] | undefined
@@ -108,6 +113,7 @@ export class ClosureCheckConfig
         this.RepoDir = options.RepoDir
         this.Manifest = options.Manifest ?? C.DefaultManifest
         this.Dockerfile = options.Dockerfile ?? C.DefaultDockerfile
+        this.DockerfileConfigured = options.Dockerfile !== undefined
         this.Siblings = options.Siblings ?? []
         this.CompiledRoots = options.CompiledRoots ?? C.DefaultCompiledRoots
         this.Apps = options.Apps
@@ -484,6 +490,7 @@ export class ClosureCheck
     private static readonly UnreadableManifest = 'closure.json cannot be read: '
     private static readonly MissingAppPrefix = 'closure.json has no entry for '
     private static readonly UnknownAppPrefix = 'closure.json names an unknown app: '
+    private static readonly MissingDockerfilePrefix = 'The configured Dockerfile does not exist: '
     private static readonly MissingSiblingPrefix = 'Sibling checkout is missing or has no package name: '
     private static readonly UnreadableSharedWorkspace = 'pragmatic-shared/package.json cannot be read: '
     private static readonly WorkspacesNotList = '"workspaces" is not a list of paths'
@@ -508,7 +515,12 @@ export class ClosureCheck
         const esbuild = EsbuildLocator.Load(join(root, config.RepoDir))
         const owners = new Map<string, string | undefined>()
         const dockerfile = join(root, config.RepoDir, config.Dockerfile)
-        const targets = existsSync(dockerfile) ? DockerfileTargets.Parse(readFileSync(dockerfile, C.Utf8)) : undefined
+        const present = existsSync(dockerfile)
+        if (!present && config.DockerfileConfigured)
+        {
+            throw new ClosureManifestError(C.MissingDockerfilePrefix + config.Dockerfile)
+        }
+        const targets = present ? DockerfileTargets.Parse(readFileSync(dockerfile, C.Utf8)) : undefined
         return new ClosureReport(apps.map(app =>
         {
             const entry = manifest[app]

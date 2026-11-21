@@ -1,0 +1,4 @@
+{
+  "extends": "./tsconfig.json",
+  "exclude": ["{{SourceDir}}/**/tests/**", "{{SourceDir}}/**/*.test.ts"]
+}

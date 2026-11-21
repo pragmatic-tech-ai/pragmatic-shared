@@ -14,7 +14,8 @@
   "bin": {
     "pragmatic-release-publish": "dist/bin/pragmatic-release-publish.js",
     "pragmatic-component-descriptors": "dist/bin/pragmatic-component-descriptors.js",
-    "pragmatic-closure-check": "dist/bin/pragmatic-closure-check.js"
+    "pragmatic-closure-check": "dist/bin/pragmatic-closure-check.js",
+    "pragmatic-container-template": "dist/bin/pragmatic-container-template.js"
   },
   "exports": {
     ".": {
@@ -25,7 +26,8 @@
   "files": [
     "dist",
     "README.md",
-    "scripts"
+    "scripts",
+    "templates"
   ],
   "publishConfig": {
     "registry": "https://npm.pkg.github.com",

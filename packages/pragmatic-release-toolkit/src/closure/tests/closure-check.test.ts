@@ -3,7 +3,7 @@ import { after, describe, it } from 'node:test'
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { ClosureCheck, ClosureCheckConfig, type ClosureReport, SharedLockClosure } from '../closure-check.js'
+import { ClosureCheck, ClosureCheckConfig, ClosureManifestError, type ClosureReport, SharedLockClosure } from '../closure-check.js'
 
 /** A throwaway workspace: three tiny sibling packages a, b, c and a server whose one app imports `a`. */
 class FixtureWorkspace
@@ -218,6 +218,15 @@ describe('ClosureCheck', () =>
         const good = target.replace('/workspace/c /workspace/c', '/workspace/pragmatic-server/node_modules /workspace/pragmatic-server/node_modules')
             .replace('other.js', 'app.js')
         assert.equal(FixtureWorkspace.Report(FixtureWorkspace.Make(['a'], [Dist, Modules], ImportsA, good)).Ok, true)
+    })
+
+    it('refuses a configured Dockerfile that is absent (only the default may be missing)', () =>
+    {
+        const F = FixtureWorkspace
+        const root = F.Make(['a'], [Dist, Modules], ImportsA)
+        assert.throws(() => ClosureCheck.Run(root, { RepoDir: F.RepoDir, Siblings: F.Siblings, Apps: [F.App], Dockerfile: 'Dockerfile' }),
+            (error: unknown) => error instanceof ClosureManifestError && error.message.endsWith('Dockerfile'))
+        assert.equal(F.Report(root).Ok, true)
     })
 
     it('reports an entrypoint outside every copied dir as missing', () =>

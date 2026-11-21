@@ -1,0 +1,194 @@
+# The CI of a container repository (dev-kit A3; the caller is rendered by pragmatic-container-template): the repository
+# builds from its lock alone, every @pragmatic-tech-ai package read from GitHub Packages with the caller's
+# PACKAGES_TOKEN (no sibling checkout). Steps: install, build, tests, UI unit tests (and typecheck where a UI has one),
+# the image closure check, the two-step image bake (`components` exports the component descriptor and the override that
+# labels the image with its digest, then the image), the label check (the image's /pragmatic/component.json hashes to
+# its label), the optional image test and the optional Helm lint/render. With `arm64` the image is also baked and
+# checked on a native arm64 runner. `closure-check: false` skips only the closure check (pragmatic-postgres, whose
+# image is not a Node closure); `node: false` also skips the build and tests (a repository with no Node code of its own).
+# A pull request from a fork gets no PACKAGES_TOKEN: the gate job says so and every other job is skipped.
+# Inputs reach scripts only through env, never interpolated into a script. The npm credentials are written under umask
+# 077 to one file, which every npm step reads (NPM_CONFIG_USERCONFIG) and the bake hands in as its `npmrc` secret, and
+# removed whatever the outcome; installs also get the token as NODE_AUTH_TOKEN (the repository's .npmrc names it).
+name: container-ci
+on:
+  workflow_call:
+    inputs:
+      app:
+        description: The release app, also the repository and image name (pragmatic-<name>).
+        type: string
+        required: true
+      node-test-glob:
+        description: The tests to run with tsx --test; empty runs npm test.
+        type: string
+        default: ''
+      ui-dirs:
+        description: UI projects (own package.json and lock) whose unit tests run, space or newline separated.
+        type: string
+        default: ''
+      image-test:
+        description: Run tests/image.test.sh <image> on the baked image.
+        type: boolean
+        default: false
+      arm64:
+        description: Also bake and check the image for linux/arm64 on a native runner.
+        type: boolean
+        default: false
+      helm-chart:
+        description: A Helm chart path to lint and render; empty for none.
+        type: string
+        default: ''
+      node:
+        description: Build and test the repository on the runner.
+        type: boolean
+        default: true
+      closure-check:
+        description: Run pragmatic-closure-check (false where the image is not a Node closure).
+        type: boolean
+        default: true
+    secrets:
+      PACKAGES_TOKEN:
+        required: false
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    permissions: {}
+    outputs:
+      token: ${{ steps.token.outputs.present }}
+    steps:
+      - name: PACKAGES_TOKEN present
+        id: token
+        env:
+          PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
+        run: |
+          if [ -n "$PACKAGES_TOKEN" ]; then
+            echo 'present=true' >> "$GITHUB_OUTPUT"
+          else
+            echo '::warning::PACKAGES_TOKEN is empty (a pull request from a fork gets no secrets): build, tests and image bake are skipped'
+            echo 'present=false' >> "$GITHUB_OUTPUT"
+          fi
+  build-test:
+    needs: gate
+    if: needs.gate.outputs.token == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      APP: ${{ inputs.app }}
+      IMAGE: ghcr.io/pragmatic-tech-ai/${{ inputs.app }}:ci
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Write the npm registry credentials
+        env:
+          PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
+        run: |
+          umask 077
+          printf '@pragmatic-tech-ai:registry=https://npm.pkg.github.com\n//npm.pkg.github.com/:_authToken=%s\n' "$PACKAGES_TOKEN" > "$RUNNER_TEMP/npmrc"
+          echo "NPM_CONFIG_USERCONFIG=$RUNNER_TEMP/npmrc" >> "$GITHUB_ENV"
+      - name: Install
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
+        run: npm ci --no-audit --no-fund
+      - name: Build
+        if: inputs.node
+        run: npm run build
+      - name: Test
+        if: inputs.node
+        env:
+          TEST_GLOB: ${{ inputs.node-test-glob }}
+        run: |
+          if [ -n "$TEST_GLOB" ]; then
+            npx tsx --test "$TEST_GLOB"
+          else
+            npm test
+          fi
+      - name: UI unit tests
+        if: inputs.node && inputs.ui-dirs != ''
+        env:
+          UI_DIRS: ${{ inputs.ui-dirs }}
+          NODE_AUTH_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
+        run: |
+          for dir in $UI_DIRS; do
+            (
+              cd "$dir"
+              npm ci --no-audit --no-fund
+              npm test
+              if node -e "process.exit(require('./package.json').scripts?.typecheck ? 0 : 1)"; then
+                npm run typecheck
+              fi
+            )
+          done
+      # The image copies only what its entry reaches: closure.json, the Dockerfile and the code must agree (options from
+      # package.json `pragmaticClosureCheck`). The image build runs it again on the tree it is cut from.
+      - name: Image closure check
+        if: inputs.node && inputs.closure-check
+        run: npx pragmatic-closure-check
+      # Two steps: the descriptor and its bake override into .components, then the image labelled with its digest
+      # (built, not pushed; the release workflow publishes).
+      - name: Docker build
+        run: |
+          NPMRC_FILE="$RUNNER_TEMP/npmrc" docker buildx bake -f docker-bake.hcl --allow=fs.read="$RUNNER_TEMP/npmrc" components
+          NPMRC_FILE="$RUNNER_TEMP/npmrc" VERSION=ci GIT_SHA="$GITHUB_SHA" docker buildx bake -f docker-bake.hcl \
+            -f .components/docker-bake.components.json --allow=fs.read="$RUNNER_TEMP/npmrc" "$APP"
+      - name: Component descriptor in the image matches its label
+        run: bash node_modules/@pragmatic-tech-ai/pragmatic-release-toolkit/scripts/check-component-label.sh "$IMAGE"
+      - name: Image test
+        if: inputs.image-test
+        run: bash tests/image.test.sh "$IMAGE"
+      - name: Helm lint + template
+        if: inputs.helm-chart != ''
+        env:
+          CHART: ${{ inputs.helm-chart }}
+        run: |
+          helm lint "$CHART"
+          helm template "$CHART" > /dev/null
+      - name: Remove credentials
+        if: always()
+        run: rm -f "$RUNNER_TEMP/npmrc"
+  # The same image, built natively on arm64 (as the release does), loaded and checked; not pushed.
+  image-arm64:
+    needs: gate
+    if: inputs.arm64 && needs.gate.outputs.token == 'true'
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+    env:
+      APP: ${{ inputs.app }}
+      IMAGE: ghcr.io/pragmatic-tech-ai/${{ inputs.app }}:ci
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Write the npm registry credentials
+        env:
+          PACKAGES_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
+        run: |
+          umask 077
+          printf '@pragmatic-tech-ai:registry=https://npm.pkg.github.com\n//npm.pkg.github.com/:_authToken=%s\n' "$PACKAGES_TOKEN" > "$RUNNER_TEMP/npmrc"
+          echo "NPM_CONFIG_USERCONFIG=$RUNNER_TEMP/npmrc" >> "$GITHUB_ENV"
+      - name: Install
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
+        run: npm ci --no-audit --no-fund
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Docker build (arm64)
+        run: |
+          NPMRC_FILE="$RUNNER_TEMP/npmrc" PLATFORMS=linux/arm64 docker buildx bake -f docker-bake.hcl --allow=fs.read="$RUNNER_TEMP/npmrc" components
+          NPMRC_FILE="$RUNNER_TEMP/npmrc" PLATFORMS=linux/arm64 VERSION=ci GIT_SHA="$GITHUB_SHA" docker buildx bake -f docker-bake.hcl \
+            -f .components/docker-bake.components.json --allow=fs.read="$RUNNER_TEMP/npmrc" --load "$APP"
+      - name: Component descriptor in the image matches its label (arm64)
+        run: bash node_modules/@pragmatic-tech-ai/pragmatic-release-toolkit/scripts/check-component-label.sh "$IMAGE"
+      - name: Image test (arm64)
+        if: inputs.image-test
+        run: bash tests/image.test.sh "$IMAGE"
+      - name: Remove credentials
+        if: always()
+        run: rm -f "$RUNNER_TEMP/npmrc"
