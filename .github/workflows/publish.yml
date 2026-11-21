@@ -49,12 +49,9 @@ jobs:
           PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           (umask 077 && printf 'registry=https://registry.npmjs.org/\n@pragmatic-tech-ai:registry=https://npm.pkg.github.com\n//npm.pkg.github.com/:_authToken=%s\n' "$PACKAGES_TOKEN" > ~/.npmrc)
-      - name: Build siblings in dependency order
-        working-directory: ${{ github.workspace }}
-        run: |
-          for pkg in todl-runtime TODL; do
-            (cd "$pkg" && npm install --no-audit --no-fund && npm run build)
-          done
+      - name: Build todl-runtime
+        working-directory: ${{ github.workspace }}/todl-runtime
+        run: npm install --no-audit --no-fund && npm run build
       - name: Mural from GitHub Packages
         working-directory: ${{ github.workspace }}
         run: |
@@ -63,6 +60,16 @@ jobs:
           mkdir Mural
           tar -xzf pragmatic-tech-ai-mural-"$version".tgz -C Mural --strip-components=1
           (cd Mural && npm install --omit=dev --ignore-scripts --no-package-lock --no-audit --no-fund)
+      # TODL's build compiles its .mu modules with the mural CLI, which it finds in its own node_modules: the peer is
+      # the unpacked Mural, linked in after TODL's install.
+      - name: Build TODL against the unpacked Mural
+        working-directory: ${{ github.workspace }}/TODL
+        run: |
+          npm install --no-audit --no-fund
+          rm -rf node_modules/@pragmatic-tech-ai/mural
+          mkdir -p node_modules/@pragmatic-tech-ai
+          ln -s ../../../Mural node_modules/@pragmatic-tech-ai/mural
+          npm run build
       - name: One todl-runtime in the workspace
         working-directory: ${{ github.workspace }}
         run: |
@@ -109,12 +116,9 @@ jobs:
         run: |
           (umask 077 && printf 'registry=https://registry.npmjs.org/\n@pragmatic-tech-ai:registry=https://npm.pkg.github.com\n//npm.pkg.github.com/:_authToken=%s\n' "$PACKAGES_TOKEN" > ~/.npmrc)
       # No install script runs while the write token is on disk.
-      - name: Build siblings in dependency order (install scripts off)
-        working-directory: ${{ github.workspace }}
-        run: |
-          for pkg in todl-runtime TODL; do
-            (cd "$pkg" && npm install --ignore-scripts --no-audit --no-fund && npm run build)
-          done
+      - name: Build todl-runtime (install scripts off)
+        working-directory: ${{ github.workspace }}/todl-runtime
+        run: npm install --ignore-scripts --no-audit --no-fund && npm run build
       - name: Mural from GitHub Packages
         working-directory: ${{ github.workspace }}
         run: |
@@ -123,6 +127,16 @@ jobs:
           mkdir Mural
           tar -xzf pragmatic-tech-ai-mural-"$version".tgz -C Mural --strip-components=1
           (cd Mural && npm install --omit=dev --ignore-scripts --no-package-lock --no-audit --no-fund)
+      # TODL's build compiles its .mu modules with the mural CLI, which it finds in its own node_modules: the peer is
+      # the unpacked Mural, linked in after TODL's install.
+      - name: Build TODL against the unpacked Mural (install scripts off)
+        working-directory: ${{ github.workspace }}/TODL
+        run: |
+          npm install --ignore-scripts --no-audit --no-fund
+          rm -rf node_modules/@pragmatic-tech-ai/mural
+          mkdir -p node_modules/@pragmatic-tech-ai
+          ln -s ../../../Mural node_modules/@pragmatic-tech-ai/mural
+          npm run build
       - name: One todl-runtime in the workspace
         working-directory: ${{ github.workspace }}
         run: |
