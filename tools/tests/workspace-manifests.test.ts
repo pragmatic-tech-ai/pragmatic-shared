@@ -25,6 +25,8 @@ class SiblingReader implements IManifestReader
 /** The TypeScript sources of a package (tests included), the files a test helper import can sit in. */
 class TestHelperUsers
 {
+    /** An import of the SQL test helpers (SqlTestSessions, behind pg-mem). */
+    public static readonly ImportsHelpers = /from ['"]@pragmatic-tech-ai\/pragmatic-realm-adapters\/testing['"]/;
     private static readonly SourceExtension = '.ts';
     private static readonly SkippedFolders: readonly string[] = ['node_modules', 'dist'];
 
@@ -175,11 +177,10 @@ describe('workspace manifests', () =>
 
     it('declares pg-mem as a devDependency of every package whose sources import the SQL test helpers', () =>
     {
-        const helpers = /from ['"]@pragmatic-tech-ai\/pragmatic-realm-adapters\/testing['"]/;
         for (const manifest of packages)
         {
             const sources = TestHelperUsers.Sources(path.join(manifest.Directory, 'src'));
-            if (sources.some(file => helpers.test(fs.readFileSync(file, 'utf8'))))
+            if (sources.some(file => TestHelperUsers.ImportsHelpers.test(fs.readFileSync(file, 'utf8'))))
             {
                 assert.ok(manifest.Data.devDependencies?.['pg-mem'] !== undefined, manifest.Name + ' imports pragmatic-realm-adapters/testing without pg-mem');
             }

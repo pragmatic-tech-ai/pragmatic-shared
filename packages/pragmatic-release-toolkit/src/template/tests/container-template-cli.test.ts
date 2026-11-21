@@ -70,6 +70,54 @@ describe('ContainerTemplateCli', () =>
         assert.ok(readFileSync(join(out, '.gitignore'), 'utf8').endsWith('test-results/\n# Local secrets.\nsecrets/\n'))
     })
 
+    it('writes the render arguments into package.json, re-renders from them without flags, and check finds no drift', () =>
+    {
+        const out = CliFixture.Out('render-args')
+        mkdirSync(out, { recursive: true })
+        writeFileSync(join(out, 'package.json'), JSON.stringify({ name: 'x', version: '0.1.0' }, null, 2) + '\n')
+        const flags = ['render', '--app', 'pragmatic-tenant-idp', '--entry', 'src/bin/pragmatic-idpd.ts', '--ui', 'idp-login', '--gitignore', 'data/', '--out', out]
+        assert.equal(CliFixture.Run(flags).Code, 0)
+        const manifest = JSON.parse(readFileSync(join(out, 'package.json'), 'utf8'))
+        assert.deepEqual(manifest.pragmaticContainerTemplate, { App: 'pragmatic-tenant-idp', Entry: 'src/bin/pragmatic-idpd.ts', UiDirs: ['idp-login'], GitIgnore: ['data/'] })
+        const dockerfile = readFileSync(join(out, 'Dockerfile'), 'utf8')
+        writeFileSync(join(out, 'Dockerfile'), 'hand edit\n')
+        assert.equal(CliFixture.Run(['render', '--out', out]).Code, 0)
+        assert.equal(readFileSync(join(out, 'Dockerfile'), 'utf8'), dockerfile, 'the field alone re-renders the same files')
+        const check = CliFixture.Run(['check', '--out', out])
+        assert.equal(check.Code, 0, check.Err.join('\n'))
+        assert.deepEqual(check.Out, ['The rendered files match the template'])
+    })
+
+    it('check names every drifted file (a hand edit, a missing file, a stale package.json field) and exits 1', () =>
+    {
+        const out = CliFixture.Out('drift')
+        mkdirSync(out, { recursive: true })
+        writeFileSync(join(out, 'package.json'), JSON.stringify({ name: 'x' }, null, 2) + '\n')
+        assert.equal(CliFixture.Run(['render', '--app', 'pragmatic-hive-agent', '--entry', 'src/bin/pragmatic-agentd.ts', '--out', out]).Code, 0)
+        writeFileSync(join(out, '.dockerignore'), 'edited\n')
+        rmSync(join(out, 'docker-bake.hcl'))
+        const manifest = JSON.parse(readFileSync(join(out, 'package.json'), 'utf8'))
+        manifest.pragmaticClosureCheck = { Apps: ['other'] }
+        writeFileSync(join(out, 'package.json'), JSON.stringify(manifest, null, 2) + '\n')
+        const check = CliFixture.Run(['check', '--out', out])
+        assert.equal(check.Code, 1)
+        assert.deepEqual(check.Err.filter(line => line.startsWith('drift: ')).sort(), ['drift: .dockerignore', 'drift: docker-bake.hcl', 'drift: package.json'])
+    })
+
+    it('check and a flagless render refuse a repository without render arguments, and an ill-shaped field', () =>
+    {
+        const out = CliFixture.Out('no-args')
+        mkdirSync(out, { recursive: true })
+        writeFileSync(join(out, 'package.json'), JSON.stringify({ name: 'x' }))
+        assert.equal(CliFixture.Run(['check', '--out', out]).Code, 2)
+        assert.equal(CliFixture.Run(['render', '--out', out]).Code, 2)
+        assert.equal(CliFixture.Run(['check', '--out', out, '--app', 'pragmatic-hive-agent']).Code, 2)
+        writeFileSync(join(out, 'package.json'), JSON.stringify({ name: 'x', pragmaticContainerTemplate: { App: 'pragmatic-hive-agent', Entry: 1 } }))
+        assert.equal(CliFixture.Run(['check', '--out', out]).Code, 1)
+        writeFileSync(join(out, 'package.json'), JSON.stringify({ name: 'x', pragmaticContainerTemplate: { App: 'pragmatic-hive-agent', Entry: 'src/a.ts', Extra: true } }))
+        assert.equal(CliFixture.Run(['check', '--out', out]).Code, 1)
+    })
+
     it('takes --ui and --copy more than once, in order', () =>
     {
         const out = CliFixture.Out('admin')
@@ -88,7 +136,9 @@ describe('ContainerTemplateCli', () =>
         const result = CliFixture.Run(['render', '--app', 'pragmatic-hive-agent', '--entry', 'src/bin/pragmatic-agentd.ts', '--out', CliFixture.Out('fresh')])
         assert.equal(result.Code, 0, result.Err.join('\n'))
         assert.equal(existsSync(join(CliFixture.Out('fresh'), 'package.json')), false)
-        assert.ok(result.Out.at(-1)?.endsWith('"pragmaticClosureCheck": {"Manifest":"closure.json","Dockerfile":"Dockerfile","Apps":["pragmatic-hive-agent"]}'), result.Out.at(-1))
+        const last = result.Out.at(-1) ?? ''
+        assert.ok(last.includes('"pragmaticClosureCheck":{"Manifest":"closure.json","Dockerfile":"Dockerfile","Apps":["pragmatic-hive-agent"]}'), last)
+        assert.ok(last.includes('"pragmaticContainerTemplate":{"App":"pragmatic-hive-agent","Entry":"src/bin/pragmatic-agentd.ts"}'), last)
     })
 
     it('reads the workspaces from the repository package.json and merges the pragmaticClosureCheck field into it', () =>

@@ -229,6 +229,18 @@ describe('container workflows', () =>
         }
     })
 
+    it('container-ci.yml checks the rendered files against the template right after the install', () =>
+    {
+        const ci = Workflows.Read(Workflows.Ci)
+        const build = Workflows.Jobs(ci).find(job => job.Name === 'build-test')?.Lines.join('\n') ?? ''
+        const step = build.indexOf('      - name: Rendered files match the template')
+        assert.ok(step > build.indexOf('run: npm ci --no-audit --no-fund'), 'after the install')
+        assert.ok(step < build.indexOf('      - name: Build'), 'before the build')
+        const text = build.slice(step, build.indexOf('      - name: Build'))
+        assert.ok(text.includes("require('./package.json').pragmaticContainerTemplate"))
+        assert.ok(text.includes('npx pragmatic-container-template check'))
+    })
+
     it('container-ci.yml typechecks the repository after the build, skipping only a repository without a typecheck script', () =>
     {
         const ci = Workflows.Read(Workflows.Ci)

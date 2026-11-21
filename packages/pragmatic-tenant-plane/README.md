@@ -26,3 +26,13 @@ pragmatic-release-toolkit, pragmatic-protocol, `ws`; TODL and todl-runtime as pe
 pragmatic-protocol is a plain dependency (it carries no TODL), so in the pragmatic-server workspace it may load twice
 (the server's sibling checkout and this package's registry copy); nothing passes a protocol object across the two
 copies with `instanceof`.
+
+## Upgrade notes
+
+- 0.17.5: environments run `pragmatic-env-server:dev` (EnvironmentWorkloadFactory.ServerImage), no longer the
+  monolith's `pragmatic-server:dev`, and the hive agent's default dev image is `pragmatic-hive-agent:dev`. A dev
+  environment placed before the upgrade is rolled to the new name on its next bring-up: bake the per-repository dev
+  images first (pragmatic-e2e `src/dev/dev-images.ts`), or the hive has nothing to run.
+- 0.17.3: an app deployment's `ui-unpack` init container runs the pragmatic-ui-unpack image
+  (`WorkloadAppDeployment.unpackImage`, required; default `pragmatic-ui-unpack:dev`), mapped, verified and signed like
+  the server image; the tenant-admin container runs its image's own ENTRYPOINT.

@@ -3,7 +3,8 @@ import { dirname, join, resolve } from 'node:path'
 import { ClosureCheckConfig } from '../closure/closure-check.js'
 import type { ComponentCliOutput } from '../release/component-descriptor-cli.js'
 import { ReleaseApps, type ReleaseApp } from '../release/release-tag.js'
-import { ContainerTemplate, type ContainerAsset } from './container-template.js'
+import { ContainerRenderArgs } from './container-render-args.js'
+import { ContainerTemplate, type ContainerAsset, type ContainerTemplateOptions } from './container-template.js'
 import { ContainerWorkspaces } from './container-workspaces.js'
 
 class ContainerTemplateUsageError extends Error
@@ -11,16 +12,27 @@ class ContainerTemplateUsageError extends Error
 }
 
 /**
- * The `pragmatic-container-template` command: `render --app <app> --entry <path> [--ui <dir>]... [--copy <path>]...
- * [--asset <from>=<to>]... [--dockerignore <line>]... [--gitignore <line>]... --out <dir>` writes ContainerTemplate's files for one container repository under `--out`
- * (the repository root; existing files are overwritten) and prints each path. The npm workspaces come from
- * `<out>/package.json`, which also receives the `pragmaticClosureCheck` field (printed instead when there is no
- * package.json yet). The render and every target path are checked before anything is written; an I/O failure while
- * writing (a full disk, a permission) can still leave the files before it written.
+ * The `pragmatic-container-template` command.
+ * - `render --app <app> --entry <path> [--ui <dir>]... [--copy <path>]... [--asset <from>=<to>]... [--dockerignore
+ *   <line>]... [--gitignore <line>]... --out <dir>` writes ContainerTemplate's files for one container repository under
+ *   `--out` (the repository root; existing files are overwritten) and prints each path. The npm workspaces come from
+ *   `<out>/package.json`, which also receives the `pragmaticClosureCheck` field and the render arguments as
+ *   `pragmaticContainerTemplate` (both printed instead when there is no package.json yet). `render --out <dir>` alone
+ *   renders from that field. The render and every target path are checked before anything is written; an I/O failure
+ *   while writing (a full disk, a permission) can still leave the files before it written.
+ * - `check [--out <dir>]` renders from the field and names every committed file that differs (exit 1), so CI catches
+ *   a hand edit or a template change not yet re-rendered.
  */
 export class ContainerTemplateCli
 {
     private static readonly CommandRender = 'render'
+    private static readonly CommandCheck = 'check'
+    private static readonly Here = '.'
+    private static readonly CarriageReturns = /\r\n/g
+    private static readonly DriftPrefix = 'drift: '
+    private static readonly DriftSummary = 'The rendered files differ from the template: re-render with pragmatic-container-template render --out . and commit'
+    private static readonly MatchesMessage = 'The rendered files match the template'
+    private static readonly NoArgsMessage = 'No render arguments: give --app and --entry, or keep them in package.json pragmaticContainerTemplate'
     private static readonly FlagPrefix = '--'
     private static readonly FlagApp = 'app'
     private static readonly FlagEntry = 'entry'
@@ -40,7 +52,7 @@ export class ContainerTemplateCli
     private static readonly OkExitCode = 0
     private static readonly FailExitCode = 1
     private static readonly UsageExitCode = 2
-    private static readonly UsageMessage = 'Usage: pragmatic-container-template render --app <app> --entry <path> [--ui <dir>]... [--copy <path>]... [--asset <from>=<to>]... [--dockerignore <line>]... [--gitignore <line>]... --out <dir>'
+    private static readonly UsageMessage = 'Usage: pragmatic-container-template render [--app <app> --entry <path> [--ui <dir>]... [--copy <path>]... [--asset <from>=<to>]... [--dockerignore <line>]... [--gitignore <line>]...] --out <dir> | check [--out <dir>]'
     private static readonly UnknownFlagPrefix = 'Unknown option: --'
     private static readonly DuplicateFlagPrefix = 'Option given more than once: --'
     private static readonly MissingFlagPrefix = 'Missing required option: --'
@@ -49,38 +61,29 @@ export class ContainerTemplateCli
     private static readonly NotAFilePrefix = 'Cannot write over a directory: '
     private static readonly NotADirectoryPrefix = 'Cannot write under a file: '
     private static readonly AddFieldPrefix = 'No package.json yet; add to it: '
-    private static readonly FieldSeparator = ': '
 
     public static Run(argv: readonly string[], output: ComponentCliOutput): number
     {
         const C = ContainerTemplateCli
         try
         {
+            if (argv[0] === C.CommandCheck)
+            {
+                return C.Check(argv.slice(1), output)
+            }
             if (argv[0] !== C.CommandRender)
             {
                 throw new ContainerTemplateUsageError(C.UsageMessage)
             }
             const [single, repeated] = C.ParseFlags(argv.slice(1))
             const out = C.Required(single, C.FlagOut)
-            const options = {
-                App: C.AppOf(C.Required(single, C.FlagApp)),
-                Entry: C.Required(single, C.FlagEntry),
-                UiDirs: repeated.get(C.FlagUi) ?? [],
-                ExtraCopies: repeated.get(C.FlagCopy) ?? [],
-                Workspaces: ContainerWorkspaces.Read(out),
-                Assets: (repeated.get(C.FlagAsset) ?? []).map(asset => C.AssetOf(asset)),
-                DockerIgnore: repeated.get(C.FlagDockerIgnore) ?? [],
-                GitIgnore: repeated.get(C.FlagGitIgnore) ?? [],
-            }
-            const files = new Map(ContainerTemplate.Render(options))
-            const closure = ContainerTemplate.ClosureCheckOptions(options)
-            const manifest = join(out, C.PackageJson)
-            if (closure !== undefined && existsSync(manifest))
+            const flagged = single.has(C.FlagApp) || single.has(C.FlagEntry) || repeated.size > 0
+            const options = flagged ? C.OptionsOf(single, repeated, out) : ContainerRenderArgs.Read(out)
+            if (options === undefined)
             {
-                const parsed = JSON.parse(readFileSync(manifest, C.Utf8)) as Record<string, unknown>
-                parsed[ClosureCheckConfig.PackageField] = closure
-                files.set(C.PackageJson, JSON.stringify(parsed, null, C.JsonIndent) + C.Newline)
+                throw new ContainerTemplateUsageError(C.NoArgsMessage)
             }
+            const files = C.Expected(out, options)
             for (const path of files.keys())
             {
                 C.RequireWritable(out, path)
@@ -92,9 +95,9 @@ export class ContainerTemplateCli
                 writeFileSync(file, text, C.Utf8)
                 output.Out(path)
             }
-            if (closure !== undefined && !existsSync(manifest))
+            if (!existsSync(join(out, C.PackageJson)))
             {
-                output.Out(C.AddFieldPrefix + JSON.stringify(ClosureCheckConfig.PackageField) + C.FieldSeparator + JSON.stringify(closure))
+                output.Out(C.AddFieldPrefix + JSON.stringify(C.Fields(options)))
             }
             return C.OkExitCode
         }
@@ -103,6 +106,99 @@ export class ContainerTemplateCli
             output.Err(error instanceof Error ? error.message : String(error))
             return error instanceof ContainerTemplateUsageError ? C.UsageExitCode : C.FailExitCode
         }
+    }
+
+    /**
+     * `check [--out <dir>]` (default the working directory): renders from the repository's `pragmaticContainerTemplate`
+     * field and compares with the committed files (package.json by its two fields); prints each file that drifted.
+     */
+    private static Check(args: readonly string[], output: ComponentCliOutput): number
+    {
+        const C = ContainerTemplateCli
+        const [single, repeated] = C.ParseFlags(args)
+        if (repeated.size > 0 || single.has(C.FlagApp) || single.has(C.FlagEntry))
+        {
+            throw new ContainerTemplateUsageError(C.UsageMessage)
+        }
+        const out = single.get(C.FlagOut) ?? C.Here
+        const options = ContainerRenderArgs.Read(out)
+        if (options === undefined)
+        {
+            throw new ContainerTemplateUsageError(C.NoArgsMessage)
+        }
+        const drift: string[] = []
+        for (const [path, text] of C.Expected(out, options))
+        {
+            const file = join(out, path)
+            if (path === C.PackageJson)
+            {
+                const committed = JSON.parse(readFileSync(file, C.Utf8)) as Record<string, unknown>
+                const expected = JSON.parse(text) as Record<string, unknown>
+                const fields = [ContainerRenderArgs.PackageField, ClosureCheckConfig.PackageField]
+                if (fields.some(field => JSON.stringify(committed[field]) !== JSON.stringify(expected[field])))
+                {
+                    drift.push(path)
+                }
+                continue
+            }
+            if (!existsSync(file) || readFileSync(file, C.Utf8).replace(C.CarriageReturns, C.Newline) !== text)
+            {
+                drift.push(path)
+            }
+        }
+        for (const path of drift)
+        {
+            output.Err(C.DriftPrefix + path)
+        }
+        if (drift.length > 0)
+        {
+            output.Err(C.DriftSummary)
+            return C.FailExitCode
+        }
+        output.Out(C.MatchesMessage)
+        return C.OkExitCode
+    }
+
+    private static OptionsOf(single: Map<string, string>, repeated: Map<string, string[]>, out: string): ContainerTemplateOptions
+    {
+        const C = ContainerTemplateCli
+        return {
+            App: C.AppOf(C.Required(single, C.FlagApp)),
+            Entry: C.Required(single, C.FlagEntry),
+            UiDirs: repeated.get(C.FlagUi) ?? [],
+            ExtraCopies: repeated.get(C.FlagCopy) ?? [],
+            Workspaces: ContainerWorkspaces.Read(out),
+            Assets: (repeated.get(C.FlagAsset) ?? []).map(asset => C.AssetOf(asset)),
+            DockerIgnore: repeated.get(C.FlagDockerIgnore) ?? [],
+            GitIgnore: repeated.get(C.FlagGitIgnore) ?? [],
+        }
+    }
+
+    /** Every rendered file, plus package.json carrying both fields when the repository has one. */
+    private static Expected(out: string, options: ContainerTemplateOptions): Map<string, string>
+    {
+        const C = ContainerTemplateCli
+        const files = new Map(ContainerTemplate.Render(options))
+        const manifest = join(out, C.PackageJson)
+        if (existsSync(manifest))
+        {
+            const parsed = JSON.parse(readFileSync(manifest, C.Utf8)) as Record<string, unknown>
+            files.set(C.PackageJson, JSON.stringify({ ...parsed, ...C.Fields(options) }, null, C.JsonIndent) + C.Newline)
+        }
+        return files
+    }
+
+    /** The package.json fields a render sets: the closure check options (Node apps) and the render arguments. */
+    private static Fields(options: ContainerTemplateOptions): Record<string, unknown>
+    {
+        const fields: Record<string, unknown> = {}
+        const closure = ContainerTemplate.ClosureCheckOptions(options)
+        if (closure !== undefined)
+        {
+            fields[ClosureCheckConfig.PackageField] = closure
+        }
+        fields[ContainerRenderArgs.PackageField] = ContainerRenderArgs.FieldOf(options)
+        return fields
     }
 
     /** The target is not a directory and no folder on its way under `out` is a file. */

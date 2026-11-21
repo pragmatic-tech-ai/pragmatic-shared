@@ -6,26 +6,32 @@ import type { TenantAdminWorkloadSpec } from '../tenant-admin-workload.js'
 class EntryFixture
 {
     public static readonly Image = 'ghcr.io/pragmatic-tech-ai/pragmatic-tenant-admin@sha256:' + 'b'.repeat(64)
+    public static readonly AgentDevImage = 'pragmatic-hive-agent:dev'
+    public static readonly ReleasedAgentImage = 'ghcr.io/pragmatic-tech-ai/pragmatic-hive-agent@sha256:' + 'c'.repeat(64)
+    public static readonly HiveId = 'hive-a'
+    public static readonly ChannelUrl = 'http://channel.example:7000'
+    public static readonly AgentTokenSecret = 'agent-token-secret'
+    public static readonly DeploymentKind = 'Deployment'
 
     public static Spec(): TenantAdminWorkloadSpec
     {
         return {
             tenantId: 'acme',
-            hiveId: 'hive-a',
+            hiveId: EntryFixture.HiveId,
             image: EntryFixture.Image,
             port: 8443,
             baseDomain: 'tenants.test',
             externalScheme: 'https',
             seedSecretName: 'acme-tenant-admin-seed',
-            agentTokenSecretName: 'agent-token-secret',
-            rolloutUrl: 'http://channel.example:7000',
+            agentTokenSecretName: EntryFixture.AgentTokenSecret,
+            rolloutUrl: EntryFixture.ChannelUrl,
         }
     }
 
     public static Container(): Record<string, unknown>
     {
         const doc = JSON.parse(new K8sManifestBuilder().RenderTenantAdmin(EntryFixture.Spec()))
-        const deployment = doc.items.find((item: { kind: string }) => item.kind === 'Deployment')
+        const deployment = doc.items.find((item: { kind: string }) => item.kind === EntryFixture.DeploymentKind)
         return deployment.spec.template.spec.containers[0]
     }
 }
@@ -34,11 +40,11 @@ describe('K8sManifestBuilder tenant-admin entry', () =>
 {
     it('names the hive agent\'s own dev image, never the env server\'s, and renders the agent with the image it is given', () =>
     {
-        assert.equal(K8sManifestBuilder.AgentImage, 'pragmatic-hive-agent:dev')
-        const released = 'ghcr.io/pragmatic-tech-ai/pragmatic-hive-agent@sha256:' + 'c'.repeat(64)
-        const doc = JSON.parse(new K8sManifestBuilder().RenderHiveAgent('hive-a', 'http://channel.example:7000', 'agent-token', released))
-        const deployment = doc.items.find((item: { kind: string }) => item.kind === 'Deployment')
-        assert.equal(deployment.spec.template.spec.containers[0].image, released)
+        const F = EntryFixture
+        assert.equal(K8sManifestBuilder.AgentImage, F.AgentDevImage)
+        const doc = JSON.parse(new K8sManifestBuilder().RenderHiveAgent(F.HiveId, F.ChannelUrl, F.AgentTokenSecret, F.ReleasedAgentImage))
+        const deployment = doc.items.find((item: { kind: string }) => item.kind === F.DeploymentKind)
+        assert.equal(deployment.spec.template.spec.containers[0].image, F.ReleasedAgentImage)
     })
 
     it('runs the tenant-admin image by its own ENTRYPOINT: no command, no args (both image layouts run the same program)', () =>

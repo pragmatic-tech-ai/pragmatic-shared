@@ -478,6 +478,7 @@ describe('ContainerTemplate', () =>
         assert.ok(ignored(ReleaseApp.EnvServer, '.dockerignore').includes('docker/tls'))
         assert.ok(ignored(ReleaseApp.EnvServer, '.gitignore').includes('docker/tls/'))
         assert.ok(ignored(ReleaseApp.TenantIdp, '.gitignore').includes('data/'))
+        assert.ok(ignored(ReleaseApp.TenantIdp, '.dockerignore').includes('data'))
         for (const app of [ReleaseApp.HiveAgent, ReleaseApp.UiUnpack, ReleaseApp.EnvGateway])
         {
             assert.match(TemplateFixture.File(TemplateFixture.Render(app), '.gitignore'), /test-results\/\n$/, app)
@@ -507,7 +508,6 @@ describe('ContainerTemplate', () =>
             [ReleaseApp.PlatformAdmin, 'PRAGMATIC_ADMIN_DATABASE_URL_FILE must name'],
             [ReleaseApp.PlatformEdge, 'PRAGMATIC_EDGE_ADMIN_URL must be'],
             [ReleaseApp.EnvGateway, 'are required for the gateway'],
-            [ReleaseApp.UiUnpack, 'pragmatic-ui-unpack: failed'],
         ])
         for (const app of ReleaseApps.All)
         {

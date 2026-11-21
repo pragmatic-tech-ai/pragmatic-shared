@@ -41,6 +41,8 @@ export class PackagePublisher implements IManifestReader
     private static readonly ScopeSeparator = '/';
     private static readonly TarballSeparator = '-';
     private static readonly TarballExtension = '.tgz';
+    private static readonly OutcomeSeparator = ': ';
+    private static readonly AsSeparator = ' as ';
     private static readonly RegistryCheckedSections: readonly string[] = [DependencySection.Dependencies, DependencySection.PeerDependencies, DependencySection.OptionalDependencies];
 
     private readonly rewriter = new DependencyRewriter(this);
@@ -118,7 +120,7 @@ export class PackagePublisher implements IManifestReader
         {
             throw new Error(PackagePublisher.TarballMissing(id, file, destination));
         }
-        this.log(`${id}: ${PublishOutcome.Packed} as ${file}`);
+        this.log(id + PackagePublisher.OutcomeSeparator + PublishOutcome.Packed + PackagePublisher.AsSeparator + file);
         return { Name: manifest.Name, Version: manifest.Version, File: file };
     }
 

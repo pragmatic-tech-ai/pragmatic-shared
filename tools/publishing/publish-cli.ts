@@ -20,6 +20,9 @@ export class PublishCli
     private static readonly FlagPrefix = '--';
     private static readonly JsonIndent = 2;
     private static readonly Newline = '\n';
+    private static readonly OkExitCode = 0;
+    private static readonly FailExitCode = 1;
+    private static readonly UsageExitCode = 2;
     private static readonly Usage = 'usage: tsx tools/publish-packages.ts [--dry-run] <package-dir>... | --pack-into <dir> <package-dir>...';
 
     public static Main(args: string[], runner: IProcessRunner = new NpmProcessRunner(), registry?: IRegistryLookup): number
@@ -34,7 +37,7 @@ export class PublishCli
         if (directories.length === 0 || badPackInto || directories.some(directory => directory.startsWith(C.FlagPrefix)))
         {
             console.error(C.Usage);
-            return 2;
+            return C.UsageExitCode;
         }
         const publisher = new PackagePublisher(dryRun, line => console.log(line), runner, registry ?? new NpmRegistryLookup(runner, PackagePublisher.Registry));
         try
@@ -42,7 +45,7 @@ export class PublishCli
             if (packInto !== undefined)
             {
                 C.PackAll(publisher, path.resolve(packInto), directories);
-                return 0;
+                return C.OkExitCode;
             }
             for (const directory of directories)
             {
@@ -52,9 +55,9 @@ export class PublishCli
         catch (error)
         {
             console.error(error instanceof Error ? error.message : error);
-            return 1;
+            return C.FailExitCode;
         }
-        return 0;
+        return C.OkExitCode;
     }
 
     private static PackAll(publisher: PackagePublisher, destination: string, directories: string[]): void

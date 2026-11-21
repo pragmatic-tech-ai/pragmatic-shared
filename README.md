@@ -63,9 +63,11 @@ copy (`tools/publish-packages.ts`, tests in `tools/tests/`, `npm run test:tools`
 `src`, and every package carries the one workspace version.
 
 A release is published by CI, not from a workstation: commit the version bump of every package (and the lock) on
-main, push, then push the tag `v<version>`. `.github/workflows/publish.yml` has two jobs. `test` (read-only token)
-refuses a commit that is not on main and a package whose version differs from the tag, builds and tests as `ci.yml`
-does, and packs every package as it will be published (`npm run publish:packages -- --pack-into <dir> <dirs>`, root
-build order, plus `provenance.json`: the commits of this repository, TODL and todl-runtime and the Mural version). The
-`publish` job (environment `packages`, `packages: write`) checks nothing out and runs no repository code: it publishes
-those tarballs in order with the run's `GITHUB_TOKEN` and skips a version already published, so it can be re-run.
+main, push, then push the tag `v<version>`. `.github/workflows/publish.yml` has three jobs. `pack` (read-only token)
+refuses a commit that is not on main and a package whose version differs from the tag, builds with every install's
+scripts off and packs every package as it will be published (`npm run publish:packages -- --pack-into <dir> <dirs>`,
+root build order, plus `provenance.json`: the commits of this repository, TODL and todl-runtime and the Mural version).
+`test` builds and tests as `ci.yml` does. `publish` (environment `packages`, no GITHUB_TOKEN permission) waits for
+both, checks nothing out and runs no repository code: it publishes those tarballs in order with
+`PACKAGES_PUBLISH_TOKEN`, a write:packages token held only as a secret of the `packages` environment, and skips a
+version already published, so it can be re-run.

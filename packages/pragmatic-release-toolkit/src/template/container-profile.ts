@@ -89,8 +89,6 @@ export class ContainerProfiles
     private static readonly PlatformEdgeRefusal = 'PRAGMATIC_EDGE_ADMIN_URL must be'
     /** The gateway stops on its missing TLS files. */
     private static readonly EnvGatewayRefusal = 'are required for the gateway'
-    /** The unpacker prints one fixed sentence for any failure, a missing input included. */
-    private static readonly UiUnpackRefusal = 'pragmatic-ui-unpack: failed'
     private static readonly PlatformAdminDockerIgnore: readonly string[] = [
         '# Local dev data and generated seed secrets never enter the build context.',
         'src/data',
@@ -126,6 +124,10 @@ export class ContainerProfiles
         'docker/master.key',
         'docker/*.key',
         'docker/tls/',
+    ]
+    private static readonly TenantIdpDockerIgnore: readonly string[] = [
+        '# Dev runs (tsx) write the IdP\'s keys and secrets into data/: never in the build context.',
+        'data',
     ]
     private static readonly TenantIdpGitIgnore: readonly string[] = [
         '# Dev runs (tsx) write the IdP\'s keys and secrets into a data folder beside the sources.',
@@ -181,12 +183,11 @@ export class ContainerProfiles
             Kind: ContainerKind.Node, MultiArch: true, AptPackages: ContainerProfiles.OpenSsl, ProvisioningTools: false, Env: [], Ports: [ContainerProfiles.IdpPort],
             Healthcheck: { Scheme: HealthScheme.Https, PortVariable: ContainerProfiles.IdpPortVariable, DefaultPort: ContainerProfiles.IdpPort, Insecure: true },
             ImageTest: false, StartSmoke: true, HelmChart: ContainerProfiles.NoChart, ClosureCheck: true, VersionManifest: ContainerProfiles.RootManifest,
-            GitIgnore: ContainerProfiles.TenantIdpGitIgnore,
+            DockerIgnore: ContainerProfiles.TenantIdpDockerIgnore, GitIgnore: ContainerProfiles.TenantIdpGitIgnore,
         }],
         [ReleaseApp.UiUnpack, {
             Kind: ContainerKind.Node, MultiArch: false, AptPackages: ContainerProfiles.None, ProvisioningTools: false, Env: [], Ports: [],
             ImageTest: false, StartSmoke: true, HelmChart: ContainerProfiles.NoChart, ClosureCheck: true, VersionManifest: ContainerProfiles.RootManifest,
-            StartSmokeRefusal: ContainerProfiles.UiUnpackRefusal,
         }],
         [ReleaseApp.Postgres, {
             Kind: ContainerKind.ExternalDockerfile, MultiArch: true, AptPackages: ContainerProfiles.None, ProvisioningTools: false, Env: [], Ports: [],

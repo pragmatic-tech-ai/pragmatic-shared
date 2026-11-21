@@ -49,7 +49,7 @@ class SigningFixture
     public static readonly TenantId = 'acme'
     public static readonly EnvName = 'dev1'
     public static readonly EnvId = 'dev1-id'
-    public static readonly ServerImage = 'pragmatic-server:dev'
+    public static readonly ServerImage = EnvironmentWorkloadFactory.ServerImage
     public static readonly Registry = 'reg.local:5000'
     public static readonly Slash = '/'
     public static readonly ApplyRefused = 'apply refused (the test stops here)'

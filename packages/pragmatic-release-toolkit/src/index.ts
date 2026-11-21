@@ -41,4 +41,6 @@ export { ContainerTemplateError, ContainerTemplate } from './template/container-
 export type { ContainerTemplateOptions, ContainerAsset } from './template/container-template.js';
 export { ContainerWorkspaces } from './template/container-workspaces.js';
 export { ContainerTemplateCli } from './template/container-template-cli.js';
+export { ContainerRenderArgs } from './template/container-render-args.js';
+export type { ContainerRenderArgsField } from './template/container-render-args.js';
 export { ContainerComponentSource } from './template/container-component-source.js';

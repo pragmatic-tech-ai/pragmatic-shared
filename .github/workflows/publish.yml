@@ -1,18 +1,20 @@
 # Publishes every package of the workspace to GitHub Packages: on a pushed tag v<version> (the version every package
-# carries, committed on main before the tag) or on demand from main or a tag. Two jobs:
-# - `test` (read-only token): the commit must be on main and every package must carry the tag's version; builds and
-#   tests in the layout ci.yml uses (todl-runtime and TODL cloned and built beside it, Mural unpacked from GitHub
-#   Packages, one todl-runtime), then packs every package as it will be published (tools/publish-packages.ts
-#   --pack-into, root build order) with provenance.json (the commits and the Mural version it was built from), and
-#   uploads them as the `packages` artifact.
-# - `publish` (packages: write, environment `packages`): checks nothing out and runs no repository code; it publishes
-#   the packed tarballs in order and skips a version already on the registry, so a re-run finishes a partial publish.
-# One publish at a time, whatever the ref (concurrency group `publish`): every run writes the same packages. A run
-# from workflow_dispatch publishes only a commit that a `v<version>` tag names. The artifact is kept 7 days: a failed
-# publish job can be re-run alone within that time, after it the whole workflow. If the `packages` environment gets
-# deployment protection, its branch and tag rule must allow `v*` tags (and main). No other secret is read; a 403 from
-# GitHub Packages means the package does not grant this repository write access (package settings, Manage Actions
-# access).
+# carries, committed on main before the tag) or on demand from main or a tag. Three jobs:
+# - `pack` (read-only token): the commit must be on main, every package must carry one version, the one the tag names
+#   (a run on demand: the version a `v<version>` tag on the commit names). It builds the layout ci.yml uses
+#   (todl-runtime and TODL cloned and built beside it, Mural unpacked from GitHub Packages, one todl-runtime) with every
+#   install's scripts off, packs every package as it will be published (tools/publish-packages.ts --pack-into, root
+#   build order) with provenance.json (the commits and the Mural version it was built from), and uploads them as the
+#   `packages` artifact. Nothing but the build itself runs in this job, so no test code shapes the tarballs.
+# - `test` (read-only token): the full build and the tests, as ci.yml runs them; the publish waits for it.
+# - `publish` (environment `packages`, no GITHUB_TOKEN permission): checks nothing out and runs no repository code; it
+#   publishes the packed tarballs in order with PACKAGES_PUBLISH_TOKEN, a write:packages token held only as a secret of
+#   the `packages` environment (so no other workflow or branch can publish with it), and skips a version already on
+#   the registry, so a re-run finishes a partial publish. Without that secret the job fails; it never falls back to
+#   the run's GITHUB_TOKEN.
+# One publish at a time, whatever the ref (concurrency group `publish`): every run writes the same packages. The
+# artifact is kept 7 days: a failed publish job can be re-run alone within that time, after it the whole workflow. The
+# `packages` environment's deployment rule must allow `v*` tags (and main, for a run on demand).
 name: publish
 on:
   push:
@@ -22,7 +24,7 @@ concurrency:
   group: publish
   cancel-in-progress: false
 jobs:
-  test:
+  pack:
     if: github.ref_type == 'tag' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
@@ -71,6 +73,86 @@ jobs:
           PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           (umask 077 && printf 'registry=https://registry.npmjs.org/\n@pragmatic-tech-ai:registry=https://npm.pkg.github.com\n//npm.pkg.github.com/:_authToken=%s\n' "$PACKAGES_TOKEN" > ~/.npmrc)
+      - name: Build todl-runtime (install scripts off)
+        working-directory: ${{ github.workspace }}/todl-runtime
+        run: npm install --ignore-scripts --no-audit --no-fund && npm run build
+      - name: Mural from GitHub Packages
+        working-directory: ${{ github.workspace }}
+        run: |
+          version=$(npm view @pragmatic-tech-ai/mural version)
+          npm pack "@pragmatic-tech-ai/mural@$version" --silent
+          mkdir Mural
+          tar -xzf pragmatic-tech-ai-mural-"$version".tgz -C Mural --strip-components=1
+          (cd Mural && npm install --omit=dev --ignore-scripts --no-package-lock --no-audit --no-fund)
+      # TODL's build compiles its .mu modules with the mural CLI, which it finds in its own node_modules: the peer is
+      # the unpacked Mural, linked in after TODL's install.
+      - name: Build TODL against the unpacked Mural (install scripts off)
+        working-directory: ${{ github.workspace }}/TODL
+        run: |
+          npm install --ignore-scripts --no-audit --no-fund
+          rm -rf node_modules/@pragmatic-tech-ai/mural
+          mkdir -p node_modules/@pragmatic-tech-ai
+          ln -s ../../../Mural node_modules/@pragmatic-tech-ai/mural
+          npm run build
+      - name: One todl-runtime in the workspace
+        working-directory: ${{ github.workspace }}
+        run: |
+          for consumer in TODL Mural; do
+            rm -rf "$consumer/node_modules/@pragmatic-tech-ai/todl-runtime"
+            mkdir -p "$consumer/node_modules/@pragmatic-tech-ai"
+            ln -s ../../../todl-runtime "$consumer/node_modules/@pragmatic-tech-ai/todl-runtime"
+          done
+      - name: Install (install scripts off)
+        working-directory: ${{ github.workspace }}/pragmatic-shared
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Build
+        working-directory: ${{ github.workspace }}/pragmatic-shared
+        run: npm run build
+      - name: Pack every package in build order, with its provenance
+        working-directory: ${{ github.workspace }}/pragmatic-shared
+        run: |
+          order="$(node -e "const s = require('./package.json').scripts.build; console.log([...s.matchAll(/-w (packages\/[a-z0-9-]+)/g)].map(m => m[1]).join(' '))")"
+          # shellcheck disable=SC2086
+          npm run publish:packages -- --pack-into "$RUNNER_TEMP/bundle" $order
+          jq -n --arg shared "$GITHUB_SHA" --arg todl "$(git -C ../TODL rev-parse HEAD)" --arg runtime "$(git -C ../todl-runtime rev-parse HEAD)" \
+            --arg mural "$(node -p "require('../Mural/package.json').version")" \
+            '{ "pragmatic-shared": $shared, "TODL": $todl, "todl-runtime": $runtime, "mural": $mural }' > "$RUNNER_TEMP/bundle/provenance.json"
+          cat "$RUNNER_TEMP/bundle/provenance.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: packages
+          path: ${{ runner.temp }}/bundle
+          retention-days: 7
+          if-no-files-found: error
+          overwrite: true
+      - name: Remove credentials
+        if: always()
+        run: rm -f ~/.npmrc
+  test:
+    if: github.ref_type == 'tag' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          path: pragmatic-shared
+          persist-credentials: false
+      - name: Clone siblings
+        working-directory: ${{ github.workspace }}
+        run: |
+          for pair in todl-runtime:todl-runtime todl:TODL; do
+            git clone --depth 1 "https://github.com/pragmatic-tech-ai/${pair%%:*}.git" "${pair#*:}"
+          done
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Configure GitHub Packages auth (read)
+        env:
+          PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          (umask 077 && printf 'registry=https://registry.npmjs.org/\n@pragmatic-tech-ai:registry=https://npm.pkg.github.com\n//npm.pkg.github.com/:_authToken=%s\n' "$PACKAGES_TOKEN" > ~/.npmrc)
       - name: Build todl-runtime
         working-directory: ${{ github.workspace }}/todl-runtime
         run: npm install --no-audit --no-fund && npm run build
@@ -82,8 +164,6 @@ jobs:
           mkdir Mural
           tar -xzf pragmatic-tech-ai-mural-"$version".tgz -C Mural --strip-components=1
           (cd Mural && npm install --omit=dev --ignore-scripts --no-package-lock --no-audit --no-fund)
-      # TODL's build compiles its .mu modules with the mural CLI, which it finds in its own node_modules: the peer is
-      # the unpacked Mural, linked in after TODL's install.
       - name: Build TODL against the unpacked Mural
         working-directory: ${{ github.workspace }}/TODL
         run: |
@@ -109,33 +189,23 @@ jobs:
       - name: Test
         working-directory: ${{ github.workspace }}/pragmatic-shared
         run: npm test --workspaces && npm run test:tools
-      - name: Pack every package in build order, with its provenance
-        working-directory: ${{ github.workspace }}/pragmatic-shared
-        run: |
-          order="$(node -e "const s = require('./package.json').scripts.build; console.log([...s.matchAll(/-w (packages\/[a-z0-9-]+)/g)].map(m => m[1]).join(' '))")"
-          # shellcheck disable=SC2086
-          npm run publish:packages -- --pack-into "$RUNNER_TEMP/bundle" $order
-          jq -n --arg shared "$GITHUB_SHA" --arg todl "$(git -C ../TODL rev-parse HEAD)" --arg runtime "$(git -C ../todl-runtime rev-parse HEAD)" \
-            --arg mural "$(node -p "require('../Mural/package.json').version")" \
-            '{ "pragmatic-shared": $shared, "TODL": $todl, "todl-runtime": $runtime, "mural": $mural }' > "$RUNNER_TEMP/bundle/provenance.json"
-          cat "$RUNNER_TEMP/bundle/provenance.json"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: packages
-          path: ${{ runner.temp }}/bundle
-          retention-days: 7
-          if-no-files-found: error
-          overwrite: true
       - name: Remove credentials
         if: always()
         run: rm -f ~/.npmrc
   publish:
-    needs: test
+    needs: [pack, test]
     runs-on: ubuntu-latest
     environment: packages
-    permissions:
-      packages: write
+    permissions: {}
     steps:
+      - name: The packages environment holds the publish token
+        env:
+          PACKAGES_PUBLISH_TOKEN: ${{ secrets.PACKAGES_PUBLISH_TOKEN }}
+        run: |
+          if [ -z "$PACKAGES_PUBLISH_TOKEN" ]; then
+            echo '::error::PACKAGES_PUBLISH_TOKEN is not a secret of the packages environment: nothing is published (no fallback to GITHUB_TOKEN)'
+            exit 1
+          fi
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
@@ -143,11 +213,11 @@ jobs:
         with:
           name: packages
           path: ${{ runner.temp }}/bundle
-      - name: Configure GitHub Packages auth (write)
+      - name: Configure GitHub Packages auth (publish)
         env:
-          PACKAGES_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PACKAGES_PUBLISH_TOKEN: ${{ secrets.PACKAGES_PUBLISH_TOKEN }}
         run: |
-          (umask 077 && printf '@pragmatic-tech-ai:registry=https://npm.pkg.github.com\n//npm.pkg.github.com/:_authToken=%s\n' "$PACKAGES_TOKEN" > ~/.npmrc)
+          (umask 077 && printf '@pragmatic-tech-ai:registry=https://npm.pkg.github.com\n//npm.pkg.github.com/:_authToken=%s\n' "$PACKAGES_PUBLISH_TOKEN" > ~/.npmrc)
       - name: Publish the packed tarballs in order
         working-directory: ${{ runner.temp }}/bundle
         run: |

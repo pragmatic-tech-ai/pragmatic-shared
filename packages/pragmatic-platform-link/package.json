@@ -1,6 +1,6 @@
 {
   "name": "@pragmatic-tech-ai/pragmatic-platform-link",
-  "version": "0.17.5",
+  "version": "0.17.6",
   "license": "Apache-2.0",
   "description": "The link between the platform edge and the platform admin console: the internal API routes, client and link, the agent channel backend contract and host, the desktop discovery contract and endpoint, and the HTTP helpers both planes share.",
   "repository": {
@@ -31,7 +31,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@pragmatic-tech-ai/pragmatic-app-host": "0.17.5"
+    "@pragmatic-tech-ai/pragmatic-app-host": "0.17.6"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",

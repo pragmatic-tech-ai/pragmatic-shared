@@ -110,6 +110,15 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.PACKAGES_TOKEN }}
         run: npm ci --no-audit --no-fund
+      # The repository's rendered files (Dockerfile, bake file, ignore files, tsconfigs, caller workflows, package.json's
+      # two fields) are what its installed toolkit renders from package.json `pragmaticContainerTemplate`.
+      - name: Rendered files match the template
+        run: |
+          if node -e "process.exit(require('./package.json').pragmaticContainerTemplate ? 0 : 1)"; then
+            npx pragmatic-container-template check
+          else
+            echo '::warning::package.json has no pragmaticContainerTemplate: the rendered files are not checked against the template'
+          fi
       - name: Build
         if: inputs.node
         run: npm run build

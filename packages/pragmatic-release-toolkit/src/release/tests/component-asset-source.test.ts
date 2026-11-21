@@ -15,7 +15,9 @@ class FakeGitHub
     public static readonly Commit = '0123456789abcdef0123456789abcdef01234567'
     public static readonly AssetApiUrl = FakeGitHub.Api + '/repos/pragmatic-tech-ai/pragmatic-ui-unpack/releases/assets/42'
     public static readonly ReleaseUrl = FakeGitHub.Api + '/repos/pragmatic-tech-ai/pragmatic-ui-unpack/releases/tags/v0.1.0'
-    public static readonly CommitUrl = FakeGitHub.Api + '/repos/pragmatic-tech-ai/pragmatic-ui-unpack/commits/v0.1.0'
+    public static readonly CommitUrl = FakeGitHub.Api + '/repos/pragmatic-tech-ai/pragmatic-ui-unpack/git/ref/tags/v0.1.0'
+    public static readonly TagObject = 'fedcba9876543210fedcba9876543210fedcba98'
+    public static readonly TagObjectUrl = FakeGitHub.Api + '/repos/pragmatic-tech-ai/pragmatic-ui-unpack/git/tags/' + FakeGitHub.TagObject
     public static readonly AssetBytes = new TextEncoder().encode('{"component":"pragmatic-ui-unpack","version":"0.1.0"}')
     public static readonly Authorization = 'Authorization'
 
@@ -27,7 +29,7 @@ class FakeGitHub
         this.Routes.set(FakeGitHub.ReleaseUrl, () => FakeGitHub.Json({ assets: [{ name: 'digest.txt', url: FakeGitHub.Api + '/x' }, { name: 'component.json', url: FakeGitHub.AssetApiUrl }] }))
         this.Routes.set(FakeGitHub.AssetApiUrl, () => new Response(null, { status: 302, headers: { location: FakeGitHub.Download } }))
         this.Routes.set(FakeGitHub.Download, () => new Response(FakeGitHub.AssetBytes as BodyInit, { status: 200 }))
-        this.Routes.set(FakeGitHub.CommitUrl, () => new Response(FakeGitHub.Commit + '\n', { status: 200 }))
+        this.Routes.set(FakeGitHub.CommitUrl, () => FakeGitHub.Json({ ref: 'refs/tags/v0.1.0', object: { type: 'commit', sha: FakeGitHub.Commit } }))
     }
 
     public static Json(value: unknown, status: number = 200): Response
@@ -124,25 +126,38 @@ describe('GitHubComponentAssetSource', () =>
         const fetch: GitHubFetch = async (url, init) =>
         {
             seen.push({ Url: url, Init: init })
-            return url.endsWith('/commits/v0.1.0') ? new Response(FakeGitHub.Commit, { status: 200 }) : new Response(null, { status: 404 })
+            return url.endsWith('/git/ref/tags/v0.1.0') ? FakeGitHub.Json({ object: { type: 'commit', sha: FakeGitHub.Commit } }) : new Response(null, { status: 404 })
         }
         const source = new GitHubComponentAssetSource(fetch, FakeGitHub.Token, base)
         assert.equal(await source.ReleaseCommit(FakeGitHub.Repository, FakeGitHub.Version), FakeGitHub.Commit)
-        assert.equal(seen[0].Url, 'https://ghes.test/api/v3/repos/pragmatic-tech-ai/pragmatic-ui-unpack/commits/v0.1.0')
+        assert.equal(seen[0].Url, 'https://ghes.test/api/v3/repos/pragmatic-tech-ai/pragmatic-ui-unpack/git/ref/tags/v0.1.0')
         assert.equal(seen[0].Init.headers[FakeGitHub.Authorization], 'Bearer ' + FakeGitHub.Token)
     })
 
-    it('reads the commit tag v<version> names, undefined for a tag GitHub does not know', async () =>
+    it('reads the commit the tag ref v<version> names (never a branch of that name), undefined for a tag GitHub does not know', async () =>
     {
         const github = new FakeGitHub()
         const source = github.Source(FakeGitHub.Token)
         assert.equal(await source.ReleaseCommit(FakeGitHub.Repository, FakeGitHub.Version), FakeGitHub.Commit)
-        assert.equal(github.Seen[0].Init.headers.Accept, 'application/vnd.github.sha')
+        assert.equal(github.Seen[0].Url, FakeGitHub.CommitUrl)
+        assert.equal(github.Seen[0].Init.headers.Accept, 'application/vnd.github+json')
         assert.equal(await source.ReleaseCommit(FakeGitHub.Repository, '9.9.9'), undefined)
-        github.Routes.set(FakeGitHub.CommitUrl, () => new Response(null, { status: 422 }))
-        assert.equal(await source.ReleaseCommit(FakeGitHub.Repository, FakeGitHub.Version), undefined)
-        github.Routes.set(FakeGitHub.CommitUrl, () => new Response('main', { status: 200 }))
-        await assert.rejects(source.ReleaseCommit(FakeGitHub.Repository, FakeGitHub.Version), ComponentAssetUnavailableError)
+        for (const bad of [{ object: { type: 'commit', sha: 'main' } }, { object: { type: 'tree', sha: FakeGitHub.Commit } }, { object: 'x' }, [{ ref: 'refs/tags/v0.1.0-rc' }]])
+        {
+            github.Routes.set(FakeGitHub.CommitUrl, () => FakeGitHub.Json(bad))
+            await assert.rejects(source.ReleaseCommit(FakeGitHub.Repository, FakeGitHub.Version), ComponentAssetUnavailableError, JSON.stringify(bad))
+        }
+    })
+
+    it('dereferences an annotated tag to its commit, and refuses a chain that never reaches one', async () =>
+    {
+        const github = new FakeGitHub()
+        github.Routes.set(FakeGitHub.CommitUrl, () => FakeGitHub.Json({ object: { type: 'tag', sha: FakeGitHub.TagObject } }))
+        github.Routes.set(FakeGitHub.TagObjectUrl, () => FakeGitHub.Json({ object: { type: 'commit', sha: FakeGitHub.Commit } }))
+        assert.equal(await github.Source().ReleaseCommit(FakeGitHub.Repository, FakeGitHub.Version), FakeGitHub.Commit)
+        assert.deepEqual(github.Seen.map(s => s.Url), [FakeGitHub.CommitUrl, FakeGitHub.TagObjectUrl])
+        github.Routes.set(FakeGitHub.TagObjectUrl, () => FakeGitHub.Json({ object: { type: 'tag', sha: FakeGitHub.TagObject } }))
+        await assert.rejects(github.Source().ReleaseCommit(FakeGitHub.Repository, FakeGitHub.Version), ComponentAssetUnavailableError)
     })
 
     it('refuses a repository that is not <owner>/<name> before any request, and a fetch that throws as unreachable', async () =>

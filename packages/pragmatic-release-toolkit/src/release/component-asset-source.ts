@@ -30,8 +30,9 @@ export type GitHubFetch = (url: string, init: GitHubRequestInit) => Promise<Resp
  * IComponentAssetSource over the GitHub REST API (an injectable fetch seam). The release is read by tag
  * (`/repos/<repository>/releases/tags/v<version>`), the asset by its API URL as an octet stream: the API answers with a
  * redirect to the download host, which is followed by hand and without the token, so the token is only ever sent to the
- * API origin. The commit is `/repos/<repository>/commits/v<version>` as a bare sha. An optional token lifts the anonymous
- * rate limit (and reads private repositories). Imports only node builtins.
+ * API origin. The commit is the one the tag ref `/repos/<repository>/git/ref/tags/v<version>` names (an annotated tag
+ * followed through `/git/tags/<sha>`). An optional token lifts the anonymous rate limit (and reads private repositories).
+ * Imports only node builtins.
  */
 export class GitHubComponentAssetSource implements IComponentAssetSource
 {
@@ -43,7 +44,12 @@ export class GitHubComponentAssetSource implements IComponentAssetSource
     private static readonly TagPrefix = 'v'
     private static readonly ReposPath = '/repos/'
     private static readonly ReleaseByTagPath = '/releases/tags/'
-    private static readonly CommitsPath = '/commits/'
+    private static readonly TagRefPath = '/git/ref/tags/'
+    private static readonly TagObjectPath = '/git/tags/'
+    private static readonly CommitType = 'commit'
+    private static readonly TagType = 'tag'
+    /** Annotated tags may point at tags; past this many hops the chain is not a release tag. */
+    private static readonly MaxTagHops = 4
     private static readonly PathSeparator = '/'
     private static readonly MethodGet = 'GET'
     private static readonly AcceptHeader = 'Accept'
@@ -54,7 +60,6 @@ export class GitHubComponentAssetSource implements IComponentAssetSource
     private static readonly ContentLengthHeader = 'content-length'
     private static readonly TrailingSlashes = /\/+$/
     private static readonly JsonType = 'application/vnd.github+json'
-    private static readonly ShaType = 'application/vnd.github.sha'
     private static readonly OctetStream = 'application/octet-stream'
     private static readonly ApiVersion = '2022-11-28'
     private static readonly UserAgent = 'pragmatic-release-toolkit'
@@ -63,8 +68,6 @@ export class GitHubComponentAssetSource implements IComponentAssetSource
     private static readonly RedirectManual = 'manual'
     private static readonly StatusOk = 200
     private static readonly StatusNotFound = 404
-    /** GitHub answers 422 for a commit ref that names nothing. */
-    private static readonly StatusUnprocessable = 422
     private static readonly RedirectStatuses: ReadonlySet<number> = new Set([301, 302, 303, 307, 308])
     private static readonly CommitPattern = /^[0-9a-f]{40}$/
     private static readonly RepositoryPattern = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/
@@ -114,22 +117,54 @@ export class GitHubComponentAssetSource implements IComponentAssetSource
         return this.Download(assetUrl)
     }
 
+    /**
+     * The commit of the tag ref `refs/tags/v<version>` (never a branch or a commit of that name): the ref names a commit,
+     * or an annotated tag object followed to the commit it names.
+     */
     public async ReleaseCommit(repository: string, version: string): Promise<string | undefined>
     {
         const S = GitHubComponentAssetSource
-        const response = await this.Get(this.RepoUrl(repository) + S.CommitsPath + S.TagOf(version), S.ShaType)
-        if (response.status === S.StatusNotFound || response.status === S.StatusUnprocessable)
+        const repo = this.RepoUrl(repository)
+        const response = await this.Get(repo + S.TagRefPath + S.TagOf(version), S.JsonType)
+        if (response.status === S.StatusNotFound)
         {
             await S.Drain(response)
             return undefined
         }
         await S.Expect(response, S.StatusOk)
-        const sha = (await S.ReadText(response)).trim()
-        if (!S.CommitPattern.test(sha))
+        let target = S.ObjectOf(await S.ReadJson(response))
+        for (let hop = 0; target.Type === S.TagType; hop++)
+        {
+            if (hop >= S.MaxTagHops)
+            {
+                throw new ComponentAssetUnavailableError(S.UnreadableMessage)
+            }
+            const tag = await this.Get(repo + S.TagObjectPath + target.Sha, S.JsonType)
+            await S.Expect(tag, S.StatusOk)
+            target = S.ObjectOf(await S.ReadJson(tag))
+        }
+        if (target.Type !== S.CommitType)
         {
             throw new ComponentAssetUnavailableError(S.UnreadableMessage)
         }
-        return sha
+        return target.Sha
+    }
+
+    /** The `object` of a git ref or tag: its type and a 40-hex sha; anything else is unreadable. */
+    private static ObjectOf(value: unknown): { Type: string; Sha: string }
+    {
+        const S = GitHubComponentAssetSource
+        const object = typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as { object?: unknown }).object : undefined
+        if (typeof object !== 'object' || object === null)
+        {
+            throw new ComponentAssetUnavailableError(S.UnreadableMessage)
+        }
+        const { type, sha } = object as { type?: unknown; sha?: unknown }
+        if (typeof type !== 'string' || typeof sha !== 'string' || !S.CommitPattern.test(sha))
+        {
+            throw new ComponentAssetUnavailableError(S.UnreadableMessage)
+        }
+        return { Type: type, Sha: sha }
     }
 
     /** The asset bytes: the API's redirect is followed once, by hand, to an https download URL that gets no token. */
@@ -286,18 +321,6 @@ export class GitHubComponentAssetSource implements IComponentAssetSource
         catch
         {
             throw new ComponentAssetUnavailableError(GitHubComponentAssetSource.UnreadableMessage)
-        }
-    }
-
-    private static async ReadText(response: Response): Promise<string>
-    {
-        try
-        {
-            return await response.text()
-        }
-        catch
-        {
-            throw new ComponentAssetUnavailableError(GitHubComponentAssetSource.UnreachableMessage)
         }
     }
 

@@ -44,7 +44,10 @@ The platform release toolkit, lifted from pragmatic-server by the container spli
   `GitIgnore`: lines appended after the profile's, `#` comments allowed), filled from `templates/container` with the per-app facts of `ContainerProfiles`
   (ports, health check, apt packages, environment, multi-arch, image test, start smoke and its refusal pattern,
   `legacy-peer-deps`, the repository's own `.dockerignore` / `.gitignore` lines, Helm chart, the closure check, the
-  manifest the release version comes from), so a re-render reproduces the repository's files. The command reads the npm workspaces from
+  manifest the release version comes from), so a re-render reproduces the repository's files. `render` also writes
+  its arguments into the repository's package.json field `pragmaticContainerTemplate` (`ContainerRenderArgs`);
+  `render --out .` alone re-renders from it, and `pragmatic-container-template check [--out <dir>]` names every
+  committed file that differs from a fresh render (exit 1), which container-ci.yml runs after the install. The command reads the npm workspaces from
   `<out>/package.json` (`ContainerWorkspaces`: folders and `<dir>/*`) and merges the `pragmaticClosureCheck` field into
   it (printing it while there is no package.json). It renders `Dockerfile` (stages `deps` (the manifests and lock, then
   `npm ci`) → `compile` (the tree, the build, the assets, the UIs, the closure check) → `component-set` / `components` →
@@ -63,7 +66,8 @@ The platform release toolkit, lifted from pragmatic-server by the container spli
   renders it for every Node app: `scripts/start-smoke.sh` starts the baked image once with no configuration and
   `start-smoke-args`; a module-resolution error, or a non-zero exit whose output does not match `start-smoke-refusal`
   (default `is required|required environment|must be set`), fails; still running after 20 s passes),
-  `start-smoke-args`, `start-smoke-refusal`; the repository's `typecheck` script runs after the build when it has one; secret
+  `start-smoke-args`, `start-smoke-refusal`; the rendered files are checked against the template when package.json
+  has `pragmaticContainerTemplate`; the repository's `typecheck` script runs after the build when it has one; secret
   `PACKAGES_TOKEN`, absent on a fork's pull request, which then skips with a warning) and `container-release.yml` (on the caller's `v<semver>` tag, equal to
   the version of input `version-manifest`; build and test, per-arch bake pushed by digest, `imagetools` join under
   `:<version>` and `:git-<sha>`, output `digest`, `component.json` and `digest.txt` on the tag's GitHub release). The
