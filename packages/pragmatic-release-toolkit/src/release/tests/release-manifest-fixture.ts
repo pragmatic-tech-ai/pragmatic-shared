@@ -1,3 +1,4 @@
+import { ComponentDescriptorBuilder } from '@pragmatic-tech-ai/pragmatic-component'
 import { OciRegistryClient } from '../../oci-registry-client.js'
 import { FakeOciRegistry } from '../../tests/fake-oci-registry.js'
 import { FakeImageLayout, FakeReleaseImage } from '../../tests/fake-release-image.js'
@@ -85,10 +86,11 @@ export class ReleaseWorld
         return ReleaseWorld.Namespace + ReleaseWorld.PathSeparator + app
     }
 
-    /** A component descriptor as a container release attaches it (`component`, `version`, then its content). */
+    /** A component descriptor as a container release attaches it: the canonical JSON of a real descriptor (`component`,
+     *  `version` and its content), so the release's carried descriptors decode. */
     public static AssetOf(app: string, version: string): Uint8Array
     {
-        return new TextEncoder().encode(JSON.stringify({ component: app, version, settings: [] }))
+        return new TextEncoder().encode(new ComponentDescriptorBuilder(app, version).Build().ToCanonicalJson())
     }
 
     /** A stable 40-hex commit per app. */

@@ -16,7 +16,10 @@ The platform release toolkit, lifted from pragmatic-server by the container spli
   (check only) and `PublishManifest` (schema-2 descriptor: the manifest's digests, the labelled component digests,
   `siblingCommits` = each container repository's tag commit, `serverCommit` = the release repository's commit; every
   image is tagged `release-<version>` (`ReleaseManifest.ImageTagOf`, apart from a container release's `<version>`
-  tags), then the descriptor is pushed last; a stopped publish is re-run as is), and the commands
+  tags), the component descriptors the images carry (the repositories' `component.json` assets) are pushed as
+  `pragmatic-release:components-<version>` (`ReleaseComponentsArtifact`: one layer per app, media type
+  `application/vnd.pragmatic.component.v1+json`, title `<app>.json`; the release descriptor itself stays a single-layer
+  artifact), then the descriptor is pushed last; a stopped publish is re-run as is), and the commands
   `pragmatic-release-publish assemble --manifest <path>` (refuses a published version, prints each problem, exit 1 on
   any) and `publish --manifest <path> --key-id <id> [--trust-dir <dir>] [--release-commit <sha>]` (default
   `GITHUB_SHA`; the signing key from the file `RELEASE_SIGNING_KEY_FILE` names; component assets read with
@@ -27,7 +30,11 @@ The platform release toolkit, lifted from pragmatic-server by the container spli
   `scripts/check-component-label.sh <image>...` (the image's `/pragmatic/component.json` hashes to its label) and
   `scripts/start-smoke.sh <image>` (container-ci.yml's start smoke).
 - UI artifacts: `UiArtifact`, `UiArtifactSigner` / `UiArtifactVerifier`.
-- component descriptors: `ComponentDescriptorSet` (a vendored, digest-pinned set), `ComponentDescriptorCli` over the
+- component descriptors: `ReleaseComponentDescriptors(registry, trust).Descriptors(version)` (the set a published
+  release carries, its descriptor's signature checked against the trusted keys and every layer against the signed
+  `componentDigest`; `ReleaseDescriptorMismatchError(app, signed, actual)`, `ReleaseDescriptorsAbsentError` for a release
+  published before the descriptors were, `ReleaseDescriptorUnverifiedError`), `OciRegistryClient.PushLayeredArtifact` /
+  `PullArtifactLayers`, `ComponentDescriptorSet` (a vendored, digest-pinned set), `ComponentDescriptorCli` over the
   caller's `IReleaseComponentSource`, and its command `pragmatic-component-descriptors --components <module> emit-all
   | emit | vendor` (the module exports `Components`).
 - the image closure check: `ClosureCheck` and the command `pragmatic-closure-check [<workspace root>]`, run in the

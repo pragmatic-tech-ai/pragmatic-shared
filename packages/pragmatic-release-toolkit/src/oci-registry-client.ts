@@ -4,6 +4,12 @@ export type OciRequestInit = { method: string; headers?: Record<string, string>;
 
 export type OciFetch = (url: string, init: OciRequestInit) => Promise<Response>
 
+/** One layer of a multi-layer artifact: its media type, bytes and layer annotations (e.g. `org.opencontainers.image.title`). */
+export type OciArtifactLayer = { mediaType: string; bytes: Uint8Array; annotations: Record<string, string> }
+
+/** A layer as pulled: its digest checked against the bytes. */
+export type OciPulledLayer = OciArtifactLayer & { digest: string }
+
 /** Basic credential for a registry that issues bearer tokens (GHCR: GitHub user name + personal access token). */
 export type RegistryCredential = { username: string; token: string }
 
@@ -46,7 +52,7 @@ export class OciResponseError extends Error
 /** Which part of the content broke the protocol, so a caller can name the cause with its own fixed sentence. */
 export enum OciProtocolFault
 {
-    /** The manifest is not a single-layer artifact (bad JSON, no layer, several layers, a non-sha256 digest). */
+    /** The manifest is not the artifact shape asked for (bad JSON, a layer count the read does not take, a non-sha256 digest). */
     BadManifest = 'bad-manifest',
     /** The layer bytes do not hash to the digest the manifest names. */
     LayerMismatch = 'layer-mismatch',
@@ -501,6 +507,95 @@ export class OciRegistryClient
             annotations,
         }
         return this.PushManifest(repo, tag, encoder.encode(JSON.stringify(manifest)))
+    }
+
+    /**
+     * Pushes the empty config and every layer as blobs, then an OCI image manifest tagged `tag` listing the layers in order,
+     * each with its own annotations; returns the manifest digest.
+     */
+    public async PushLayeredArtifact(repo: string, tag: string, artifactType: string, layers: readonly OciArtifactLayer[], annotations: Record<string, string>): Promise<string>
+    {
+        const S = OciRegistryClient
+        const encoder = new TextEncoder()
+        const config = encoder.encode(S.EmptyConfigJson)
+        const configDigest = await this.PushBlob(repo, config)
+        const entries: { mediaType: string; digest: string; size: number; annotations: Record<string, string> }[] = []
+        for (const layer of layers)
+        {
+            entries.push({ mediaType: layer.mediaType, digest: await this.PushBlob(repo, layer.bytes), size: layer.bytes.length, annotations: layer.annotations })
+        }
+        const manifest = {
+            schemaVersion: S.ManifestSchemaVersion,
+            mediaType: S.ManifestMediaType,
+            artifactType,
+            config: { mediaType: S.EmptyConfigMediaType, digest: configDigest, size: config.length },
+            layers: entries,
+            annotations,
+        }
+        return this.PushManifest(repo, tag, encoder.encode(JSON.stringify(manifest)))
+    }
+
+    /**
+     * Pulls a multi-layer artifact: the manifest (validated in full first: every layer an object with a media type, a
+     * sha256 digest and string annotations) then each layer, each checked against its digest. Undefined when the tag
+     * does not exist.
+     */
+    public async PullArtifactLayers(repo: string, tag: string): Promise<{ layers: OciPulledLayer[]; annotations: Record<string, string> } | undefined>
+    {
+        const S = OciRegistryClient
+        if (await this.HeadManifest(repo, tag) === undefined)
+        {
+            return undefined
+        }
+        const manifestBytes = await this.PullManifest(repo, tag)
+        let manifest: unknown
+        try
+        {
+            manifest = JSON.parse(new TextDecoder().decode(manifestBytes))
+        }
+        catch
+        {
+            throw new OciProtocolError(S.BadManifestMessage, OciProtocolFault.BadManifest)
+        }
+        if (!S.IsPlainObject(manifest) || !Array.isArray(manifest.layers))
+        {
+            throw new OciProtocolError(S.BadManifestMessage, OciProtocolFault.BadManifest)
+        }
+        const annotations = manifest.annotations ?? {}
+        if (!S.IsStringMap(annotations))
+        {
+            throw new OciProtocolError(S.BadAnnotationsMessage, OciProtocolFault.BadAnnotations)
+        }
+        const listed: { mediaType: string; digest: string; annotations: Record<string, string> }[] = []
+        for (const layer of manifest.layers as unknown[])
+        {
+            if (!S.IsPlainObject(layer) || typeof layer.mediaType !== 'string' || typeof layer.digest !== 'string' || !S.DigestShape.test(layer.digest))
+            {
+                throw new OciProtocolError(S.BadManifestMessage, OciProtocolFault.BadManifest)
+            }
+            const layerAnnotations = layer.annotations ?? {}
+            if (!S.IsStringMap(layerAnnotations))
+            {
+                throw new OciProtocolError(S.BadAnnotationsMessage, OciProtocolFault.BadAnnotations)
+            }
+            listed.push({ mediaType: layer.mediaType, digest: layer.digest, annotations: layerAnnotations })
+        }
+        const layers: OciPulledLayer[] = []
+        for (const entry of listed)
+        {
+            const bytes = await this.PullBlob(repo, entry.digest)
+            if (S.DigestOf(bytes) !== entry.digest)
+            {
+                throw new OciProtocolError(S.LayerMismatchMessage, OciProtocolFault.LayerMismatch)
+            }
+            layers.push({ ...entry, bytes })
+        }
+        return { layers, annotations }
+    }
+
+    private static IsStringMap(value: unknown): value is Record<string, string>
+    {
+        return OciRegistryClient.IsPlainObject(value) && Object.values(value).every(v => typeof v === 'string')
     }
 
     /**

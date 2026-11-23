@@ -19,8 +19,8 @@ export class ComponentDescriptorSetDigestError extends Error
  * A digest-pinned set of other containers' component descriptors, read from a directory (`digests.json` = component →
  * content digest, and one `<component>.json` each, as the descriptor CLI emits them). A console reads the descriptors of
  * the components it configures from this set instead of importing their declaration classes, so no container's code
- * reaches another's (the split, dev-kit A3 Task 2); every file is checked against its pin at load. Until C3.1 has the
- * consoles read the descriptors a signed platform release carries.
+ * reaches another's (the split, dev-kit A3 Task 2); every file is checked against its pin at load. A signed platform
+ * release carries the same set (ReleaseComponentDescriptors), checked against the digests its signature binds.
  */
 export class ComponentDescriptorSet
 {
@@ -33,6 +33,12 @@ export class ComponentDescriptorSet
     private constructor(descriptors: readonly ComponentDescriptor[])
     {
         this.byName = new Map(descriptors.map(d => [d.Name, d]))
+    }
+
+    /** A set of descriptors already checked elsewhere (ReleaseComponentDescriptors checks each against its signed digest). */
+    public static FromDescriptors(descriptors: readonly ComponentDescriptor[]): ComponentDescriptorSet
+    {
+        return new ComponentDescriptorSet(descriptors)
     }
 
     public static FromDirectory(dir: string): ComponentDescriptorSet

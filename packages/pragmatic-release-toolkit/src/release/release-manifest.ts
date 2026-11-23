@@ -98,6 +98,8 @@ export type ReleaseManifestInspection = {
     readonly Problems: readonly ReleaseManifestProblem[]
     /** The component descriptor digest each app's image is labelled with (apps whose label was read). */
     readonly ComponentDigests: ReadonlyMap<ReleaseApp, string>
+    /** The `component.json` bytes of each app whose asset hashes to its image's label: the descriptor the release carries. */
+    readonly ComponentAssets: ReadonlyMap<ReleaseApp, Uint8Array>
     /** The commit of `v<version>` per repository name (the part after the owner), for the repositories that have the tag. */
     readonly Commits: ReadonlyMap<string, string>
 }
@@ -226,11 +228,12 @@ export class ReleaseManifest
         const S = ReleaseManifest
         const problems: ReleaseManifestProblem[] = []
         const componentDigests = new Map<ReleaseApp, string>()
+        const componentAssets = new Map<ReleaseApp, Uint8Array>()
         const commits = new Map<string, string>()
         for (const app of ReleaseApps.All)
         {
             const component = doc.components[app]
-            const kinds = await S.CheckImage(app, component, doc.version, registry, ReleaseRegistry.RepositoryPath(namespace, app), assets, componentDigests)
+            const kinds = await S.CheckImage(app, component, doc.version, registry, ReleaseRegistry.RepositoryPath(namespace, app), assets, componentDigests, componentAssets)
             const commit = await assets.ReleaseCommit(component.repository, component.version)
             if (commit !== undefined)
             {
@@ -247,7 +250,7 @@ export class ReleaseManifest
             }
             problems.push(...kinds.map(kind => ({ App: app, Kind: kind })))
         }
-        return { Problems: problems, ComponentDigests: componentDigests, Commits: commits }
+        return { Problems: problems, ComponentDigests: componentDigests, ComponentAssets: componentAssets, Commits: commits }
     }
 
     /**
@@ -269,7 +272,8 @@ export class ReleaseManifest
     }
 
     private static async CheckImage(app: ReleaseApp, component: ReleaseManifestComponent, releaseVersion: string, registry: OciRegistryClient,
-        repo: string, assets: IComponentAssetSource, componentDigests: Map<ReleaseApp, string>): Promise<ReleaseManifestProblemKind[]>
+        repo: string, assets: IComponentAssetSource, componentDigests: Map<ReleaseApp, string>,
+        componentAssets: Map<ReleaseApp, Uint8Array>): Promise<ReleaseManifestProblemKind[]>
     {
         const S = ReleaseManifest
         const kinds: ReleaseManifestProblemKind[] = []
@@ -319,6 +323,10 @@ export class ReleaseManifest
         if (label !== undefined && OciRegistryClient.DigestOf(asset) !== label)
         {
             kinds.push(ReleaseManifestProblemKind.AssetMismatch)
+        }
+        else if (label !== undefined)
+        {
+            componentAssets.set(app, asset)
         }
         return kinds
     }

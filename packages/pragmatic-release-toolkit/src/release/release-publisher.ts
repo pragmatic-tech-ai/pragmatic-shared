@@ -7,6 +7,7 @@ import { ReleaseRegistry } from './release-registry.js'
 import { ReleaseSignature } from './release-signature.js'
 import { ReleaseApps, ReleaseTag, type ReleaseApp } from './release-tag.js'
 import { ReleaseTrustKeys } from './release-trust-keys.js'
+import { ReleaseComponentsArtifact } from './release-components-artifact.js'
 
 /** The published descriptor and the digest of its encoded bytes (the layer digest the registry records and the signature covers). */
 export type ReleasePublishResult = { descriptor: ReleaseDescriptor; descriptorDigest: string }
@@ -137,7 +138,9 @@ export class ReleaseComponentMissingError extends Error
  * binds both. The descriptor is pushed last, so its existence means every image was present, labelled and signed.
  * `Publish` takes the images tagged with the release version (the monorepo release); `PublishManifest` takes them by
  * digest from a release manifest, checked first (`Assemble`), and tags each `release-<version>`
- * (ReleaseManifest.ImageTagOf; a container release tags `<version>`) before the descriptor is pushed. A publish that
+ * (ReleaseManifest.ImageTagOf; a container release tags `<version>`) and pushes the component descriptors the images
+ * carry (the repositories' `component.json` assets, ReleaseComponentsArtifact) before the descriptor is pushed; `Publish`
+ * (the retired monorepo path) pushes none, so its releases carry no descriptors. A publish that
  * stopped after some tags is re-run as is: a tag that already names the manifest digest passes the check and is put
  * again, and the version stays free until the descriptor push.
  */
@@ -256,6 +259,11 @@ export class ReleasePublisher
         {
             await this.registry.TagManifest(this.repo(app), input.Manifest.components[app].digest, ReleaseManifest.ImageTagOf(tag.Version))
         }
+        // The descriptors the release carries (ReleaseComponentsArtifact), before the descriptor: its existence means they
+        // are there too. Each layer is the component.json whose digest the descriptor signs as the image's componentDigest.
+        await this.registry.PushLayeredArtifact(this.repo(S.DescriptorRepository), ReleaseComponentsArtifact.TagOf(tag.Version),
+            ReleaseComponentsArtifact.ArtifactType, ReleaseComponentsArtifact.Layers(inspection.ComponentAssets, ReleaseApps.All),
+            { [ReleaseComponentsArtifact.VersionAnnotation]: tag.Version })
         // Again just before the push. A rival publish that pushes its descriptor between this check and the push below
         // can still overwrite it: the registry offers no conditional put, so two runs must not publish one version at
         // once (publish.yml and the release repository's workflow run one at a time).
