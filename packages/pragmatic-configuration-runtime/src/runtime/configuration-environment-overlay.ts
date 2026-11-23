@@ -51,6 +51,8 @@ export class ConfigurationEnvironmentOverlay
     private static readonly NameSeparator = '.';
     private static readonly CreateOnly = 'wx';
     private static readonly NotFound = 'ENOENT';
+    /** A path whose parent is a file: there is no directory, so nothing to empty (POSIX; Windows answers ENOENT). */
+    private static readonly NotDirectory = 'ENOTDIR';
     private static readonly Unwritable = 'cannot write the resolved secrets under';
     private static readonly NotEncodable = 'does not hold a value of its declared type';
 
@@ -159,7 +161,8 @@ export class ConfigurationEnvironmentOverlay
         }
         catch (error)
         {
-            if ((error as { code?: unknown }).code === O.NotFound) return;
+            const code = (error as { code?: unknown }).code;
+            if (code === O.NotFound || code === O.NotDirectory) return;
             throw error;
         }
         for (const name of names)
