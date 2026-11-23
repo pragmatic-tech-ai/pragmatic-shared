@@ -147,21 +147,31 @@ describe('KubectlHiveOrchestrator', () =>
         }
     })
 
-    it('Apply verifies the effective image and the manifest carries it', async () =>
+    it('Apply verifies the effective server and server-database images and the manifest carries them', async () =>
     {
         const { k, v, o } = Fixture.Make('localhost:5000/')
         await o.Apply(Fixture.Workload(true))
-        assert.deepEqual(v.verified, [['localhost:5000/srv:1', Fixture.Trust]])
-        assert.deepEqual(k.calls, [Fixture.FindNamespace, ['Apply', new K8sManifestBuilder().Render({ ...Fixture.Workload(true), image: 'localhost:5000/srv:1' })]])
+        assert.deepEqual(v.verified, [['localhost:5000/srv:1', Fixture.Trust], ['localhost:5000/pragmatic-postgres:local', Fixture.Trust]])
+        const w = Fixture.Workload(true)
+        const expected = { ...w, image: 'localhost:5000/srv:1', serverDatabase: { ...w.serverDatabase, image: 'localhost:5000/pragmatic-postgres:local' } }
+        assert.deepEqual(k.calls, [Fixture.FindNamespace, ['Apply', new K8sManifestBuilder().Render(expected)]])
     })
 
-    it('Apply verifies the UI unpack image too and the manifest carries both effective images', async () =>
+    it('Apply never reaches kubectl when the server-database image fails verification', async () =>
+    {
+        const { k, v, o } = Fixture.Make('localhost:5000/')
+        v.rejectRef = 'localhost:5000/pragmatic-postgres:local'
+        await assert.rejects(o.Apply(Fixture.Workload(false)), /unverified localhost:5000\/pragmatic-postgres:local/)
+        assert.deepEqual(k.calls, [])
+    })
+
+    it('Apply verifies the UI unpack image too and the manifest carries every effective image', async () =>
     {
         const { k, v, o } = Fixture.Make('localhost:5000/')
         const w = Fixture.WithApp(Fixture.Workload(false))
         await o.Apply(w)
-        assert.deepEqual(v.verified, [['localhost:5000/srv:1', Fixture.Trust], ['localhost:5000/unpack:1', Fixture.Trust]])
-        const expected = { ...w, image: 'localhost:5000/srv:1', appDeployment: { ...w.appDeployment!, unpackImage: 'localhost:5000/unpack:1' } }
+        assert.deepEqual(v.verified, [['localhost:5000/srv:1', Fixture.Trust], ['localhost:5000/pragmatic-postgres:local', Fixture.Trust], ['localhost:5000/unpack:1', Fixture.Trust]])
+        const expected = { ...w, image: 'localhost:5000/srv:1', serverDatabase: { ...w.serverDatabase, image: 'localhost:5000/pragmatic-postgres:local' }, appDeployment: { ...w.appDeployment!, unpackImage: 'localhost:5000/unpack:1' } }
         assert.deepEqual(k.calls, [Fixture.FindNamespace, ['Apply', new K8sManifestBuilder().Render(expected)]])
     })
 

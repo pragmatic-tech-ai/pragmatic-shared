@@ -1,4 +1,4 @@
-import type { EnvironmentWorkload } from './environment-workload.js'
+import { EnvironmentWorkloadFactory, type EnvironmentWorkload } from './environment-workload.js'
 import type { IHiveOrchestrator, WorkloadHealth } from './hive-orchestrator.js'
 import type { IKubectl, OrchestratorPolling } from '@pragmatic-tech-ai/pragmatic-kube'
 import { K8sManifestBuilder } from './k8s-manifest-builder.js'
@@ -50,14 +50,11 @@ export class KubectlHiveOrchestrator implements IHiveOrchestrator
     /** Refuses an existing environment namespace that is not labelled for the workload's hive (never adopts another hive's). */
     public async Apply(w: EnvironmentWorkload): Promise<void>
     {
-        const image = await this.VerifiedImage(w.image)
-        const appDeployment = w.appDeployment === undefined
-            ? undefined
-            : { ...w.appDeployment, unpackImage: await this.VerifiedImage(w.appDeployment.unpackImage) }
+        const rendered = await EnvironmentWorkloadFactory.WithImages(w, image => this.VerifiedImage(image))
         const ns = K8sManifestBuilder.NamespaceOf(w.environmentName)
         const existing = await this.kubectl.Find(ns, KubectlHiveOrchestrator.NamespacePrefix + ns)
         EnvNamespaceGuard.AssertHiveOwns(existing === undefined ? undefined : JSON.parse(existing), ns, w.hiveId)
-        await this.kubectl.Apply(this.manifests.Render(appDeployment === undefined ? { ...w, image } : { ...w, image, appDeployment }))
+        await this.kubectl.Apply(this.manifests.Render(rendered))
     }
 
     public async WaitHealthy(w: EnvironmentWorkload): Promise<void>

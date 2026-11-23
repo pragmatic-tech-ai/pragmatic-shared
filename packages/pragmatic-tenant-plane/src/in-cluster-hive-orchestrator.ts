@@ -1,4 +1,4 @@
-import type { EnvironmentWorkload } from './environment-workload.js'
+import { EnvironmentWorkloadFactory, type EnvironmentWorkload } from './environment-workload.js'
 import type { IHiveOrchestrator, WorkloadHealth } from './hive-orchestrator.js'
 import { type IKubectl, ApiKubectl, SystemInstallClock, type IInstallClock, KubeApiClient, KubeApiError, KubeResourceCatalog, type KubeTypeRef, type OrchestratorPolling } from '@pragmatic-tech-ai/pragmatic-kube'
 import type { EffectiveRegistry } from './effective-registry.js'
@@ -81,15 +81,12 @@ export class InClusterHiveOrchestrator implements IHiveOrchestrator
         {
             throw new EnvNamespaceRefusedError(w.hiveId, EnvNamespaceRefusal.WorkloadOfOtherHive)
         }
-        const image = this.registry.ImageRef(w.image)
-        await this.setup.verifier.Verify(image, this.trustRootRef)
-        let rendered: EnvironmentWorkload = { ...w, image }
-        if (w.appDeployment !== undefined)
+        const rendered = await EnvironmentWorkloadFactory.WithImages(w, async base =>
         {
-            const unpackImage = this.registry.ImageRef(w.appDeployment.unpackImage)
-            await this.setup.verifier.Verify(unpackImage, this.trustRootRef)
-            rendered = { ...rendered, appDeployment: { ...w.appDeployment, unpackImage } }
-        }
+            const image = this.registry.ImageRef(base)
+            await this.setup.verifier.Verify(image, this.trustRootRef)
+            return image
+        })
         const items = InClusterHiveOrchestrator.ItemsOf(this.manifests.Render(rendered))
         const namespaceItem = items.find(i => InClusterHiveOrchestrator.IsNamespace(i) && i.metadata.name === ns)
         if (namespaceItem === undefined)

@@ -22,6 +22,7 @@ export type WorkloadDatabase = {
  * EnvironmentDatabaseSecret.*). Not the template's data-source database (WorkloadDatabase).
  */
 export type WorkloadServerDatabase = {
+    /** Mapped to the hive's registry, verified and signed exactly like the server `image` (EnvironmentWorkloadFactory.ImagesOf). */
     image: string
     secretName: string
 }
@@ -144,8 +145,12 @@ export class EnvironmentWorkloadFactory
     private static readonly HttpScheme = 'http://'
     private static readonly PortEnvKey = 'PRAGMATIC_PORT'
 
-    /** Database presence follows the real template definition (TemplateCatalog.Resolve), so it cannot drift from the docker model. */
-    public static From(record: EnvironmentRecord, hive: HiveRecord, ingressTls?: IngressTls): EnvironmentWorkload
+    /**
+     * Database presence follows the real template definition (TemplateCatalog.Resolve), so it cannot drift from the docker model.
+     * `serverDatabaseImage` is the pragmatic-postgres image of the server's sidecar: a released platform passes its release's
+     * image, a development box keeps EnvironmentDatabaseSecret.DevImage (loaded into kind like the server's dev image).
+     */
+    public static From(record: EnvironmentRecord, hive: HiveRecord, ingressTls?: IngressTls, serverDatabaseImage: string = EnvironmentDatabaseSecret.DevImage): EnvironmentWorkload
     {
         const type = record.type ?? TemplateCatalog.DefaultTypeFor(record.template)
         const def = TemplateCatalog.Resolve(record.template, record.name, record.hostPort as number, type, true).def
@@ -158,7 +163,7 @@ export class EnvironmentWorkloadFactory
             serverPort: EnvironmentWorkloadFactory.ServerPort,
             env: { [EnvironmentWorkloadFactory.PortEnvKey]: String(EnvironmentWorkloadFactory.ServerPort) },
             secretRefs,
-            serverDatabase: { image: EnvironmentDatabaseSecret.DevImage, secretName: EnvironmentDatabaseSecret.NameOf(record.name) },
+            serverDatabase: { image: serverDatabaseImage, secretName: EnvironmentDatabaseSecret.NameOf(record.name) },
         }
         if (def.database)
         {
@@ -196,9 +201,30 @@ export class EnvironmentWorkloadFactory
         return workload
     }
 
-    /** Every image the workload's pod runs from the platform: the server and, with an app deployment, the UI unpacker. */
+    /**
+     * Every image the workload's pod runs from the platform: the server, its pragmatic-postgres sidecar and, with an app
+     * deployment, the UI unpacker. Each is mapped to the hive's registry, verified, signed and (on kind) loaded alike.
+     */
     public static ImagesOf(workload: EnvironmentWorkload): string[]
     {
-        return workload.appDeployment === undefined ? [workload.image] : [workload.image, workload.appDeployment.unpackImage]
+        const images = [workload.image, workload.serverDatabase.image]
+        if (workload.appDeployment !== undefined)
+        {
+            images.push(workload.appDeployment.unpackImage)
+        }
+        return images
+    }
+
+    /** The workload with every platform image (ImagesOf) replaced by `map(image)`, in ImagesOf's order. */
+    public static async WithImages(workload: EnvironmentWorkload, map: (image: string) => Promise<string>): Promise<EnvironmentWorkload>
+    {
+        const image = await map(workload.image)
+        const serverDatabase = { ...workload.serverDatabase, image: await map(workload.serverDatabase.image) }
+        const mapped: EnvironmentWorkload = { ...workload, image, serverDatabase }
+        if (workload.appDeployment !== undefined)
+        {
+            mapped.appDeployment = { ...workload.appDeployment, unpackImage: await map(workload.appDeployment.unpackImage) }
+        }
+        return mapped
     }
 }

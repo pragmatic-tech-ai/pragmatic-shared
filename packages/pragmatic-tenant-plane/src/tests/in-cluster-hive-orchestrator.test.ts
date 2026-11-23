@@ -67,6 +67,7 @@ class OrchestratorFixture
     public static readonly NsPath = '/api/v1/namespaces/pragmatic-env-a'
     public static readonly BindingsPath = '/apis/rbac.authorization.k8s.io/v1/namespaces/pragmatic-env-a/rolebindings'
     public static readonly Ref = 'reg:5000/srv:1'
+    public static readonly DatabaseRef = 'reg:5000/pragmatic-postgres:local'
 
     public static Workload(ingressTls?: IngressTls): EnvironmentWorkload
     {
@@ -78,7 +79,7 @@ class OrchestratorFixture
         return w
     }
 
-    public static Make(verified: string[] = [OrchestratorFixture.Ref]): { t: FakeKubeTransport; clock: ImmediateClock; o: InClusterHiveOrchestrator }
+    public static Make(verified: string[] = [OrchestratorFixture.Ref, OrchestratorFixture.DatabaseRef]): { t: FakeKubeTransport; clock: ImmediateClock; o: InClusterHiveOrchestrator }
     {
         const t = new FakeKubeTransport()
         const clock = new ImmediateClock()
@@ -251,14 +252,27 @@ test('Apply verifies the UI unpack image too and renders it from the hive regist
             manifestDigest: 'sha256:' + 'a'.repeat(64), trustSecretName: 'a-ui-trust', trustKeyRef: 'root-1', unpackImage: 'pragmatic-ui-unpack:dev',
         },
     }
-    const refused = OrchestratorFixture.Make([OrchestratorFixture.Ref])
+    const refused = OrchestratorFixture.Make([OrchestratorFixture.Ref, OrchestratorFixture.DatabaseRef])
     await assert.rejects(refused.o.Apply(w), (e: unknown) => e instanceof ImageVerificationError && e.ImageRef === unpack)
     assert.deepEqual(refused.t.Calls, [])
-    const { t, o } = OrchestratorFixture.Make([OrchestratorFixture.Ref, unpack])
+    const { t, o } = OrchestratorFixture.Make([OrchestratorFixture.Ref, OrchestratorFixture.DatabaseRef, unpack])
     await o.Apply(w)
     const deployment = t.Calls.find(c => c.method === KubeMethod.Patch && c.path.split('?')[0].endsWith('/deployments/pragmatic-env-a-server'))
     const init = OrchestratorFixture.Body(deployment).spec.template.spec.initContainers.find((c: { name: string }) => c.name === 'ui-unpack')
     assert.equal(init.image, unpack)
+})
+
+test('Apply verifies the server database sidecar image and renders it from the hive registry', async () =>
+{
+    const refused = OrchestratorFixture.Make([OrchestratorFixture.Ref])
+    await assert.rejects(refused.o.Apply(OrchestratorFixture.Workload()), (e: unknown) =>
+        e instanceof ImageVerificationError && e.ImageRef === OrchestratorFixture.DatabaseRef)
+    assert.deepEqual(refused.t.Calls, [])
+    const { t, o } = OrchestratorFixture.Make()
+    await o.Apply(OrchestratorFixture.Workload())
+    const deployment = t.Calls.find(c => c.method === KubeMethod.Patch && c.path.split('?')[0].endsWith('/deployments/pragmatic-env-a-server'))
+    const containers = OrchestratorFixture.Body(deployment).spec.template.spec.containers as { name: string; image: string }[]
+    assert.deepEqual(containers.map(c => c.image), [OrchestratorFixture.Ref, OrchestratorFixture.DatabaseRef])
 })
 
 test('Apply refuses an image the platform did not verify', async () =>

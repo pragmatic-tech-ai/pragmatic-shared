@@ -111,7 +111,7 @@ describe('EnvironmentWorkloadFactory', () =>
         })
         assert.equal(EnvironmentWorkloadFactory.UiUnpackImage, 'pragmatic-ui-unpack:dev')
         assert.equal(EnvironmentWorkloadFactory.ServerImage, 'pragmatic-env-server:dev', 'the env server repository\'s own dev image')
-        assert.deepEqual(EnvironmentWorkloadFactory.ImagesOf(w), [w.image, EnvironmentWorkloadFactory.UiUnpackImage])
+        assert.deepEqual(EnvironmentWorkloadFactory.ImagesOf(w), [w.image, EnvironmentDatabaseSecret.DevImage, EnvironmentWorkloadFactory.UiUnpackImage])
         assert.equal(EnvServerSeedSource.UiTrustSecretNameOf(WorkloadFixture.EnvName), WorkloadFixture.UiTrustSecret)
     })
 
@@ -136,7 +136,31 @@ describe('EnvironmentWorkloadFactory', () =>
     {
         const w = EnvironmentWorkloadFactory.From(WorkloadFixture.Env(Template.DevBlank, EnvType.Development), WorkloadFixture.Hive())
         assert.equal(w.appDeployment, undefined)
-        assert.deepEqual(EnvironmentWorkloadFactory.ImagesOf(w), [w.image])
+        assert.deepEqual(EnvironmentWorkloadFactory.ImagesOf(w), [w.image, EnvironmentDatabaseSecret.DevImage])
+    })
+
+    it('a released platform\'s pragmatic-postgres image becomes the server database image (and one of ImagesOf)', () =>
+    {
+        const release = 'ghcr.io/pragmatic-tech-ai/pragmatic-postgres@sha256:' + 'b'.repeat(64)
+        const w = EnvironmentWorkloadFactory.From(WorkloadFixture.Env(Template.DevBlank, EnvType.Development), WorkloadFixture.Hive(), undefined, release)
+        assert.equal(w.serverDatabase.image, release)
+        assert.deepEqual(EnvironmentWorkloadFactory.ImagesOf(w), [w.image, release])
+    })
+
+    it('WithImages maps every platform image, in ImagesOf order, and nothing else', async () =>
+    {
+        const rec = { ...WorkloadFixture.Env(Template.DevBlank, EnvType.Development), appDeployment: WorkloadFixture.App() }
+        const w = EnvironmentWorkloadFactory.From(rec, WorkloadFixture.Hive())
+        const seen: string[] = []
+        const mapped = await EnvironmentWorkloadFactory.WithImages(w, async image =>
+        {
+            seen.push(image)
+            return 'reg/' + image
+        })
+        assert.deepEqual(seen, EnvironmentWorkloadFactory.ImagesOf(w))
+        assert.deepEqual(EnvironmentWorkloadFactory.ImagesOf(mapped), EnvironmentWorkloadFactory.ImagesOf(w).map(i => 'reg/' + i))
+        assert.deepEqual({ ...mapped, image: w.image, serverDatabase: w.serverDatabase, appDeployment: w.appDeployment }, w)
+        assert.equal(w.image, EnvironmentWorkloadFactory.ServerImage, 'the input workload is not changed')
     })
 })
 

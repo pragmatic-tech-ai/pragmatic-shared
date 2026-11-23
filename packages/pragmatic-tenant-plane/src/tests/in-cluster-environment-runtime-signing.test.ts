@@ -104,11 +104,13 @@ class SigningFixture
 
 describe('InClusterEnvironmentRuntime signing', () =>
 {
-    it('signs the server image and, with an app deployment, the UI unpack image, as the hive pulls them, before the apply', async () =>
+    it('signs the server image, its database sidecar image and, with an app deployment, the UI unpack image, as the hive pulls them, before the apply', async () =>
     {
         const S = SigningFixture
-        assert.deepEqual(await S.SignedOnBringUp(false), [S.Registry + S.Slash + S.ServerImage])
-        assert.deepEqual(await S.SignedOnBringUp(true), [S.Registry + S.Slash + S.ServerImage, S.Registry + S.Slash + EnvironmentWorkloadFactory.UiUnpackImage])
+        const server = S.Registry + S.Slash + S.ServerImage
+        const database = S.Registry + S.Slash + EnvironmentDatabaseSecret.DevImage
+        assert.deepEqual(await S.SignedOnBringUp(false), [server, database])
+        assert.deepEqual(await S.SignedOnBringUp(true), [server, database, S.Registry + S.Slash + EnvironmentWorkloadFactory.UiUnpackImage])
     })
 })
 

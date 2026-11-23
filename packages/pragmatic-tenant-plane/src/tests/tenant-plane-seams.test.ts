@@ -4,6 +4,7 @@ import { Readable } from 'node:stream'
 import { describe, it } from 'node:test'
 import type { IEnvironmentService } from '../environment-service-contract.js'
 import { EnvironmentPlacement } from '../environment-placement.js'
+import { EnvironmentDatabaseSecret } from '../environment-workload.js'
 import { HivePlacementError } from '../hive-placement-error.js'
 import type { ManifestRecord } from '../manifest-record.js'
 import type { HiveRolloutStatus } from '../tenant-api/rollout-status.js'
@@ -216,5 +217,12 @@ describe('tenant plane depends on narrow seams', () =>
         const placement = new EnvironmentPlacement(Kit.Directory())
         assert.equal(placement.WorkloadFor(Kit.Env()).hiveId, Kit.Hive)
         assert.throws(() => placement.WorkloadFor({ ...Kit.Env(), tenantId: Kit.OtherTenant }), HivePlacementError)
+    })
+
+    it('EnvironmentPlacement gives every workload the server database image it was built with (default: the dev image)', () =>
+    {
+        const release = 'ghcr.io/pragmatic-tech-ai/pragmatic-postgres@sha256:' + 'c'.repeat(64)
+        assert.equal(new EnvironmentPlacement(Kit.Directory()).WorkloadFor(Kit.Env()).serverDatabase.image, EnvironmentDatabaseSecret.DevImage)
+        assert.equal(new EnvironmentPlacement(Kit.Directory(), undefined, release).WorkloadFor(Kit.Env()).serverDatabase.image, release)
     })
 })

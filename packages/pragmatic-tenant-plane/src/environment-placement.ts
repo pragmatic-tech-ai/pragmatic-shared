@@ -17,10 +17,14 @@ export class EnvironmentNotPlacedError extends Error
     }
 }
 
-/** Binds an environment to its hive: validates tenant ownership, then builds the schedulable workload. */
+/**
+ * Binds an environment to its hive: validates tenant ownership, then builds the schedulable workload. `serverDatabaseImage` is
+ * the pragmatic-postgres image every environment's server database sidecar runs (a released platform's release image;
+ * omitted: the development image, EnvironmentDatabaseSecret.DevImage).
+ */
 export class EnvironmentPlacement
 {
-    public constructor(private readonly directory: ITenantDirectory, private readonly ingressTls?: IngressTls)
+    public constructor(private readonly directory: ITenantDirectory, private readonly ingressTls?: IngressTls, private readonly serverDatabaseImage?: string)
     {
     }
 
@@ -35,6 +39,6 @@ export class EnvironmentPlacement
         {
             HivePlacementError.Assert(hive, record.tenantId, record.hiveId)
         }
-        return EnvironmentWorkloadFactory.From(record, hive!, this.ingressTls)
+        return EnvironmentWorkloadFactory.From(record, hive!, this.ingressTls, this.serverDatabaseImage)
     }
 }
