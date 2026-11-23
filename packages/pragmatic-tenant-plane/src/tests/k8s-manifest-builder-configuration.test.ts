@@ -72,12 +72,12 @@ class ConfigurationFixture
     {
         const builder = new K8sManifestBuilder()
         const F = ConfigurationFixture
-        const deployment = (text: string): Obj => F.Items(text).find(item => item.kind === 'Deployment')
+        const deployment = (text: string): Obj => F.Items(text).find(item => item.kind === 'Deployment') as Obj
         return [
             { Deployment: deployment(builder.RenderHiveAgent(F.HiveId, 'http://channel.example:7000', 'agent-token-secret', 'pragmatic-hive-agent:dev')), Components: { agent: 'pragmatic-hive-agent' } },
             { Deployment: deployment(builder.RenderIdp(F.Idp())), Components: { idp: 'pragmatic-tenant-idp' } },
             { Deployment: deployment(builder.RenderTenantAdmin(F.TenantAdmin())), Components: { 'tenant-admin': 'pragmatic-tenant-admin' } },
-            { Deployment: F.Items(builder.Render(F.Workload())).find(item => item.kind === 'Deployment' && item.spec.template.spec.initContainers), Components: { server: 'pragmatic-env-server', 'ui-unpack': 'pragmatic-ui-unpack' } },
+            { Deployment: F.Items(builder.Render(F.Workload())).find(item => item.kind === 'Deployment' && item.spec.template.spec.initContainers) as Obj, Components: { server: 'pragmatic-env-server', 'ui-unpack': 'pragmatic-ui-unpack' } },
         ]
     }
 
@@ -172,7 +172,7 @@ describe('K8sManifestBuilder configuration mounts', () =>
     {
         const F = ConfigurationFixture
         const builder = new K8sManifestBuilder()
-        const role = (items: Obj[]): Obj => items.find(i => i.kind === 'Role' && i.metadata.name === K8sManifestBuilder.TenantConsoleConfigurationRoleNameOf(F.TenantId))
+        const role = (items: Obj[]): Obj => items.find(i => i.kind === 'Role' && i.metadata.name === K8sManifestBuilder.TenantConsoleConfigurationRoleNameOf(F.TenantId)) as Obj
         const system = role(F.Items(builder.RenderTenantAdmin(F.TenantAdmin())))
         assert.equal(system.metadata.namespace, 'pragmatic-system')
         const named = (r: Obj, resource: string, verb: string): string[] => r.rules.filter((rule: Obj) => rule.resources.includes(resource) && rule.verbs.includes(verb)).flatMap((rule: Obj) => rule.resourceNames ?? ['*'])
@@ -183,7 +183,7 @@ describe('K8sManifestBuilder configuration mounts', () =>
         const idp = role(idpItems)
         assert.equal(idp.metadata.namespace, K8sManifestBuilder.IdpNameOf(F.TenantId))
         assert.deepEqual(named(idp, 'configmaps', 'patch'), ['pragmatic-config-pragmatic-tenant-idp'])
-        const binding = idpItems.find(i => i.kind === 'RoleBinding')
+        const binding = idpItems.find(i => i.kind === 'RoleBinding') as Obj
         assert.deepEqual(binding.subjects, [{ kind: 'ServiceAccount', name: K8sManifestBuilder.TenantAdminNameOf(F.TenantId), namespace: 'pragmatic-system' }])
         const removal = F.Items(builder.TenantConsoleRemovalManifest(F.TenantId, F.HiveId))
         const roles = removal.filter(i => i.metadata.name === K8sManifestBuilder.TenantConsoleConfigurationRoleNameOf(F.TenantId)).map(i => `${i.kind}/${i.metadata.namespace}`)
