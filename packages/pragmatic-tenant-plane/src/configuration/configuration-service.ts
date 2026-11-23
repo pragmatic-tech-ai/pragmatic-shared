@@ -16,7 +16,10 @@ import {
     ConfigurationApplyUnavailableError,
     ConfigurationSecretWriteError,
     ConfigurationDescriptorMismatchError,
+    NoConfigurationPreparations,
+    type ConfigurationPreparationDto,
     type ConfigurationTarget,
+    type IConfigurationPreparationSource,
     type IComponentDescriptorSource,
     type IComponentSecretWriter,
     type IConfigurationApplier,
@@ -41,7 +44,8 @@ export type ConfigurationSettingDto = { name: string; type: string; description:
 /** A component in the list: its descriptor, its newest version and where it can be applied (with what runs there). */
 export type ConfigurationComponentSummaryDto = { component: string; componentVersion: string; descriptorDigest: string; head: number | null; targets: (ConfigurationTargetDto & { applied: number | null })[] }
 
-/** A component's page: its options, its versions and its applies. */
+/** A component's page: its options, its versions, its applies and how its configuration was prepared for the
+ *  descriptors a new release brings. */
 export type ConfigurationComponentDto = {
     component: string
     componentVersion: string
@@ -49,6 +53,7 @@ export type ConfigurationComponentDto = {
     options: { name: string; description: string; settings: ConfigurationSettingDto[] }[]
     versions: ConfigurationVersionSummaryDto[]
     applies: ConfigurationApplyDto[]
+    preparations: ConfigurationPreparationDto[]
 }
 
 /** A secret written for a component: the reference a configuration uses for it (never the value). */
@@ -128,7 +133,8 @@ export class ConfigurationService
         private readonly components: IComponentDescriptorSource,
         private readonly targets: IConfigurationTargetSource,
         private readonly applier: IConfigurationApplier,
-        private readonly secrets: IComponentSecretWriter)
+        private readonly secrets: IComponentSecretWriter,
+        private readonly preparations: IConfigurationPreparationSource = new NoConfigurationPreparations())
     {
     }
 
@@ -152,7 +158,7 @@ export class ConfigurationService
         return out
     }
 
-    /** A component's options, versions (oldest first) and applies (oldest first). */
+    /** A component's options, versions (oldest first), applies (oldest first) and preparations. */
     public async Component(tenantId: string, component: string): Promise<ConfigurationComponentDto>
     {
         const descriptor = this.CurrentOf(component)
@@ -165,6 +171,7 @@ export class ConfigurationService
             options: descriptor.Options.map(o => ({ name: o.Name, description: o.Description, settings: o.Settings.map(s => ConfigurationService.SettingDto(s)) })),
             versions: (await this.repository.Versions(scope)).map(v => ConfigurationService.SummaryOf(v)),
             applies: (await this.repository.Applies(scope)).map(a => ConfigurationService.ApplyDto(a, targets)),
+            preparations: [...await this.preparations.For(component, targets)],
         }
     }
 

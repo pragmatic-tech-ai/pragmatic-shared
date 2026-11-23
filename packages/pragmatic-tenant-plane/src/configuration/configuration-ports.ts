@@ -156,3 +156,38 @@ export class UnavailableComponentSecretWriter implements IComponentSecretWriter
         throw new ConfigurationApplyUnavailableError()
     }
 }
+
+/** How a component's applied configuration stands for the descriptor a new release brings, at one target. */
+export enum ConfigurationPreparationOutcome
+{
+    /** A version validated for that descriptor is prepared beside the applied one (the new pods read it). */
+    Prepared = 'prepared',
+    /** The applied document does not validate against that descriptor: the named settings must change first. */
+    Refused = 'refused',
+}
+
+/** One preparation as the console lists it (settings and rules only, never a value). */
+export type ConfigurationPreparationDto = {
+    environment: string
+    componentVersion: string
+    descriptorDigest: string
+    outcome: ConfigurationPreparationOutcome
+    settings: string[]
+    reason: string
+}
+
+/** Where the console reads how a component's configuration was prepared for new descriptors (the status it recorded on
+ *  each target's `pragmatic-config-<component>` ConfigMap). */
+export interface IConfigurationPreparationSource
+{
+    For(component: string, targets: readonly ConfigurationTarget[]): Promise<readonly ConfigurationPreparationDto[]>
+}
+
+/** A console that prepares nothing (outside a cluster): no preparations to list. */
+export class NoConfigurationPreparations implements IConfigurationPreparationSource
+{
+    public async For(): Promise<readonly ConfigurationPreparationDto[]>
+    {
+        return []
+    }
+}

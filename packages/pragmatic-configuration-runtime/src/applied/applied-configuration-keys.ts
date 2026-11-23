@@ -27,4 +27,14 @@ export class AppliedConfigurationKeys
     public static readonly HashAnnotation = 'pragmatic-tech.ai/configuration-hash';
     /** On the deployment's pod template: the resourceVersion of the component's secrets Secret when the configuration was applied, so a rotated secret rolls the deployment. */
     public static readonly SecretsRevisionAnnotation = 'pragmatic-tech.ai/secrets-revision';
+
+    /** A prepared entry's data key: `configuration.json.sha256-<hex>` (never ending in `.json`, so no reader that scans
+     *  the folder for `*.json` files takes it for a configuration of its own). */
+    public static readonly PreparedEntryInfix = '.sha256-';
+    public static readonly DigestAlgorithmPrefix = 'sha256:';
+    /** On the ConfigMap: the descriptor digests a prepared entry exists for, comma separated (the console writes it). */
+    public static readonly PreparedDigestsAnnotation = 'pragmatic-tech.ai/prepared-digests';
+    /** On the ConfigMap: the descriptors the applied document does not validate against, a JSON array of
+     *  `{ descriptorDigest, componentVersion, settings, reason }` (the console writes it). */
+    public static readonly PreparationRefusedAnnotation = 'pragmatic-tech.ai/preparation-refused';
 }

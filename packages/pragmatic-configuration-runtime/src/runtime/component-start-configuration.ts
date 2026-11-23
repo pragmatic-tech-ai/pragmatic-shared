@@ -19,6 +19,9 @@ export interface ComponentStartOptions
     Stores?: SecretStoreDirectory;
     /** Where resolved secrets are written; default `/run/pragmatic/secrets` (a memory-backed volume). */
     SecretsDir?: string;
+    /** Run an applied document validated for another descriptor when it validates against this one (the tenant admin
+     *  console alone: it prepares every other component's entry, so nothing prepares its own before it starts). */
+    Revalidate?: boolean;
 }
 
 /** What the start step did: the applied version and realm (null when no configuration is mounted), the settings it
@@ -35,6 +38,8 @@ export class ComponentStartReport
         public readonly Realm: string | null,
         settings: readonly string[],
         kept: readonly string[] = [],
+        /** The applied document was validated for another descriptor and re-validated against this one. */
+        public readonly Revalidated: boolean = false,
     )
     {
         this.Settings = Object.freeze([...settings]);
@@ -87,12 +92,12 @@ export class ComponentStartConfiguration
         const C = ComponentStartConfiguration;
         const declaration = options.Declaration;
         const stores = options.Stores ?? C.Stores(declaration.name);
-        const reader = new ConfigurationRuntimeReader(ComponentDeclarations.Build(declaration), stores);
+        const reader = new ConfigurationRuntimeReader(ComponentDeclarations.Build(declaration), stores, options.Revalidate === true);
         const configuration = await C.Read(reader, ConfigurationRuntimeReader.PathFrom(options.Env));
         if (configuration === undefined) return ComponentStartReport.None;
         const overlay = new ConfigurationEnvironmentOverlay(declaration, options.SecretsDir ?? C.DefaultSecretsDir);
         const result = await overlay.Apply(configuration, options.Env);
-        return new ComponentStartReport(configuration.Version, configuration.Realm, result.Applied, result.Kept);
+        return new ComponentStartReport(configuration.Version, configuration.Realm, result.Applied, result.Kept, configuration.Revalidated);
     }
 
     /** `Apply`, exiting with ExitCode and the reason when the configuration refuses the start. */

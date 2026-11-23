@@ -19,6 +19,9 @@ export class RuntimeConfiguration
         secrets: ReadonlyMap<string, SecretValue>,
         /** The tenant realm the applied version belongs to. */
         public readonly Realm: string = '',
+        /** Run on an applied document validated for another descriptor, re-validated against this container's own (the
+         *  tenant admin console's start only; ConfigurationRuntimeReader). */
+        public readonly Revalidated: boolean = false,
     )
     {
         this.secrets = new Map(secrets);

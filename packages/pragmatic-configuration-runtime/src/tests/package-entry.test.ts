@@ -11,6 +11,7 @@ test('the package entry exports the applied object, the runtime reader and the s
         'ConfigurationScope', 'JsonDocument', 'AppliedConfiguration', 'AppliedConfigurationCodec', 'AppliedConfigurationError', 'AppliedConfigurationKeys',
         'ConfigurationRuntimeReader', 'ConfigurationStartError', 'ConfigurationStartReason', 'RuntimeConfiguration', 'SecretStoreDirectory', 'SecretValue',
         'SettingValueEncoding', 'SecretVariable', 'MountedSecretStore', 'ConfigurationEnvironmentOverlay', 'ComponentStartConfiguration', 'ComponentStartReport',
+        'AppliedConfigurationEntries', 'ConfigurationPreparationRefusal', 'ConfigurationPreparationStatus',
     ])
     {
         assert.ok(name in entry, name);
