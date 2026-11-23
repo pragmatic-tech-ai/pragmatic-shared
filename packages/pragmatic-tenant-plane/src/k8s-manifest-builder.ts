@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
-import { UiArtifact } from '@pragmatic-tech-ai/pragmatic-release-toolkit'
+import { ReleaseApp, UiArtifact } from '@pragmatic-tech-ai/pragmatic-release-toolkit'
+import { ComponentConfigurationMounts } from './component-configuration-mounts.js'
 import { EnvConventions } from './seed/env-conventions.js'
 import { EnvironmentDatabaseSecret, type EnvironmentWorkload, type WorkloadAppDeployment, type WorkloadDatabase } from './environment-workload.js'
 import { EnvServerSeedSource } from './env-server-seed.js'
@@ -233,9 +234,6 @@ export class K8sManifestBuilder
     /** The mounted URL file (the mount plus the one projected item, IdpDatabaseSecret.UrlKey). */
     public static readonly IdpDatabaseUrlFile = '/run/secrets/pragmatic-tenant-idp-database/database-url'
     /** The realm's applied configuration (written by the tenant admin console; absent means defaults), at the service's default folder. */
-    private static readonly IdpConfigurationVolume = 'configuration'
-    private static readonly IdpConfigurationMount = '/etc/pragmatic/configuration'
-    private static readonly IdpConfigurationMapName = 'pragmatic-config-pragmatic-tenant-idp'
     private static readonly OptionalKey = 'optional'
     private static readonly SecretFileMode = 0o440
     private static readonly PersistentVolumeClaimKind = 'PersistentVolumeClaim'
@@ -336,6 +334,8 @@ export class K8sManifestBuilder
     private static readonly ConsoleHostPrefix = 'console-'
     private static readonly TenantConsoleEnvRoleSuffix = '-env'
     private static readonly TenantConsoleTlsRoleSuffix = '-tls'
+    private static readonly TenantConsoleConfigurationRoleSuffix = '-configuration'
+    private static readonly ConfigMapsResource = 'configmaps'
     private static readonly TenantConsoleFingerprintSuffix = '-fingerprint'
     private static readonly TenantConsoleIdpCaSuffix = '-idp-ca'
     private static readonly TenantConsoleIdpTokenSuffix = '-idp-token'
@@ -355,7 +355,7 @@ export class K8sManifestBuilder
     private static readonly RoleBindingsResource = 'rolebindings'
     private static readonly ClusterRolesResource = 'clusterroles'
     private static readonly SecretsResource = 'secrets'
-    private static readonly EnvCoreResources = [K8sManifestBuilder.SecretsResource, 'configmaps', 'services', 'persistentvolumeclaims']
+    private static readonly EnvCoreResources = [K8sManifestBuilder.SecretsResource, K8sManifestBuilder.ConfigMapsResource, 'services', 'persistentvolumeclaims']
     private static readonly EnvAppsResources = ['deployments', 'deployments/scale', 'statefulsets', 'statefulsets/scale']
     private static readonly EnvNetworkingResources = ['ingresses']
     private static readonly CreateVerb = 'create'
@@ -714,7 +714,7 @@ export class K8sManifestBuilder
     private HiveAgentDeployment(hiveId: string, registryUrl: string, tokenSecretName: string, agentImage: string): K8sObject
     {
         const name = K8sManifestBuilder.HiveAgentNameOf(hiveId)
-        return {
+        return ComponentConfigurationMounts.Attach({
             [K8sManifestBuilder.ApiVersionKey]: K8sManifestBuilder.ApiVersionApps,
             [K8sManifestBuilder.KindKey]: K8sManifestBuilder.DeploymentKind,
             [K8sManifestBuilder.MetadataKey]: this.HiveAgentNamespacedMeta(hiveId, name),
@@ -747,7 +747,7 @@ export class K8sManifestBuilder
                     },
                 },
             },
-        }
+        }, [{ Container: K8sManifestBuilder.AgentContainerName, Component: ReleaseApp.HiveAgent }])
     }
 
     public static IdpNameOf(tenantId: string): string
@@ -791,6 +791,9 @@ export class K8sManifestBuilder
             this.IdpPostgresConfig(spec),
             this.IdpDeployment(spec),
             this.IdpServiceObject(spec),
+            ...this.TenantConsoleConfigurationRbac(spec.tenantId, K8sManifestBuilder.IdpNameOf(spec.tenantId), this.HiveLabels(spec.hiveId), [
+                { Component: ReleaseApp.TenantIdp, Deployment: K8sManifestBuilder.IdpNameOf(spec.tenantId) },
+            ]),
         ]
         if (spec.baseDomain !== undefined)
         {
@@ -926,7 +929,6 @@ export class K8sManifestBuilder
             { [B.NameKey]: B.ConsolePostgresRunVolume, [B.EmptyDirKey]: {} },
             { [B.NameKey]: B.ConsolePostgresTmpVolume, [B.EmptyDirKey]: {} },
             this.SecretVolume(B.IdpDatabaseVolume, spec.database.secretName, [{ key: S.UrlKey, path: S.UrlKey }]),
-            { [B.NameKey]: B.IdpConfigurationVolume, [B.ConfigMapVolumeKey]: { [B.NameKey]: B.IdpConfigurationMapName, [B.OptionalKey]: true } },
         ]
     }
 
@@ -947,7 +949,7 @@ export class K8sManifestBuilder
     private IdpDeployment(spec: IdpWorkloadSpec): K8sObject
     {
         const name = K8sManifestBuilder.IdpNameOf(spec.tenantId)
-        return {
+        return ComponentConfigurationMounts.Attach({
             [K8sManifestBuilder.ApiVersionKey]: K8sManifestBuilder.ApiVersionApps,
             [K8sManifestBuilder.KindKey]: K8sManifestBuilder.DeploymentKind,
             [K8sManifestBuilder.MetadataKey]: this.IdpMeta(spec, name),
@@ -974,7 +976,7 @@ export class K8sManifestBuilder
                     },
                 },
             },
-        }
+        }, [{ Container: K8sManifestBuilder.IdpContainerName, Component: ReleaseApp.TenantIdp }])
     }
 
     /**
@@ -1021,7 +1023,6 @@ export class K8sManifestBuilder
                 { [K8sManifestBuilder.NameKey]: K8sManifestBuilder.IdpSecretsVolume, [K8sManifestBuilder.MountPathKey]: K8sManifestBuilder.IdpSecretsMount, [K8sManifestBuilder.ReadOnlyKey]: true },
                 { [K8sManifestBuilder.NameKey]: K8sManifestBuilder.TmpVolume, [K8sManifestBuilder.MountPathKey]: K8sManifestBuilder.TmpMount },
                 { [K8sManifestBuilder.NameKey]: K8sManifestBuilder.IdpDatabaseVolume, [K8sManifestBuilder.MountPathKey]: K8sManifestBuilder.IdpDatabaseMount, [K8sManifestBuilder.ReadOnlyKey]: true },
-                { [K8sManifestBuilder.NameKey]: K8sManifestBuilder.IdpConfigurationVolume, [K8sManifestBuilder.MountPathKey]: K8sManifestBuilder.IdpConfigurationMount, [K8sManifestBuilder.ReadOnlyKey]: true },
             ],
             [K8sManifestBuilder.ReadinessProbeKey]: {
                 [K8sManifestBuilder.HttpGetKey]: {
@@ -1106,6 +1107,12 @@ export class K8sManifestBuilder
     public static TenantConsoleTlsRoleNameOf(tenantId: string): string
     {
         return `${K8sManifestBuilder.TenantAdminNameOf(tenantId)}${K8sManifestBuilder.TenantConsoleTlsRoleSuffix}`
+    }
+
+    /** The Role (and RoleBinding) in pragmatic-system and in the IdP namespace through which the console configures the hive's own components. */
+    public static TenantConsoleConfigurationRoleNameOf(tenantId: string): string
+    {
+        return `${K8sManifestBuilder.TenantAdminNameOf(tenantId)}${K8sManifestBuilder.TenantConsoleConfigurationRoleSuffix}`
     }
 
     /** Secret holding the console's account-email fingerprint key (key `fingerprint.key`). */
@@ -1210,6 +1217,10 @@ export class K8sManifestBuilder
             this.TenantConsoleClusterRoleBinding(spec),
             this.TenantConsoleEnvClusterRole(spec),
             ...this.TenantConsoleTlsReadRbac(spec),
+            ...this.TenantConsoleConfigurationRbac(spec.tenantId, K8sManifestBuilder.SystemNamespace, this.HiveLabels(spec.hiveId), [
+                { Component: ReleaseApp.HiveAgent, Deployment: K8sManifestBuilder.HiveAgentNameOf(spec.hiveId) },
+                { Component: ReleaseApp.TenantAdmin, Deployment: K8sManifestBuilder.TenantAdminNameOf(spec.tenantId) },
+            ]),
             this.TenantAdminClaim(spec),
             ...this.ConsolePostgresConfig(spec),
             this.TenantAdminDeployment(spec),
@@ -1248,6 +1259,8 @@ export class K8sManifestBuilder
             this.Identity(B.ApiVersionRbac, B.ClusterRoleKind, B.TenantConsoleEnvRoleNameOf(tenantId)),
             this.Identity(B.ApiVersionRbac, B.RoleKind, tlsRole, system),
             this.Identity(B.ApiVersionRbac, B.RoleBindingKind, tlsRole, system),
+            this.Identity(B.ApiVersionRbac, B.RoleKind, B.TenantConsoleConfigurationRoleNameOf(tenantId), system),
+            this.Identity(B.ApiVersionRbac, B.RoleBindingKind, B.TenantConsoleConfigurationRoleNameOf(tenantId), system),
             this.Identity(B.ApiVersionApps, B.DeploymentKind, name, system),
             this.Identity(B.ApiVersionCore, B.ServiceKind, name, system),
             this.Identity(B.ApiVersionNetworking, B.IngressKind, name, system),
@@ -1260,6 +1273,8 @@ export class K8sManifestBuilder
             this.Identity(B.ApiVersionApps, B.DeploymentKind, idp, idp),
             this.Identity(B.ApiVersionCore, B.ServiceKind, idp, idp),
             this.Identity(B.ApiVersionNetworking, B.IngressKind, idp, idp),
+            this.Identity(B.ApiVersionRbac, B.RoleKind, B.TenantConsoleConfigurationRoleNameOf(tenantId), idp),
+            this.Identity(B.ApiVersionRbac, B.RoleBindingKind, B.TenantConsoleConfigurationRoleNameOf(tenantId), idp),
         ]
         return this.ListOf(items)
     }
@@ -1402,6 +1417,46 @@ export class K8sManifestBuilder
                 [K8sManifestBuilder.MetadataKey]: this.HiveAgentNamespacedMeta(spec.hiveId, name),
                 [K8sManifestBuilder.SubjectsKey]: [this.TenantConsoleSubject(spec)],
                 [K8sManifestBuilder.RoleRefKey]: this.RoleRef(K8sManifestBuilder.RoleKind, name),
+            },
+        ]
+    }
+
+    /**
+     * How the console configures the hive's own components in `namespace` (C3.1): their ConfigMaps
+     * `pragmatic-config-<component>` and Secrets `pragmatic-secrets-<component>` (get, patch, delete by name; create, which
+     * RBAC cannot fence by name), their Deployments (get and patch by name: the configuration-hash annotation; list, to find
+     * targets by label). Never another object's Secret, never a Deployment's image beyond what patch on those names allows.
+     */
+    private TenantConsoleConfigurationRbac(tenantId: string, namespace: string, labels: Record<string, string>, targets: ReadonlyArray<{ Component: string; Deployment: string }>): K8sObject[]
+    {
+        const B = K8sManifestBuilder
+        const M = ComponentConfigurationMounts
+        const name = B.TenantConsoleConfigurationRoleNameOf(tenantId)
+        const meta: K8sObject = { [B.NameKey]: name, [B.NamespaceKey]: namespace, [B.LabelsKey]: labels }
+        const byName = [B.GetVerb, B.PatchVerb, B.DeleteVerb]
+        return [
+            {
+                [B.ApiVersionKey]: B.ApiVersionRbac,
+                [B.KindKey]: B.RoleKind,
+                [B.MetadataKey]: meta,
+                [B.RulesKey]: [
+                    this.Rule(B.CoreApiGroup, [B.ConfigMapsResource], byName, targets.map(t => M.ConfigMapNameOf(t.Component))),
+                    this.Rule(B.CoreApiGroup, [B.SecretsResource], byName, targets.map(t => M.SecretNameOf(t.Component))),
+                    this.Rule(B.CoreApiGroup, [B.ConfigMapsResource, B.SecretsResource], [B.CreateVerb]),
+                    this.Rule(B.AppsApiGroup, [B.DeploymentsResource], [B.GetVerb, B.PatchVerb], targets.map(t => t.Deployment)),
+                    this.Rule(B.AppsApiGroup, [B.DeploymentsResource], [B.ListVerb]),
+                ],
+            },
+            {
+                [B.ApiVersionKey]: B.ApiVersionRbac,
+                [B.KindKey]: B.RoleBindingKind,
+                [B.MetadataKey]: { ...meta },
+                [B.SubjectsKey]: [{
+                    [B.KindKey]: B.ServiceAccountKind,
+                    [B.NameKey]: B.TenantAdminNameOf(tenantId),
+                    [B.NamespaceKey]: B.SystemNamespace,
+                }],
+                [B.RoleRefKey]: this.RoleRef(B.RoleKind, name),
             },
         ]
     }
@@ -1583,7 +1638,7 @@ export class K8sManifestBuilder
         {
             pod[K8sManifestBuilder.ImagePullSecretsKey] = [{ [K8sManifestBuilder.NameKey]: spec.imagePullSecretName }]
         }
-        return {
+        return ComponentConfigurationMounts.Attach({
             [K8sManifestBuilder.ApiVersionKey]: K8sManifestBuilder.ApiVersionApps,
             [K8sManifestBuilder.KindKey]: K8sManifestBuilder.DeploymentKind,
             [K8sManifestBuilder.MetadataKey]: this.HiveAgentNamespacedMeta(spec.hiveId, name),
@@ -1595,7 +1650,7 @@ export class K8sManifestBuilder
                     [K8sManifestBuilder.SpecKey]: pod,
                 },
             },
-        }
+        }, [{ Container: K8sManifestBuilder.TenantAdminContainerName, Component: ReleaseApp.TenantAdmin }])
     }
 
     private TenantAdminSeedContainer(spec: TenantAdminWorkloadSpec): K8sObject
@@ -1964,14 +2019,16 @@ export class K8sManifestBuilder
             volumes.push(this.SecretVolume(K8sManifestBuilder.EnvIdpCaVolume, workload.federation.caSecretName, [{ key: K8sManifestBuilder.EnvIdpCaItemKey, path: K8sManifestBuilder.EnvIdpCaItemKey }]))
         }
         const initContainers: K8sObject[] = [this.ServerSeedContainer(workload)]
+        const components = [{ Container: K8sManifestBuilder.ServerContainerName, Component: ReleaseApp.EnvServer }]
         if (workload.appDeployment)
         {
+            components.push({ Container: K8sManifestBuilder.UiUnpackContainerName, Component: ReleaseApp.UiUnpack })
             // Only the public <trustKeyRef>.pub is projected (items selector); the unpacker verifies the app artifact against it.
             const pubFile = `${workload.appDeployment.trustKeyRef}${K8sManifestBuilder.UiPubSuffix}`
             initContainers.push(this.UiUnpackContainer(workload, workload.appDeployment))
             volumes.push(this.SecretVolume(K8sManifestBuilder.UiTrustVolume, workload.appDeployment.trustSecretName, [{ key: pubFile, path: pubFile }]))
         }
-        return {
+        return ComponentConfigurationMounts.Attach({
             [K8sManifestBuilder.ApiVersionKey]: K8sManifestBuilder.ApiVersionApps,
             [K8sManifestBuilder.KindKey]: K8sManifestBuilder.DeploymentKind,
             [K8sManifestBuilder.MetadataKey]: {
@@ -2005,7 +2062,7 @@ export class K8sManifestBuilder
                     },
                 },
             },
-        }
+        }, components)
     }
 
     /** The env server sidecar's applications.conf: the server's one database and role. */
