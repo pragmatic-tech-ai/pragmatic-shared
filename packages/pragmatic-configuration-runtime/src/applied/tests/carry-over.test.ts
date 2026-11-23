@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ComponentDescriptorBuilder, SettingType, type ComponentDescriptor } from '@pragmatic-tech-ai/pragmatic-component';
+import { ComponentDescriptorBuilder, ConfigurationError, ConfigurationErrorCode, SettingType, type ComponentDescriptor } from '@pragmatic-tech-ai/pragmatic-component';
 import { AppliedDocumentCarryOver } from '../applied-document-carry-over.js';
 import { AppliedConfigurationKeys } from '../applied-configuration-keys.js';
 import { ConfigurationPreparationRefusal, ConfigurationPreparationStatus } from '../configuration-preparation-status.js';
@@ -61,4 +61,14 @@ test('a preparation status holds only for the applied file it was derived from',
     assert.deepEqual(stale.ToAnnotations(), { [AppliedConfigurationKeys.PreparedFromAnnotation]: CarryCase.HashB }, 'an empty derived status writes its source alone');
     assert.equal(AppliedConfigurationKeys.PreparedFromAnnotation in read.Over({ [AppliedConfigurationKeys.PreparedFromAnnotation]: CarryCase.HashA, other: 'x' }), true);
     assert.deepEqual(ConfigurationPreparationStatus.Empty.Over({ [AppliedConfigurationKeys.PreparedFromAnnotation]: CarryCase.HashA, other: 'x' }), { other: 'x' });
+});
+
+test('Without leaves behind the members validation points at, unescaping their names', () =>
+{
+    const errors = [new ConfigurationError('/options/core/port', ConfigurationErrorCode.WrongType), new ConfigurationError('/options/a~1b', ConfigurationErrorCode.UnknownOption), new ConfigurationError('', ConfigurationErrorCode.NotAnObject)];
+    const members = AppliedDocumentCarryOver.MembersOf(errors);
+    assert.deepEqual(members, ['core.port', 'a/b']);
+    const carried = AppliedDocumentCarryOver.Without({ options: { core: { port: 'x', host: 'h' }, 'a/b': {} } }, members);
+    assert.deepEqual(carried.Document, { options: { core: { host: 'h' } } });
+    assert.deepEqual(carried.Dropped, ['core.port', 'a/b']);
 });

@@ -28,8 +28,9 @@ import type { SecretValue } from './secret-value.js';
  *
  * `revalidate` (the tenant admin console alone, which owns the configurations and prepares the entries) instead carries
  * an applied document of another descriptor over to its own (AppliedDocumentCarryOver: settings it no longer declares
- * are left behind, `RuntimeConfiguration.Dropped`) and runs it when it validates (`Revalidated`); when it does not, the
- * start is refused with reason `unrevalidated`, which the start step turns into "no configuration".
+ * are left behind, `RuntimeConfiguration.Dropped`), then leaves behind the settings that still fail, and runs what
+ * remains (`Revalidated`); when even that does not validate (a required setting missing), the start is refused with
+ * reason `unrevalidated`, which the start step turns into "no configuration".
  */
 export class ConfigurationRuntimeReader
 {
@@ -61,10 +62,21 @@ export class ConfigurationRuntimeReader
 
     public async Read(path: string = ConfigurationRuntimeReader.DefaultPath): Promise<RuntimeConfiguration>
     {
-        const primary = ConfigurationRuntimeReader.Decode(await ConfigurationRuntimeReader.ReadText(path), path);
-        const selected = await this.Select(primary, await ConfigurationRuntimeReader.Resolved(path));
+        // Resolved first, so the applied file and its entry are read from one folder (one write of the ConfigMap).
+        const resolved = await ConfigurationRuntimeReader.Resolved(path);
+        const primary = ConfigurationRuntimeReader.Decode(await ConfigurationRuntimeReader.ReadText(resolved), path);
+        const selected = await this.Select(primary, resolved);
         const applied = selected.Applied;
-        const validation = new ConfigurationValidator(this.Descriptor).Validate(selected.Document);
+        const validator = new ConfigurationValidator(this.Descriptor);
+        let validation = validator.Validate(selected.Document);
+        let dropped = selected.Dropped;
+        if (validation.Configuration === undefined && selected.Revalidated)
+        {
+            // The console keeps every member that still validates: only the failing settings are left behind.
+            const pruned = AppliedDocumentCarryOver.Without(selected.Document, AppliedDocumentCarryOver.MembersOf(validation.Errors));
+            dropped = [...dropped, ...pruned.Dropped];
+            validation = validator.Validate(pruned.Document);
+        }
         if (validation.Configuration === undefined)
         {
             const errors = validation.Errors.map(error => error.toString()).join(ConfigurationRuntimeReader.ErrorSeparator);
@@ -77,7 +89,7 @@ export class ConfigurationRuntimeReader
             const where = `${secret.Option}.${secret.Setting}`;
             secrets.set(RuntimeConfiguration.SecretKey(secret.Option, secret.Setting), await this.secrets.Resolve(secret.Reference, where));
         }
-        return new RuntimeConfiguration(applied.Version, applied.ComponentVersion, applied.DescriptorDigest, validation.Configuration, secrets, applied.Realm, selected.Revalidated, selected.Dropped);
+        return new RuntimeConfiguration(applied.Version, applied.ComponentVersion, applied.DescriptorDigest, validation.Configuration, secrets, applied.Realm, selected.Revalidated, dropped);
     }
 
     // The entry for this container's descriptor: the applied file, else the prepared entry beside it, else (revalidating)

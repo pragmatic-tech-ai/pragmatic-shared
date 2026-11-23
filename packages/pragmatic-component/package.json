@@ -1,6 +1,6 @@
 {
   "name": "@pragmatic-tech-ai/pragmatic-component",
-  "version": "0.18.5",
+  "version": "0.18.6",
   "license": "Apache-2.0",
   "description": "Component descriptors: what a released container supports (options, settings, secrets, roles, storage, endpoints), its configuration schema and the configuration validator.",
   "repository": {

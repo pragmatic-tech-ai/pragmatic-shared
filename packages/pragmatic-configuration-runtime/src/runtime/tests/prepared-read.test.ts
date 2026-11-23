@@ -164,6 +164,20 @@ test('a revalidating reader leaves behind the settings its descriptor no longer 
     });
 });
 
+test('a revalidating reader keeps every setting that still validates and leaves behind only the failing ones', async () =>
+{
+    await StartFixture.InFolder(async folder =>
+    {
+        const path = await StartFixture.Configuration(folder, StartFixture.Applied({ registryUrl: 'https://kept.example/', pollIntervalMs: 'often' }, 3, PreparedCase.Old));
+        const env: NodeJS.ProcessEnv = { PRAGMATIC_CONFIGURATION_FILE: path, TEST_POLL_INTERVAL_MS: '5000' };
+        const report = await ComponentStartConfiguration.Apply({ Declaration: PreparedCase.New, Env: env, Stores: StartFixture.Stores(), SecretsDir: join(folder, 's'), Revalidate: true });
+        assert.equal(report.Version, 3);
+        assert.deepEqual(report.Dropped, ['core.pollIntervalMs']);
+        assert.equal(env.TEST_REGISTRY_URL, 'https://kept.example/', 'the setting that validates is still applied');
+        assert.equal(env.TEST_POLL_INTERVAL_MS, '5000');
+    });
+});
+
 test('a revalidating start that cannot carry the document over goes on without it; any other reader refuses', async () =>
 {
     await StartFixture.InFolder(async folder =>

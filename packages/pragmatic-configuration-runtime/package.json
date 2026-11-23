@@ -1,6 +1,6 @@
 {
   "name": "@pragmatic-tech-ai/pragmatic-configuration-runtime",
-  "version": "0.18.5",
+  "version": "0.18.6",
   "license": "Apache-2.0",
   "description": "What a hive component reads at start: the applied-configuration object (pragmatic-config-<component>), the runtime reader, and the start step that overlays the applied configuration onto the process environment (secrets as memory-backed files). Depends on pragmatic-component only, so a lean container (hive agent, gateway, UI unpacker) can carry it.",
   "repository": {
@@ -33,7 +33,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@pragmatic-tech-ai/pragmatic-component": "0.18.5"
+    "@pragmatic-tech-ai/pragmatic-component": "0.18.6"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",
