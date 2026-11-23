@@ -70,7 +70,7 @@ class OrchestratorFixture
 
     public static Workload(ingressTls?: IngressTls): EnvironmentWorkload
     {
-        const w: EnvironmentWorkload = { environmentName: 'a', environmentId: 'a-id', hiveId: OrchestratorFixture.Hive, image: 'srv:1', serverPort: 8080, env: {}, secretRefs: [] }
+        const w: EnvironmentWorkload = { environmentName: 'a', environmentId: 'a-id', hiveId: OrchestratorFixture.Hive, image: 'srv:1', serverPort: 8080, env: {}, secretRefs: [], serverDatabase: { image: 'pragmatic-postgres:local', secretName: 'a-postgres' } }
         if (ingressTls !== undefined)
         {
             w.federation = { baseDomain: 'example.test', caSecretName: 'pragmatic-env-a-idp-ca', ingressTls }

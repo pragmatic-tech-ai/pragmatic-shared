@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
 import { K8sManifestBuilder, type K8sObject } from './k8s-manifest-builder.js'
 import type { IKubectl } from '@pragmatic-tech-ai/pragmatic-kube'
+import { EnvironmentDatabaseSecret } from './environment-workload.js'
 
 interface EnvSecretEntry
 {
@@ -117,6 +118,7 @@ export class EnvServerSeedSource
     private static readonly PublicKeySuffix = '.pub'
     private static readonly SecretKindName = 'Secret'
     private static readonly MissingRefPrefix = 'provisioned-secrets.json has no entry for db password ref: '
+    private static readonly SecretResourcePrefix = 'secret/'
 
     public constructor(private readonly bundleDir: string, private readonly environmentName: string, private readonly dbPasswordRef?: string, private readonly environmentId?: string)
     {
@@ -162,6 +164,26 @@ export class EnvServerSeedSource
             [EnvServerSeedSource.DataKey]: { [trustKeyRef + EnvServerSeedSource.PublicKeySuffix]: publicKeyPem.toString(EnvServerSeedSource.Base64) },
         }
         await kubectl.Apply(JSON.stringify(secret))
+    }
+
+    /**
+     * Mints the env server's database Secret (`<env>-postgres`, EnvironmentDatabaseSecret) once: when it already exists it is
+     * left exactly as it is (never overwritten, never rotated: its Postgres was initialised with those passwords). Applied
+     * server-side, so no last-applied annotation copies the values; they go only to kubectl. Answers whether it minted.
+     */
+    public static async EnsureServerDatabase(kubectl: IKubectl, environmentName: string): Promise<boolean>
+    {
+        const name = EnvironmentDatabaseSecret.NameOf(environmentName)
+        const namespace = K8sManifestBuilder.NamespaceOf(environmentName)
+        if (await kubectl.Find(namespace, EnvServerSeedSource.SecretResourcePrefix + name) !== undefined)
+        {
+            return false
+        }
+        const set = new EnvServerSecretSet(namespace)
+        set.Add(name, EnvironmentDatabaseSecret.Mint())
+        const [secret] = set.RenderManifest()
+        await kubectl.ApplyServerSide(JSON.stringify(secret))
+        return true
     }
 
     /** Name of the environment ConfigMap: `<env>-environment`. */

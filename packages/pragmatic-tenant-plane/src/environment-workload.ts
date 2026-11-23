@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto'
 import { BundleBuilder } from './seed/bundle.js'
 import type { EnvironmentRecord } from './environment-record.js'
 import type { HiveRecord } from './platform-records.js'
@@ -12,6 +13,80 @@ export type WorkloadDatabase = {
     user: string
     database: string
     passwordRef: string
+}
+
+/**
+ * The env server's own Postgres (every record it keeps lives there): the pragmatic-postgres image run beside the server in its
+ * pod (reachable on the pod's loopback only), its data in the environment's data claim, and the Secret (in the environment
+ * namespace) holding the superuser password, the server role's password and the server's database URL (keys
+ * EnvironmentDatabaseSecret.*). Not the template's data-source database (WorkloadDatabase).
+ */
+export type WorkloadServerDatabase = {
+    image: string
+    secretName: string
+}
+
+/** The keys of an environment's server database Secret and what its Postgres creates: the one home of their names. */
+export class EnvironmentDatabaseSecret
+{
+    public static readonly SuperuserKey = 'superuser'
+    public static readonly PasswordKey = 'password'
+    public static readonly UrlKey = 'database-url'
+    /** The application (the env server's component name), database and role its Postgres creates. */
+    public static readonly Application = 'pragmatic-env-server'
+    public static readonly Database = 'env_server'
+    public static readonly Role = 'env_server'
+    public static readonly Host = '127.0.0.1'
+    public static readonly Port = 5432
+    /** The pragmatic-postgres image a development cluster runs (docker/postgres, loaded into kind), as the IdP's. */
+    public static readonly DevImage = 'pragmatic-postgres:local'
+    private static readonly NameSuffix = '-postgres'
+    private static readonly UrlScheme = 'postgres://'
+    private static readonly UserSeparator = ':'
+    private static readonly HostSeparator = '@'
+    private static readonly PathSeparator = '/'
+    private static readonly Space = ' '
+    private static readonly PasswordBytes = 24
+    private static readonly PasswordEncoding = 'base64url'
+    private static readonly Utf8 = 'utf8'
+
+    /** The environment's server database Secret (`<env>-postgres`, like `<env>-env-secrets`); also its applications ConfigMap. */
+    public static NameOf(environmentName: string): string
+    {
+        return environmentName + EnvironmentDatabaseSecret.NameSuffix
+    }
+
+    /** The env server's database URL for a role password (on the loopback its Postgres shares with it). */
+    public static UrlOf(password: string): string
+    {
+        const S = EnvironmentDatabaseSecret
+        return S.UrlScheme + S.Role + S.UserSeparator + encodeURIComponent(password) + S.HostSeparator + S.Host + S.UserSeparator + String(S.Port) + S.PathSeparator + S.Database
+    }
+
+    /** The pragmatic-postgres applications.conf line. */
+    public static ApplicationsLine(): string
+    {
+        const S = EnvironmentDatabaseSecret
+        return [S.Application, S.Database, S.Role].join(S.Space)
+    }
+
+    /** A random database password (URL-safe, so the URL needs no escaping). */
+    public static NewPassword(): string
+    {
+        return randomBytes(EnvironmentDatabaseSecret.PasswordBytes).toString(EnvironmentDatabaseSecret.PasswordEncoding)
+    }
+
+    /** Fresh Secret data: a superuser password, the server role's password and the URL that carries it. */
+    public static Mint(): Map<string, Buffer>
+    {
+        const S = EnvironmentDatabaseSecret
+        const password = S.NewPassword()
+        return new Map<string, Buffer>([
+            [S.SuperuserKey, Buffer.from(S.NewPassword(), S.Utf8)],
+            [S.PasswordKey, Buffer.from(password, S.Utf8)],
+            [S.UrlKey, Buffer.from(S.UrlOf(password), S.Utf8)],
+        ])
+    }
 }
 
 /** In-cluster OIDC federation of a served environment: its browser host base domain and the ca.crt-only Secret it trusts the IdP through. */
@@ -48,6 +123,8 @@ export type EnvironmentWorkload = {
     serverPort: number
     env: Readonly<Record<string, string>>
     secretRefs: readonly string[]
+    /** The env server's own Postgres (always: the server keeps every record there). */
+    serverDatabase: WorkloadServerDatabase
     database?: WorkloadDatabase
     federation?: WorkloadFederation
     appDeployment?: WorkloadAppDeployment
@@ -81,6 +158,7 @@ export class EnvironmentWorkloadFactory
             serverPort: EnvironmentWorkloadFactory.ServerPort,
             env: { [EnvironmentWorkloadFactory.PortEnvKey]: String(EnvironmentWorkloadFactory.ServerPort) },
             secretRefs,
+            serverDatabase: { image: EnvironmentDatabaseSecret.DevImage, secretName: EnvironmentDatabaseSecret.NameOf(record.name) },
         }
         if (def.database)
         {

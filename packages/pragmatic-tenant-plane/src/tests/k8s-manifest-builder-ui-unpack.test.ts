@@ -21,6 +21,7 @@ class Fixture
             serverPort: 8080,
             env: { PRAGMATIC_PORT: '8080' },
             secretRefs: [],
+            serverDatabase: { image: 'pragmatic-postgres:local', secretName: 'dev1-postgres' },
         }
         if (withApp)
         {

@@ -1,7 +1,11 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { InClusterEnvironmentRuntime, InClusterOperationFailedError, type IHiveImageSigner } from '../in-cluster-environment-runtime.js'
-import { EnvironmentWorkloadFactory, type EnvironmentWorkload } from '../environment-workload.js'
+import { EnvironmentDatabaseSecret, EnvironmentWorkloadFactory, type EnvironmentWorkload } from '../environment-workload.js'
+import { K8sManifestBuilder } from '../k8s-manifest-builder.js'
 import type { EnvironmentPlacement } from '../environment-placement.js'
 import type { EnvRuntimeContext } from '../environment-runtime.js'
 import type { HiveOrchestratorFactory } from '../hive-orchestrator-factory.js'
@@ -66,7 +70,7 @@ class SigningFixture
     {
         const workload: EnvironmentWorkload = {
             environmentName: SigningFixture.EnvName, environmentId: SigningFixture.EnvId, hiveId: SigningFixture.HiveId, image: SigningFixture.ServerImage,
-            serverPort: 8080, env: {}, secretRefs: [],
+            serverPort: 8080, env: {}, secretRefs: [], serverDatabase: { image: 'pragmatic-postgres:local', secretName: 'dev1-postgres' },
         }
         if (withApp)
         {
@@ -105,5 +109,79 @@ describe('InClusterEnvironmentRuntime signing', () =>
         const S = SigningFixture
         assert.deepEqual(await S.SignedOnBringUp(false), [S.Registry + S.Slash + S.ServerImage])
         assert.deepEqual(await S.SignedOnBringUp(true), [S.Registry + S.Slash + S.ServerImage, S.Registry + S.Slash + EnvironmentWorkloadFactory.UiUnpackImage])
+    })
+})
+
+/** A cluster's Secrets in memory: Find answers what was applied (by namespace + `secret/<name>`); every apply replaces. */
+class SecretStoreKubectl
+{
+    public readonly Secrets = new Map<string, Record<string, string>>()
+    public ServerSideApplies = 0
+
+    public async Find(namespace: string, resource: string): Promise<string | undefined>
+    {
+        const data = this.Secrets.get(namespace + ' ' + resource)
+        return data === undefined ? undefined : JSON.stringify({ kind: 'Secret', data })
+    }
+
+    public async ApplyServerSide(manifestJson: string): Promise<void>
+    {
+        this.ServerSideApplies++
+        this.Store(JSON.parse(manifestJson))
+    }
+
+    public async Apply(manifestJson: string): Promise<void>
+    {
+        const doc = JSON.parse(manifestJson)
+        for (const item of doc.items ?? [doc])
+        {
+            this.Store(item)
+        }
+    }
+
+    private Store(item: { kind: string; metadata: { name: string; namespace: string }; data: Record<string, string> }): void
+    {
+        if (item.kind === 'Secret')
+        {
+            this.Secrets.set(item.metadata.namespace + ' secret/' + item.metadata.name, item.data)
+        }
+    }
+}
+
+describe('InClusterEnvironmentRuntime server database', () =>
+{
+    it('creating an environment mints its database secret once', async () =>
+    {
+        const S = SigningFixture
+        const bundleDir = mkdtempSync(join(tmpdir(), 'env-db-mint-'))
+        try
+        {
+            writeFileSync(join(bundleDir, 'master.key'), 'MASTER')
+            writeFileSync(join(bundleDir, 'provisioned-secrets.json'), '{}')
+            writeFileSync(join(bundleDir, 'environments.json'), '{}')
+            const kubectl = new SecretStoreKubectl()
+            const orchestrator = { Kubectl: kubectl, Apply: async () => undefined } as unknown as IHiveOrchestrator
+            const orchestrators = { For: () => orchestrator } as unknown as HiveOrchestratorFactory
+            const placement = { WorkloadFor: () => S.Workload(false) } as unknown as EnvironmentPlacement
+            const directory = { GetHive: () => S.Hive } as unknown as ITenantDirectory
+            const runtime = new InClusterEnvironmentRuntime(orchestrators, placement, directory, {} as IBundleBuilder)
+            const ctx = { record: { name: S.EnvName, hiveId: S.HiveId }, def: { environmentId: S.EnvId }, bundleDir } as unknown as EnvRuntimeContext
+            const key = K8sManifestBuilder.NamespaceOf(S.EnvName) + ' secret/' + EnvironmentDatabaseSecret.NameOf(S.EnvName)
+
+            await runtime.BringUp(ctx)
+            const first = kubectl.Secrets.get(key)
+            assert.ok(first, 'the first bring-up mints <env>-postgres')
+            assert.deepEqual(Object.keys(first).sort(), ['database-url', 'password', 'superuser'])
+            const password = Buffer.from(first.password!, 'base64').toString('utf8')
+            assert.equal(Buffer.from(first['database-url']!, 'base64').toString('utf8'), EnvironmentDatabaseSecret.UrlOf(password))
+
+            await runtime.BringUp(ctx)
+            assert.deepEqual(kubectl.Secrets.get(key), first, 'a second bring-up keeps the first Secret\'s values')
+            assert.equal(kubectl.ServerSideApplies, 1, 'never re-applied, never rotated')
+        }
+        finally
+        {
+            rmSync(bundleDir, { recursive: true, force: true })
+        }
     })
 })

@@ -1,7 +1,8 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { OciRegistryClient } from '@pragmatic-tech-ai/pragmatic-release-toolkit'
-import { EnvironmentWorkloadFactory } from '../environment-workload.js'
+import { EnvironmentDatabaseSecret, EnvironmentWorkloadFactory } from '../environment-workload.js'
+import { K8sManifestBuilder } from '../k8s-manifest-builder.js'
 import { InClusterRegistry } from '../in-cluster-registry.js'
 import { EnvServerSeedSource } from '../env-server-seed.js'
 import { EnvStatus, EnvType, Template, type EnvironmentRecord } from '../environment-record.js'
@@ -136,5 +137,114 @@ describe('EnvironmentWorkloadFactory', () =>
         const w = EnvironmentWorkloadFactory.From(WorkloadFixture.Env(Template.DevBlank, EnvType.Development), WorkloadFixture.Hive())
         assert.equal(w.appDeployment, undefined)
         assert.deepEqual(EnvironmentWorkloadFactory.ImagesOf(w), [w.image])
+    })
+})
+
+class ServerDatabaseFixture
+{
+    public static readonly SecretName = 'e1-postgres'
+    public static readonly UrlFile = '/run/secrets/pragmatic-env-server/database-url'
+    public static readonly UrlFileVar = 'PRAGMATIC_ENV_SERVER_DATABASE_URL_FILE'
+    public static readonly UrlMount = '/run/secrets/pragmatic-env-server'
+    public static readonly ApplicationsLine = 'pragmatic-env-server env_server env_server'
+    public static readonly LoopbackArg = 'listen_addresses=127.0.0.1'
+
+    /** The rendered List's items for a runtime-postgres workload (so the template's data-source database renders beside it). */
+    public static Items(): any[]
+    {
+        const w = EnvironmentWorkloadFactory.From(WorkloadFixture.Env(Template.RuntimePostgres, EnvType.Runtime), WorkloadFixture.Hive())
+        return JSON.parse(new K8sManifestBuilder().Render(w)).items as any[]
+    }
+
+    public static Deployment(items: any[]): any
+    {
+        return items.find(i => i.kind === 'Deployment' && i.metadata.name === K8sManifestBuilder.ServerDeploymentOf(WorkloadFixture.EnvName))
+    }
+}
+
+describe('the env server database', () =>
+{
+    it('the factory gives every environment its own pragmatic-postgres and its <env>-postgres Secret', () =>
+    {
+        for (const [template, type] of [[Template.DevBlank, EnvType.Development], [Template.RuntimePostgres, EnvType.Runtime]] as const)
+        {
+            const w = EnvironmentWorkloadFactory.From(WorkloadFixture.Env(template, type), WorkloadFixture.Hive())
+            assert.deepEqual(w.serverDatabase, { image: EnvironmentDatabaseSecret.DevImage, secretName: ServerDatabaseFixture.SecretName })
+        }
+        assert.equal(EnvironmentDatabaseSecret.DevImage, 'pragmatic-postgres:local')
+        assert.equal(EnvironmentDatabaseSecret.NameOf(WorkloadFixture.EnvName), ServerDatabaseFixture.SecretName)
+        assert.equal(EnvironmentDatabaseSecret.ApplicationsLine(), ServerDatabaseFixture.ApplicationsLine)
+        assert.equal(EnvironmentDatabaseSecret.UrlOf('pw'), 'postgres://env_server:pw@127.0.0.1:5432/env_server')
+    })
+
+    it('mints a superuser password, a role password and the URL carrying the role password', () =>
+    {
+        const S = EnvironmentDatabaseSecret
+        const data = S.Mint()
+        assert.deepEqual([...data.keys()].sort(), ['database-url', 'password', 'superuser'])
+        const password = data.get(S.PasswordKey)!.toString('utf8')
+        assert.equal(data.get(S.UrlKey)!.toString('utf8'), S.UrlOf(password))
+        assert.notEqual(data.get(S.SuperuserKey)!.toString('utf8'), password)
+        assert.notEqual(S.Mint().get(S.PasswordKey)!.toString('utf8'), password, 'every mint is fresh')
+    })
+
+    it('an environment workload carries a pragmatic-postgres sidecar bound to 127.0.0.1 and the URL file setting', () =>
+    {
+        const F = ServerDatabaseFixture
+        const items = F.Items()
+        const spec = F.Deployment(items).spec.template.spec
+        const [server, postgres] = spec.containers
+        assert.equal(server.name, K8sManifestBuilder.ServerContainerName)
+        assert.equal(postgres.name, 'postgres')
+        assert.equal(postgres.image, EnvironmentDatabaseSecret.DevImage)
+        assert.deepEqual(postgres.args, ['postgres', '-c', F.LoopbackArg])
+        assert.equal(postgres.ports, undefined, 'no port: the pod loopback only')
+        assert.equal(postgres.securityContext.runAsUser, 999)
+        assert.equal(postgres.securityContext.runAsNonRoot, true)
+        assert.equal(postgres.securityContext.readOnlyRootFilesystem, true)
+        const dataMount = postgres.volumeMounts.find((m: any) => m.mountPath === '/var/lib/postgresql/data')
+        assert.equal(dataMount.name, 'data')
+        assert.equal(dataMount.subPath, 'postgres')
+        const dataVolume = spec.volumes.find((v: any) => v.name === dataMount.name)
+        assert.equal(dataVolume.persistentVolumeClaim.claimName, K8sManifestBuilder.ServerDataClaimNameOf(WorkloadFixture.EnvName), 'the environment\'s own data claim')
+        assert.ok(postgres.volumeMounts.some((m: any) => m.mountPath === '/tmp'), 'a scratch tmpfs beside the read-only root')
+        const secrets = spec.volumes.find((v: any) => v.name === 'postgres-secrets').secret
+        assert.equal(secrets.secretName, F.SecretName)
+        assert.deepEqual(secrets.items, [{ key: 'superuser', path: 'superuser' }, { key: 'password', path: 'applications/pragmatic-env-server' }])
+        const configName = spec.volumes.find((v: any) => v.name === 'postgres-config').configMap.name
+        const config = items.find(i => i.kind === 'ConfigMap' && i.metadata.name === configName)
+        assert.equal(configName, F.SecretName)
+        assert.equal(config.metadata.namespace, K8sManifestBuilder.NamespaceOf(WorkloadFixture.EnvName))
+        assert.deepEqual(config.data, { 'applications.conf': F.ApplicationsLine + '\n' })
+        assert.ok(server.env.some((e: any) => e.name === F.UrlFileVar && e.value === F.UrlFile))
+        const urlMount = server.volumeMounts.find((m: any) => m.mountPath === F.UrlMount)
+        assert.equal(urlMount.readOnly, true)
+        const url = spec.volumes.find((v: any) => v.name === urlMount.name).secret
+        assert.equal(url.secretName, F.SecretName)
+        assert.deepEqual(url.items, [{ key: 'database-url', path: 'database-url' }], 'the server sees the URL only, never the superuser password')
+        assert.equal(K8sManifestBuilder.EnvServerDatabaseUrlFile, F.UrlFile)
+        assert.ok(items.some(i => i.kind === 'StatefulSet'), 'the template\'s data-source database stays as it is')
+    })
+
+    it('the database secret is referenced, never inlined', () =>
+    {
+        const items = ServerDatabaseFixture.Items()
+        const yaml = JSON.stringify(items)
+        assert.ok(!items.some(i => i.kind === 'Secret' && i.metadata.name === ServerDatabaseFixture.SecretName), 'the manifest never carries the Secret')
+        assert.ok(!yaml.includes('postgres://'), 'no database URL value')
+        const spec = ServerDatabaseFixture.Deployment(items).spec.template.spec
+        for (const container of spec.containers)
+        {
+            for (const e of container.env ?? [])
+            {
+                assert.ok(!/PASSWORD/.test(e.name) || e.valueFrom !== undefined, 'no inline password variable')
+            }
+        }
+    })
+
+    it('the environment deployment recreates instead of rolling (one Postgres per data folder)', () =>
+    {
+        const deployment = ServerDatabaseFixture.Deployment(ServerDatabaseFixture.Items())
+        assert.deepEqual(deployment.spec.strategy, { type: 'Recreate' })
     })
 })

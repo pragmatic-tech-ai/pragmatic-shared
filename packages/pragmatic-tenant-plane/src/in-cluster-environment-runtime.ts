@@ -138,6 +138,9 @@ export class InClusterEnvironmentRuntime implements IEnvironmentRuntime
         {
             await this.SignPlatformImages(hive, workload)
             await orchestrator.Apply(workload)
+            // The server's database Secret, minted once (an existing one is kept: its Postgres holds those passwords). After Apply
+            // created the namespace; the pod's Secret mounts are retried by kubelet until it exists.
+            await EnvServerSeedSource.EnsureServerDatabase(orchestrator.Kubectl, ctx.record.name)
             if (workload.federation !== undefined && ctx.caPem !== undefined)
             {
                 // ca.crt-only trust Secret. Applied after Apply creates the namespace; the pod's CA volume mount

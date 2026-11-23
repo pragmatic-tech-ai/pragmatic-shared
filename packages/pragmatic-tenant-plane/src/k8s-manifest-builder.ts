@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { UiArtifact } from '@pragmatic-tech-ai/pragmatic-release-toolkit'
 import { EnvConventions } from './seed/env-conventions.js'
-import type { EnvironmentWorkload, WorkloadAppDeployment, WorkloadDatabase } from './environment-workload.js'
+import { EnvironmentDatabaseSecret, type EnvironmentWorkload, type WorkloadAppDeployment, type WorkloadDatabase } from './environment-workload.js'
 import { EnvServerSeedSource } from './env-server-seed.js'
 import { InClusterRegistry } from './in-cluster-registry.js'
 import { IdpDatabaseSecret, IdpWorkloadNames, type IdpWorkloadSpec } from './idp-workload-driver.js'
@@ -404,6 +404,15 @@ export class K8sManifestBuilder
     /** The env server reads its apps from `<base dir>/<environment id>/applications` (TenantRegistry.OptionsFor), so the unpack writes there. */
     private static readonly ApplicationsDir = 'applications'
     private static readonly UiTrustDirVar = 'PRAGMATIC_UI_TRUST_DIR'
+    // The env server's pragmatic-postgres sidecar (the console's image paths and user; its ConfigMap and Secret EnvironmentDatabaseSecret.NameOf, its data a sub folder of the environment's data claim).
+    private static readonly StrategyKey = 'strategy'
+    /** One Postgres per ReadWriteOnce data folder: a rolling update would start a second Postgres on the same data. */
+    private static readonly RecreateStrategy = 'Recreate'
+    private static readonly EnvServerDatabaseUrlVar = 'PRAGMATIC_ENV_SERVER_DATABASE_URL_FILE'
+    private static readonly EnvServerDatabaseVolume = 'database-url'
+    private static readonly EnvServerDatabaseMount = '/run/secrets/pragmatic-env-server'
+    /** The mounted URL file (the mount plus the one projected item, EnvironmentDatabaseSecret.UrlKey). */
+    public static readonly EnvServerDatabaseUrlFile = '/run/secrets/pragmatic-env-server/database-url'
     /**
      * Unpacks seed.json ({ relpath: base64 }) into the env data dir (argv[1]) unless the marker exists. Idempotent: a restart never clobbers live state.
      * Rejects relpaths that escape the data dir.
@@ -454,6 +463,7 @@ export class K8sManifestBuilder
             items.push(this.DatabaseService(workload))
         }
         items.push(this.ServerDataClaim(workload))
+        items.push(this.ServerPostgresConfig(workload))
         if (workload.federation)
         {
             items.push(this.ServerIngress(workload, workload.federation.baseDomain))
@@ -1921,11 +1931,13 @@ export class K8sManifestBuilder
             this.EnvLiteral(K8sManifestBuilder.MasterKeyFileVar, this.MountedFile(K8sManifestBuilder.ServerSecretsMount, EnvServerSeedSource.MasterKeyFile)),
             this.EnvLiteral(K8sManifestBuilder.SecretsFileVar, this.MountedFile(K8sManifestBuilder.ServerSecretsMount, EnvServerSeedSource.SecretsFile)),
             this.EnvLiteral(K8sManifestBuilder.DeploymentModeVar, K8sManifestBuilder.DeploymentModeLocal),
+            this.EnvLiteral(K8sManifestBuilder.EnvServerDatabaseUrlVar, K8sManifestBuilder.EnvServerDatabaseUrlFile),
         )
         const volumeMounts: K8sObject[] = [
             { [K8sManifestBuilder.NameKey]: K8sManifestBuilder.ServerConfigVolume, [K8sManifestBuilder.MountPathKey]: K8sManifestBuilder.ServerConfigMount, [K8sManifestBuilder.ReadOnlyKey]: true },
             { [K8sManifestBuilder.NameKey]: K8sManifestBuilder.ServerSecretsVolume, [K8sManifestBuilder.MountPathKey]: K8sManifestBuilder.ServerSecretsMount, [K8sManifestBuilder.ReadOnlyKey]: true },
             { [K8sManifestBuilder.NameKey]: K8sManifestBuilder.ServerDataVolume, [K8sManifestBuilder.MountPathKey]: K8sManifestBuilder.ServerDataMount },
+            { [K8sManifestBuilder.NameKey]: K8sManifestBuilder.EnvServerDatabaseVolume, [K8sManifestBuilder.MountPathKey]: K8sManifestBuilder.EnvServerDatabaseMount, [K8sManifestBuilder.ReadOnlyKey]: true },
         ]
         const volumes: K8sObject[] = [
             {
@@ -1938,6 +1950,7 @@ export class K8sManifestBuilder
                 [K8sManifestBuilder.PersistentVolumeClaimKey]: { [K8sManifestBuilder.ClaimNameKey]: K8sManifestBuilder.ServerDataClaimNameOf(workload.environmentName) },
             },
             this.SecretVolume(K8sManifestBuilder.ServerSeedVolume, EnvServerSeedSource.SeedSecretNameOf(workload.environmentName)),
+            ...this.ServerPostgresVolumes(workload),
         ]
         if (workload.federation)
         {
@@ -1964,6 +1977,7 @@ export class K8sManifestBuilder
             },
             [K8sManifestBuilder.SpecKey]: {
                 [K8sManifestBuilder.ReplicasKey]: K8sManifestBuilder.SingleReplica,
+                [K8sManifestBuilder.StrategyKey]: { [K8sManifestBuilder.TypeKey]: K8sManifestBuilder.RecreateStrategy },
                 [K8sManifestBuilder.SelectorKey]: { [K8sManifestBuilder.MatchLabelsKey]: this.Selector(name) },
                 [K8sManifestBuilder.TemplateKey]: {
                     [K8sManifestBuilder.MetadataKey]: { [K8sManifestBuilder.LabelsKey]: this.Selector(name) },
@@ -1983,12 +1997,76 @@ export class K8sManifestBuilder
                                     [K8sManifestBuilder.PortKey]: workload.serverPort,
                                 },
                             },
-                        }],
+                        }, this.ServerPostgresContainer(workload)],
                         [K8sManifestBuilder.VolumesKey]: volumes,
                     },
                 },
             },
         }
+    }
+
+    /** The env server sidecar's applications.conf: the server's one database and role. */
+    private ServerPostgresConfig(workload: EnvironmentWorkload): K8sObject
+    {
+        const B = K8sManifestBuilder
+        return {
+            [B.ApiVersionKey]: B.ApiVersionCore,
+            [B.KindKey]: B.ConfigMapKindName,
+            [B.MetadataKey]: this.Meta(workload, EnvironmentDatabaseSecret.NameOf(workload.environmentName)),
+            [B.DataKeyName]: { [B.ConsolePostgresApplicationsFile]: EnvironmentDatabaseSecret.ApplicationsLine() + B.NewLine },
+        }
+    }
+
+    /**
+     * The env server's pragmatic-postgres sidecar, shaped like the console's: non-root (999; the pod's fsGroup lets it read the
+     * 0440 Secret files) with a read-only root, its data a sub folder of the environment's data claim (PGDATA one level below
+     * so initdb owns it), the superuser and server role passwords projected from the database Secret as the image expects
+     * them, the applications file from the ConfigMap. It listens on the pod's loopback only (no port, no Service).
+     */
+    private ServerPostgresContainer(workload: EnvironmentWorkload): K8sObject
+    {
+        const B = K8sManifestBuilder
+        return {
+            [B.NameKey]: B.ConsolePostgresContainerName,
+            [B.ImageKey]: workload.serverDatabase.image,
+            [B.ImagePullPolicyKey]: B.IfNotPresent,
+            [B.ArgsKey]: [...B.ConsolePostgresArgs],
+            [B.SecurityContextKey]: {
+                [B.RunAsNonRootKey]: true,
+                [B.RunAsUserKey]: B.ConsolePostgresUid,
+                [B.RunAsGroupKeyName]: B.ConsolePostgresUid,
+                [B.AllowPrivilegeEscalationKey]: false,
+                [B.CapabilitiesKey]: { [B.DropKey]: [B.AllCapabilities] },
+                [B.SeccompProfileKey]: { [B.TypeKey]: B.RuntimeDefault },
+                [B.ReadOnlyRootFilesystemKey]: true,
+            },
+            [B.EnvKey]: [this.EnvLiteral(B.ConsolePostgresPgDataVar, B.ConsolePostgresPgData)],
+            [B.VolumeMountsKey]: [
+                { [B.NameKey]: B.ServerDataVolume, [B.MountPathKey]: B.ConsolePostgresDataPath, [B.SubPathKeyName]: B.ConsolePostgresDataSubPath },
+                { [B.NameKey]: B.ConsolePostgresSecretsVolume, [B.MountPathKey]: B.ConsolePostgresSecretsMount, [B.ReadOnlyKey]: true },
+                { [B.NameKey]: B.ConsolePostgresConfigVolume, [B.MountPathKey]: B.ConsolePostgresConfigMount, [B.ReadOnlyKey]: true },
+                { [B.NameKey]: B.ConsolePostgresRunVolume, [B.MountPathKey]: B.ConsolePostgresRunMount },
+                { [B.NameKey]: B.ConsolePostgresTmpVolume, [B.MountPathKey]: B.TmpMount },
+            ],
+        }
+    }
+
+    /** The volumes of the env server's database: the sidecar's password files, applications file and scratch; the server's url-only projection. */
+    private ServerPostgresVolumes(workload: EnvironmentWorkload): K8sObject[]
+    {
+        const B = K8sManifestBuilder
+        const S = EnvironmentDatabaseSecret
+        const secretName = workload.serverDatabase.secretName
+        return [
+            this.SecretVolume(B.ConsolePostgresSecretsVolume, secretName, [
+                { key: S.SuperuserKey, path: S.SuperuserKey },
+                { key: S.PasswordKey, path: B.ConsolePostgresApplicationsDir + S.Application },
+            ]),
+            { [B.NameKey]: B.ConsolePostgresConfigVolume, [B.ConfigMapVolumeKey]: { [B.NameKey]: S.NameOf(workload.environmentName) } },
+            { [B.NameKey]: B.ConsolePostgresRunVolume, [B.EmptyDirKey]: {} },
+            { [B.NameKey]: B.ConsolePostgresTmpVolume, [B.EmptyDirKey]: {} },
+            this.SecretVolume(B.EnvServerDatabaseVolume, secretName, [{ key: S.UrlKey, path: S.UrlKey }]),
+        ]
     }
 
     /** Unpacks the projected env seed tree into data/<environmentId>/ (NOT environmentName: the server reads by id). Hardened like the tenant-admin seed. */

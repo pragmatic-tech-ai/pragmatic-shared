@@ -65,7 +65,7 @@ describe('EnvServerSeedSource', () =>
         assert.match(refName, /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/)
         assert.ok(secretNames.includes(refName))
         assert.ok(!secretNames.includes(Fixture.DbRef))
-        const workload = { environmentName: Fixture.Env, environmentId: 'env-1', hiveId: 'h', image: 'i', serverPort: 8080, env: {}, secretRefs: [], database: { image: 'postgres:16', user: 'u', database: 'd', passwordRef: Fixture.DbRef } }
+        const workload = { environmentName: Fixture.Env, environmentId: 'env-1', hiveId: 'h', image: 'i', serverPort: 8080, env: {}, secretRefs: [], serverDatabase: { image: 'pragmatic-postgres:local', secretName: 'acme-postgres' }, database: { image: 'postgres:16', user: 'u', database: 'd', passwordRef: Fixture.DbRef } }
         const sts = (JSON.parse(new K8sManifestBuilder().Render(workload)).items as any[]).find(i => i.kind === 'StatefulSet')
         const refd = sts.spec.template.spec.containers[0].env.find((e: any) => e.valueFrom).valueFrom.secretKeyRef.name
         assert.equal(refd, refName)
@@ -94,7 +94,7 @@ describe('EnvServerSeedSource', () =>
         assert.deepEqual(Object.keys(cm.data as Record<string, string>), ['environments.json'])
         assert.equal((cm.data as Record<string, string>)['environments.json'], Fixture.Environments)
         assert.ok(!JSON.stringify(cm).includes('SENTINEL'))
-        const workload = { environmentName: Fixture.Env, environmentId: 'env-1', hiveId: 'h', image: 'i', serverPort: 8080, env: {}, secretRefs: [] }
+        const workload = { environmentName: Fixture.Env, environmentId: 'env-1', hiveId: 'h', image: 'i', serverPort: 8080, env: {}, secretRefs: [], serverDatabase: { image: 'pragmatic-postgres:local', secretName: 'acme-postgres' } }
         const deployment = (JSON.parse(new K8sManifestBuilder().Render(workload)).items as any[]).find(i => i.kind === 'Deployment')
         const env = deployment.spec.template.spec.containers[0].env as { name: string; value?: string }[]
         assert.ok(env.some(e => e.name === 'PRAGMATIC_ENVIRONMENTS_FILE' && e.value!.endsWith('/environments.json')))
