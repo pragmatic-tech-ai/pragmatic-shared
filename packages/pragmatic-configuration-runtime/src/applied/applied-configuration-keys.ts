@@ -25,4 +25,6 @@ export class AppliedConfigurationKeys
     public static readonly RealmAnnotation = 'pragmatic-tech.ai/realm';
     /** On the ConfigMap and on the deployment's pod template: a new value rolls the deployment. */
     public static readonly HashAnnotation = 'pragmatic-tech.ai/configuration-hash';
+    /** On the deployment's pod template: the resourceVersion of the component's secrets Secret when the configuration was applied, so a rotated secret rolls the deployment. */
+    public static readonly SecretsRevisionAnnotation = 'pragmatic-tech.ai/secrets-revision';
 }

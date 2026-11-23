@@ -211,6 +211,7 @@ describe('K8sManifestBuilder configuration mounts', () =>
             assert.ok(TenantConsoleAdmission.HashRollOnly().includes(`object.${field} == oldObject.${field}`), field)
         }
         assert.ok(TenantConsoleAdmission.HashRollOnly().includes("k == 'pragmatic-tech.ai/configuration-hash'"))
+        assert.ok(TenantConsoleAdmission.HashRollOnly().includes("k == 'pragmatic-tech.ai/secrets-revision'"), 'a rotated secret may roll the Deployment too')
     })
 
     it('the console waits 180 s at its Ingress, knows its own Deployment and mounts its release descriptors optionally', () =>

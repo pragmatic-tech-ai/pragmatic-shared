@@ -102,6 +102,13 @@ test('Apply sends server-side apply with the console field manager', async () =>
     assert.equal(contentType, KubeContentType.ApplyPatch)
 })
 
+test('Apply can name another field manager (configuration writes keep their own)', async () =>
+{
+    const fake = new FakeKubeTransport()
+    await new KubeApiClient(fake).Apply('/api/v1/namespaces/x/configmaps/y', { kind: 'ConfigMap' }, 'pragmatic-tenant-console-configuration')
+    assert.ok(fake.Calls[0]![1].endsWith('?fieldManager=pragmatic-tenant-console-configuration&force=true'))
+})
+
 test('a failed call redacts the API message', async () =>
 {
     const token = 'abcdefabcdefabcdefabcdefabcdefabcdef'

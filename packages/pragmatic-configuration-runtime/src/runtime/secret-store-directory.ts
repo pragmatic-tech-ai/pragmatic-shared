@@ -21,6 +21,11 @@ export class SecretStoreDirectory
     private static readonly BadName = 'a secret store name is lowercase letters, digits and "-"';
     private static readonly Duplicate = 'a secret store is already registered under';
     private static readonly UnknownError = 'unknown error';
+    private static readonly Refers = ' refers to ';
+    private static readonly NoStorePrefix = ", but no secret store '";
+    private static readonly NoStoreSuffix = "' is available to this component";
+    private static readonly UnreadableInfix = ', which its store could not read: ';
+    private static readonly NotHeld = ", which the realm's secrets home does not hold";
 
     private readonly stores = new Map<string, ISecretSource>();
 
@@ -41,10 +46,11 @@ export class SecretStoreDirectory
     /** The secret behind `reference`, for the setting `where` (used in errors only). */
     public async Resolve(reference: SecretReference, where: string): Promise<SecretValue>
     {
+        const S = SecretStoreDirectory;
         const store = this.stores.get(reference.Store);
         if (store === undefined)
         {
-            throw new ConfigurationStartError(ConfigurationStartReason.UnknownSecretStore, `${where} refers to ${reference.Format()}, but no secret store '${reference.Store}' is available to this component`);
+            throw new ConfigurationStartError(ConfigurationStartReason.UnknownSecretStore, `${where}${S.Refers}${reference.Format()}${S.NoStorePrefix}${reference.Store}${S.NoStoreSuffix}`);
         }
         let value: string | null;
         try
@@ -54,11 +60,11 @@ export class SecretStoreDirectory
         catch (error)
         {
             if (error instanceof ConfigurationStartError) throw error;
-            throw new ConfigurationStartError(ConfigurationStartReason.SecretUnreadable, `${where} refers to ${reference.Format()}, which its store could not read: ${SecretStoreDirectory.CodeOf(error)}`);
+            throw new ConfigurationStartError(ConfigurationStartReason.SecretUnreadable, `${where}${S.Refers}${reference.Format()}${S.UnreadableInfix}${S.CodeOf(error)}`);
         }
         if (value === null)
         {
-            throw new ConfigurationStartError(ConfigurationStartReason.SecretMissing, `${where} refers to ${reference.Format()}, which the realm's secrets home does not hold`);
+            throw new ConfigurationStartError(ConfigurationStartReason.SecretMissing, `${where}${S.Refers}${reference.Format()}${S.NotHeld}`);
         }
         return new SecretValue(value);
     }

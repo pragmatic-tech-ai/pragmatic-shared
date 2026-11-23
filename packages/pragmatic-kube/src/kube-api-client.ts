@@ -184,7 +184,8 @@ export class KubeApiError extends KubectlError
 export class KubeApiClient
 {
     public static readonly FieldManager = 'pragmatic-tenant-console'
-    private static readonly ApplyQuery = '?fieldManager=' + KubeApiClient.FieldManager + '&force=true'
+    private static readonly ApplyQueryPrefix = '?fieldManager='
+    private static readonly ApplyQuerySuffix = '&force=true'
     private static readonly LabelSelectorQuery = '?labelSelector='
     private static readonly BadJsonMessage = 'kubernetes API GET response was not valid JSON'
     private static readonly NotFound = 404
@@ -227,9 +228,11 @@ export class KubeApiClient
         return true
     }
 
-    public async Apply(path: string, body: object): Promise<void>
+    /** Server-side apply under `fieldManager` (default: the console's own manager; configuration writes pass theirs, so a manifest re-apply never prunes them). */
+    public async Apply(path: string, body: object, fieldManager: string = KubeApiClient.FieldManager): Promise<void>
     {
-        const response = await this.transport.Send(KubeMethod.Patch, path + KubeApiClient.ApplyQuery, JSON.stringify(body), KubeContentType.ApplyPatch)
+        const query = KubeApiClient.ApplyQueryPrefix + fieldManager + KubeApiClient.ApplyQuerySuffix
+        const response = await this.transport.Send(KubeMethod.Patch, path + query, JSON.stringify(body), KubeContentType.ApplyPatch)
         KubeApiClient.EnsureOk(response, KubeMethod.Patch, path)
     }
 

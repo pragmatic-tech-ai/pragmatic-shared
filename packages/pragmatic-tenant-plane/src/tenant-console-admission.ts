@@ -1,3 +1,4 @@
+import { AppliedConfigurationKeys } from '@pragmatic-tech-ai/pragmatic-configuration'
 import type { IKubectl } from '@pragmatic-tech-ai/pragmatic-kube'
 
 /** The names the console's admission fence is rendered from (all supplied by K8sManifestBuilder). */
@@ -49,7 +50,9 @@ export class TenantConsoleAdmission
     private static readonly AppsVersion = 'v1'
     private static readonly DeploymentsResource = 'deployments'
     /** What the console may change on a Deployment outside its environment namespaces: this one pod-template annotation. */
-    public static readonly ConfigurationHashAnnotation = 'pragmatic-tech.ai/configuration-hash'
+    public static readonly ConfigurationHashAnnotation = AppliedConfigurationKeys.HashAnnotation
+    /** The other pod-template annotation it may change: the revision of the component's secrets. */
+    public static readonly SecretsRevisionAnnotation = AppliedConfigurationKeys.SecretsRevisionAnnotation
     /** The Deployment fields a hash roll leaves as they are (has-safe: an absent field must stay absent). */
     private static readonly FrozenDeploymentFields: readonly string[] = [
         'metadata.labels', 'metadata.annotations', 'metadata.ownerReferences', 'metadata.finalizers',
@@ -186,9 +189,10 @@ export class TenantConsoleAdmission
         const C = TenantConsoleAdmission
         const same = C.FrozenDeploymentFields.map(field => C.SameField(field))
         const hash = C.CelString(C.ConfigurationHashAnnotation)
+        const revision = C.CelString(C.SecretsRevisionAnnotation)
         const now = C.NewObject + C.TemplateAnnotations
         const before = C.OldObject + C.TemplateAnnotations
-        const kept = (a: string, b: string): string => `(!has(${a}) || ${a}.all(k, k == ${hash} || (has(${b}) && k in ${b} && ${b}[k] == ${a}[k])))`
+        const kept = (a: string, b: string): string => `(!has(${a}) || ${a}.all(k, k == ${hash} || k == ${revision} || (has(${b}) && k in ${b} && ${b}[k] == ${a}[k])))`
         return [...same, kept(now, before), kept(before, now)].join(' && ')
     }
 

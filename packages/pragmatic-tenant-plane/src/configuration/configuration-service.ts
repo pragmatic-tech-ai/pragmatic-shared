@@ -119,7 +119,6 @@ export class ConfigurationService
     public static readonly UnverifiedTargetDetail = 'unverified-target'
     private static readonly NoDetail = ''
     private static readonly SecretNamePattern = /^[A-Za-z0-9_-][A-Za-z0-9._-]{0,252}$/
-    private static readonly KeySeparator = '|'
 
     // The targets an apply is waiting on (one console process serves a tenant): a second apply there is refused.
     private readonly applying = new Set<string>()
@@ -227,7 +226,8 @@ export class ConfigurationService
         }
         const descriptor = await this.components.For(component, saved.ComponentVersion)
         const scope = new ConfigurationScope(tenantId, component)
-        const key = scope.Key() + ConfigurationService.KeySeparator + found.Target.Key()
+        // The Deployment alone: components that share one (the env server and the UI unpacker) share its roll.
+        const key = found.Target.Key()
         if (this.applying.has(key))
         {
             throw new ConfigurationApplyInProgressError()
