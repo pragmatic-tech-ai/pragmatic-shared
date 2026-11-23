@@ -268,3 +268,15 @@ describe('K8sManifestBuilder configuration mounts', () =>
         assert.equal(ComponentConfigurationMounts.ContainerOf({}, 'pragmatic-ui-unpack'), undefined)
     })
 })
+
+describe('K8sManifestBuilder realm sign-in service container', () =>
+{
+    it('takes its termination message from its last log lines on an error (why a refused configuration stopped it)', () =>
+    {
+        const F = ConfigurationFixture
+        const builder = new K8sManifestBuilder()
+        const items = F.Items(builder.RenderIdp(F.Idp())) as Array<{ kind: string; spec?: { template: { spec: { containers: Array<Record<string, unknown>> } } } }>
+        const idp = items.find(i => i.kind === 'Deployment')?.spec?.template.spec.containers.find(c => c.name === 'idp')
+        assert.equal(idp?.terminationMessagePolicy, 'FallbackToLogsOnError')
+    })
+})

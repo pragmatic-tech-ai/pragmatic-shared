@@ -208,6 +208,8 @@ export class K8sManifestBuilder
     private static readonly HostDotSeparator = '.'
     private static readonly IdpPrefix = IdpWorkloadNames.NamePrefix
     private static readonly IdpContainerName = 'idp'
+    private static readonly TerminationMessagePolicyKey = 'terminationMessagePolicy'
+    private static readonly FallbackToLogsOnError = 'FallbackToLogsOnError'
     private static readonly IdpEntrypoint = ['node', 'dist/bin/pragmatic-idpd.js']
     private static readonly IdpDataMount = '/idp-data'
     private static readonly IdpTlsMount = '/idp-data/tls'
@@ -1024,6 +1026,9 @@ export class K8sManifestBuilder
             [K8sManifestBuilder.ImageKey]: spec.image,
             [K8sManifestBuilder.ImagePullPolicyKey]: K8sManifestBuilder.IfNotPresent,
             [K8sManifestBuilder.CommandKey]: K8sManifestBuilder.IdpEntrypoint,
+            // The last log lines become the termination message when it exits on an error (a refused configuration names
+            // the setting there), so whoever rolled it can say why it did not start.
+            [K8sManifestBuilder.TerminationMessagePolicyKey]: K8sManifestBuilder.FallbackToLogsOnError,
             [K8sManifestBuilder.PortsKey]: [{ [K8sManifestBuilder.ContainerPortKey]: spec.port }],
             [K8sManifestBuilder.SecurityContextKey]: {
                 [K8sManifestBuilder.RunAsNonRootKey]: true,
