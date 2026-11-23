@@ -87,6 +87,7 @@ export class SqlRecordStore<T extends { id: string }>
 
     private readonly getSql: string
     private readonly listSql: string
+    private readonly listPrefixSql: string
     private readonly upsertSql: string
     private readonly insertSql: string
     private readonly updateSql: string
@@ -100,6 +101,7 @@ export class SqlRecordStore<T extends { id: string }>
     {
         this.getSql = `SELECT document, version FROM ${table} WHERE id = $1`
         this.listSql = `SELECT document FROM ${table} ORDER BY id`
+        this.listPrefixSql = `SELECT document FROM ${table} WHERE substring(id, 1, $2::integer) = $1 ORDER BY id`
         this.upsertSql = `INSERT INTO ${table} (id, document, version, updated_at) VALUES ($1, $2::jsonb, 1, $3) ON CONFLICT (id) DO UPDATE SET document = EXCLUDED.document, version = ${table}.version + 1, updated_at = EXCLUDED.updated_at RETURNING version`
         this.insertSql = `INSERT INTO ${table} (id, document, version, updated_at) SELECT $1, $2::jsonb, 1, $3::timestamptz WHERE NOT EXISTS (SELECT 1 FROM ${table} WHERE id = $1)`
         this.updateSql = `UPDATE ${table} SET document = $2::jsonb, version = version + 1, updated_at = $3 WHERE id = $1 AND version = $4`
@@ -136,6 +138,15 @@ export class SqlRecordStore<T extends { id: string }>
     public async List(): Promise<readonly T[]>
     {
         return (await this.session.Query(this.listSql, [])).map(row => SqlRecordStore.Document<T>(row))
+    }
+
+    /** Every record whose id starts with `prefix` (taken literally: `%`, `_` and `\` are not wildcards), ordered by
+     *  id. An exact leading-substring comparison rather than LIKE: it needs no wildcard escaping and behaves the same
+     *  on Postgres and pg-mem (which has no LIKE ... ESCAPE); a LIKE prefix scan would not use the id index under the
+     *  databases' default (non-C) collation either. The length is in code points, as Postgres counts them. */
+    public async ListPrefix(prefix: string): Promise<readonly T[]>
+    {
+        return (await this.session.Query(this.listPrefixSql, [prefix, [...prefix].length])).map(row => SqlRecordStore.Document<T>(row))
     }
 
     /** Inserts or replaces the record; returns its new version. */

@@ -65,6 +65,32 @@ SqlTestSessions.Describe('SqlRecordStore', (makeSession, backend) =>
         assert.deepEqual((await store.List()).map(r => r.id), ['a', 'b', 'c'])
     })
 
+    test(`${backend}: ListPrefix returns the records whose id starts with the prefix, ordered by id`, async () =>
+    {
+        const store = await SqlRecordStore.Open<Hive>(await makeSession(), 'hives')
+        for (const id of ['envb/x', 'enva/z', 'enva/y', 'env', 'other/enva/q', 'envab/w'])
+        {
+            await store.Put({ id, name: id, tags: [] })
+        }
+        assert.deepEqual((await store.ListPrefix('enva/')).map(r => r.id), ['enva/y', 'enva/z'])
+        assert.deepEqual((await store.ListPrefix('nothing')).map(r => r.id), [])
+        assert.equal((await store.ListPrefix('')).length, 6)
+    })
+
+    test(`${backend}: ListPrefix takes _, % and backslash literally`, async () =>
+    {
+        const store = await SqlRecordStore.Open<Hive>(await makeSession(), 'hives')
+        for (const id of ['a_b/1', 'axb/1', 'a%b/1', 'a%%b/1', 'aq/1', 'a\\b/1', 'ab/1'])
+        {
+            await store.Put({ id, name: id, tags: [] })
+        }
+        assert.deepEqual((await store.ListPrefix('a_b/')).map(r => r.id), ['a_b/1'])
+        assert.deepEqual((await store.ListPrefix('a%b/')).map(r => r.id), ['a%b/1'])
+        assert.deepEqual((await store.ListPrefix('a%')).map(r => r.id).sort(), ['a%%b/1', 'a%b/1'])
+        assert.deepEqual((await store.ListPrefix('a\\b')).map(r => r.id), ['a\\b/1'])
+        assert.deepEqual((await store.ListPrefix('a_')).map(r => r.id), ['a_b/1'])
+    })
+
     test(`${backend}: Delete reports whether the record existed`, async () =>
     {
         const store = await SqlRecordStore.Open<Hive>(await makeSession(), 'hives')
