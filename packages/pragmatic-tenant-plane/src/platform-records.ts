@@ -1,12 +1,5 @@
 import type { IngressTls } from './ingress-tls.js'
 
-export type ClientRecord = {
-    id: string
-    displayName: string
-    subscriptionRef?: string
-    createdAt: string
-}
-
 export enum HiveBackend
 {
     Aks = 'aks',
