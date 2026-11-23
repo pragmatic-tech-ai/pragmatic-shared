@@ -146,20 +146,83 @@ SqlTestSessions.Describe('SqlAuditStore', (makeSession, backend) =>
         assert.equal(reopened.Verify(t), true)
     })
 
-    test(`${backend}: a losing insert rejects and does not enter the in-memory chain`, async () =>
+    test(`${backend}: two store instances over one database writing one realm alternately both succeed`, async () =>
+    {
+        const session = await makeSession()
+        const t = `audit-${randomUUID()}`
+        const a = await SqlAuditStore.Open(session)
+        const b = await SqlAuditStore.Open(session)
+        for (let i = 0; i < 6; i++)
+        {
+            await (i % 2 === 0 ? a : b).Record(event(t, new Map([['i', String(i)]])))
+        }
+        const rows = await session.Query('SELECT seq FROM identity_audit WHERE realm_id = $1 ORDER BY seq', [t])
+        assert.deepEqual(rows.map(r => Number(r.seq)), [0, 1, 2, 3, 4, 5])
+        assert.equal(b.Records(t).length, 6)
+        assert.equal(b.Verify(t), true)
+        assert.equal(a.Records(t).length, 5)
+        await a.Refresh(t)
+        assert.equal(a.Records(t).length, 6)
+        assert.equal(a.Verify(t), true)
+        assert.deepEqual(a.Records(t).map(r => r.Hash), b.Records(t).map(r => r.Hash))
+        const reopened = await SqlAuditStore.Open(session)
+        assert.equal(reopened.Verify(t), true)
+        assert.deepEqual(reopened.Records(t).map(r => r.Hash), b.Records(t).map(r => r.Hash))
+    })
+
+    test(`${backend}: the chain an instance writes after another instance matches a single-writer chain byte for byte`, async () =>
+    {
+        const t = `audit-${randomUUID()}`
+        const events = [event(t, new Map([['a', '1']])), event(t, new Map([['b', '2']])), event(t, new Map([['c', '3']]))]
+        const solo = await SqlAuditStore.Open(await makeSession())
+        for (const e of events)
+        {
+            await solo.Record(e)
+        }
+        const shared = await makeSession()
+        const a = await SqlAuditStore.Open(shared)
+        const b = await SqlAuditStore.Open(shared)
+        await a.Record(events[0]!)
+        await b.Record(events[1]!)
+        await a.Record(events[2]!)
+        assert.deepEqual(a.Records(t).map(r => r.Hash), solo.Records(t).map(r => r.Hash))
+        assert.deepEqual(a.Records(t).map(r => r.PrevHash), solo.Records(t).map(r => r.PrevHash))
+    })
+
+    test(`${backend}: a row another writer tampered with is caught when an instance catches up`, async () =>
+    {
+        const session = await makeSession()
+        const t = `audit-${randomUUID()}`
+        const a = await SqlAuditStore.Open(session)
+        const b = await SqlAuditStore.Open(session)
+        await a.Record(event(t, new Map([['a', '1']])))
+        await b.Record(event(t, new Map([['b', '2']])))
+        await session.Execute('UPDATE identity_audit SET detail = $1 WHERE realm_id = $2 AND seq = 1', [JSON.stringify([['b', 'evil']]), t])
+        await assert.rejects(() => a.Record(event(t, new Map([['c', '3']]))), AuditTamperDetected)
+        await assert.rejects(() => a.Refresh(t), AuditTamperDetected)
+        const rows = await session.Query('SELECT seq FROM identity_audit WHERE realm_id = $1 ORDER BY seq', [t])
+        assert.deepEqual(rows.map(r => Number(r.seq)), [0, 1])
+        await session.Execute('DELETE FROM identity_audit WHERE realm_id = $1', [t])
+    })
+
+    test(`${backend}: a deleted head row is caught by the next write`, async () =>
     {
         const session = await makeSession()
         const t = `audit-${randomUUID()}`
         const store = await SqlAuditStore.Open(session)
         await store.Record(event(t, new Map([['a', '1']])))
-        const other = await SqlAuditStore.Open(session)
-        await other.Record(event(t, new Map([['winner', 'x']])))
-        await assert.rejects(() => store.Record(event(t, new Map([['loser', 'y']]))))
-        assert.equal(store.Records(t).length, 1)
-        assert.equal(store.Verify(t), true)
-        const reopened = await SqlAuditStore.Open(session)
-        assert.equal(reopened.Records(t).length, 2)
-        assert.equal(reopened.Verify(t), true)
+        await store.Record(event(t, new Map([['b', '2']])))
+        await session.Execute('DELETE FROM identity_audit WHERE realm_id = $1 AND seq = 1', [t])
+        await assert.rejects(() => store.Record(event(t, new Map([['c', '3']]))), AuditTamperDetected)
+        await session.Execute('DELETE FROM identity_audit WHERE realm_id = $1', [t])
+    })
+
+    test(`${backend}: the realm lock key is a stable non-negative bigint per realm`, () =>
+    {
+        const key = SqlAuditStore.LockKey('realm-a')
+        assert.equal(key, SqlAuditStore.LockKey('realm-a'))
+        assert.notEqual(key, SqlAuditStore.LockKey('realm-b'))
+        assert.ok(BigInt(key) >= 0n && BigInt(key) < 2n ** 63n)
     })
 
     test(`${backend}: nulling a hash after hashed rows is tamper, not a backfill`, async () =>
@@ -173,5 +236,31 @@ SqlTestSessions.Describe('SqlAuditStore', (makeSession, backend) =>
         await session.Execute('UPDATE identity_audit SET hash = NULL, prev_hash = NULL, detail = $1 WHERE realm_id = $2 AND seq = 1', [JSON.stringify([['b', 'evil']]), t])
         await assert.rejects(() => SqlAuditStore.Open(session), AuditTamperDetected)
         await session.Execute('DELETE FROM identity_audit WHERE realm_id = $1', [t])
+    })
+})
+
+SqlTestSessions.DescribeLive('SqlAuditStore', makeDatabase =>
+{
+    test('SqlAuditStore [live]: 8 concurrent writers across instances land with consecutive seqs and a valid chain', async () =>
+    {
+        const database = await makeDatabase()
+        const t = `audit-${randomUUID()}`
+        const stores = await Promise.all(Array.from({ length: 8 }, () => SqlAuditStore.Open(database.Session())))
+        const rounds = 3
+        await Promise.all(stores.flatMap((store, s) => Array.from({ length: rounds }, (_, r) =>
+            store.Record(new AuditEvent(AuditEventKind.Authentication, t, `p${s}`, new Date('2020-01-01T00:00:00Z'), new Map([['r', String(r)]]))))))
+        const total = stores.length * rounds
+        const rows = await database.Session().Query('SELECT seq FROM identity_audit WHERE realm_id = $1 ORDER BY seq', [t])
+        assert.deepEqual(rows.map(r => Number(r.seq)), Array.from({ length: total }, (_, i) => i))
+        for (const store of stores)
+        {
+            await store.Refresh(t)
+            assert.equal(store.Records(t).length, total)
+            assert.equal(store.Verify(t), true)
+        }
+        const reopened = await SqlAuditStore.Open(database.Session())
+        assert.equal(reopened.Verify(t), true)
+        assert.deepEqual(reopened.Records(t).map(r => r.Hash), stores[0]!.Records(t).map(r => r.Hash))
+        await database.Dispose()
     })
 })

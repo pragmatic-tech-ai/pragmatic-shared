@@ -92,4 +92,22 @@ SqlTestSessions.Describe('SqlAuditStore anchoring', (makeSession, backend) =>
         assert.ok(reopened.Verify(t))
         assert.equal(reopened.Records(t).length, 3)
     })
+
+    test(`${backend}: two anchored instances writing one realm alternately checkpoint the database head and reopen clean`, async () =>
+    {
+        const session = await makeSession()
+        const t = `t-${randomUUID()}`
+        const a = await SqlAuditStore.Open(session, await SqlAnchoringFixtures.Anchoring(session))
+        const b = await SqlAuditStore.Open(session, await SqlAnchoringFixtures.Anchoring(session))
+        for (const action of ['a', 'b', 'c', 'd'])
+        {
+            await (action === 'a' || action === 'c' ? a : b).Record(SqlAnchoringFixtures.Event(t, action))
+        }
+        const latest = await (await SqlAuditCheckpointStore.Open(session)).Latest(t)
+        assert.equal(latest!.Sequence, 4)
+        assert.equal(latest!.HeadHash, b.Records(t)[3]!.Hash)
+        const reopened = await SqlAuditStore.Open(session, await SqlAnchoringFixtures.Anchoring(session))
+        assert.ok(reopened.Verify(t))
+        assert.equal(reopened.Records(t).length, 4)
+    })
 })
