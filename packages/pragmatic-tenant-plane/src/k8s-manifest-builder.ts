@@ -294,6 +294,9 @@ export class K8sManifestBuilder
     public static readonly ConsolePostgresArgs: readonly string[] = ['postgres', '-c', 'listen_addresses=127.0.0.1']
     private static readonly ConsolePostgresDataPath = '/var/lib/postgresql/data'
     private static readonly ConsolePostgresDataSubPath = 'postgres'
+    /** The env server's Postgres data folder on the environment's volume: dot-led, so it can never be an environment's own
+     *  data folder (environment names are DNS labels) and the server's base folder walk never takes it for one. */
+    private static readonly ServerPostgresDataSubPath = '.postgres'
     private static readonly ConsolePostgresPgDataVar = 'PGDATA'
     /** A folder under the mount, so initdb creates (and owns) it whatever the volume root's owner. */
     private static readonly ConsolePostgresPgData = '/var/lib/postgresql/data/pgdata'
@@ -2042,7 +2045,7 @@ export class K8sManifestBuilder
             },
             [B.EnvKey]: [this.EnvLiteral(B.ConsolePostgresPgDataVar, B.ConsolePostgresPgData)],
             [B.VolumeMountsKey]: [
-                { [B.NameKey]: B.ServerDataVolume, [B.MountPathKey]: B.ConsolePostgresDataPath, [B.SubPathKeyName]: B.ConsolePostgresDataSubPath },
+                { [B.NameKey]: B.ServerDataVolume, [B.MountPathKey]: B.ConsolePostgresDataPath, [B.SubPathKeyName]: B.ServerPostgresDataSubPath },
                 { [B.NameKey]: B.ConsolePostgresSecretsVolume, [B.MountPathKey]: B.ConsolePostgresSecretsMount, [B.ReadOnlyKey]: true },
                 { [B.NameKey]: B.ConsolePostgresConfigVolume, [B.MountPathKey]: B.ConsolePostgresConfigMount, [B.ReadOnlyKey]: true },
                 { [B.NameKey]: B.ConsolePostgresRunVolume, [B.MountPathKey]: B.ConsolePostgresRunMount },

@@ -204,7 +204,7 @@ describe('the env server database', () =>
         assert.equal(postgres.securityContext.readOnlyRootFilesystem, true)
         const dataMount = postgres.volumeMounts.find((m: any) => m.mountPath === '/var/lib/postgresql/data')
         assert.equal(dataMount.name, 'data')
-        assert.equal(dataMount.subPath, 'postgres')
+        assert.equal(dataMount.subPath, '.postgres', 'dot-led: never an environment folder')
         const dataVolume = spec.volumes.find((v: any) => v.name === dataMount.name)
         assert.equal(dataVolume.persistentVolumeClaim.claimName, K8sManifestBuilder.ServerDataClaimNameOf(WorkloadFixture.EnvName), 'the environment\'s own data claim')
         assert.ok(postgres.volumeMounts.some((m: any) => m.mountPath === '/tmp'), 'a scratch tmpfs beside the read-only root')
