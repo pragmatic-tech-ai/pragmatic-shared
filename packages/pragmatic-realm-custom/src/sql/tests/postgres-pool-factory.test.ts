@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { EventEmitter } from 'node:events'
 import type { Pool, PoolConfig } from 'pg'
 import { PostgresPoolFactory } from '../postgres-pool-factory.js'
 
@@ -29,11 +30,22 @@ class UrlFile
 class CapturingPool
 {
     public static Last: PoolConfig | undefined
+    public static LastPool: EventEmitter | undefined
 
     public static readonly Create = (config: PoolConfig): Pool =>
     {
         CapturingPool.Last = config
-        return { end: async () => undefined } as unknown as Pool
+        const pool = Object.assign(new EventEmitter(), { end: async () => undefined })
+        CapturingPool.LastPool = pool
+        return pool as unknown as Pool
+    }
+}
+
+class PgError extends Error
+{
+    public constructor(message: string, public readonly code: string)
+    {
+        super(message)
     }
 }
 
@@ -102,6 +114,67 @@ test('a missing, empty or non-postgres secret file is refused without echoing it
     {
         await assert.rejects(() => new PostgresPoolFactory({ UrlFile: path }, CapturingPool.Create).Create(), (err: unknown) =>
             err instanceof Error && /postgres/.test(err.message) && !err.message.includes(UrlFile.Password))
+    })
+})
+
+test('the pool has an error listener: an idle client error goes to OnIdleError instead of crashing the process', async () =>
+{
+    await UrlFile.With(`postgres://app:${UrlFile.Password}@db/appdb`, async path =>
+    {
+        const seen: Error[] = []
+        await new PostgresPoolFactory({ UrlFile: path, OnIdleError: error => seen.push(error) }, CapturingPool.Create).Create()
+        const pool = CapturingPool.LastPool!
+        assert.equal(pool.listenerCount('error'), 1)
+        const failure = new PgError('terminating connection due to administrator command', '57P01')
+        assert.doesNotThrow(() => pool.emit('error', failure))
+        assert.deepEqual(seen, [failure])
+    })
+})
+
+test('by default an idle client error writes only its class and code to stderr (no message, no URL)', async () =>
+{
+    await UrlFile.With(`postgres://app:${UrlFile.Password}@db.internal/appdb`, async path =>
+    {
+        await new PostgresPoolFactory({ UrlFile: path }, CapturingPool.Create).Create()
+        const written: string[] = []
+        const original = process.stderr.write
+        process.stderr.write = ((chunk: string | Uint8Array) =>
+        {
+            written.push(String(chunk))
+            return true
+        }) as typeof process.stderr.write
+        try
+        {
+            CapturingPool.LastPool!.emit('error', new PgError(`connect to postgres://app:${UrlFile.Password}@db.internal failed`, 'ECONNRESET'))
+        }
+        finally
+        {
+            process.stderr.write = original
+        }
+        assert.equal(written.length, 1)
+        assert.match(written[0]!, /PgError ECONNRESET\n$/)
+        assert.ok(!written[0]!.includes(UrlFile.Password))
+        assert.ok(!written[0]!.includes('db.internal'))
+    })
+    assert.equal(PostgresPoolFactory.DescribeIdleError(new Error('x')), 'postgres pool: an idle client failed: Error')
+})
+
+test('a real pg.Pool gets the listener too', async () =>
+{
+    await UrlFile.With('postgres://app:pw@127.0.0.1:1/appdb', async path =>
+    {
+        const seen: Error[] = []
+        const pool = await new PostgresPoolFactory({ UrlFile: path, OnIdleError: error => seen.push(error) }).Create()
+        try
+        {
+            assert.equal(pool.listenerCount('error'), 1)
+            pool.emit('error', new Error('idle'))
+            assert.equal(seen.length, 1)
+        }
+        finally
+        {
+            await pool.end()
+        }
     })
 })
 
