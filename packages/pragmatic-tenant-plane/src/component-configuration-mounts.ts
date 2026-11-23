@@ -6,9 +6,10 @@ type K8sObject = Record<string, unknown>
  * What every hive workload the console's manifests render carries so the tenant admin console can configure it (C3.1):
  *
  * - labels: `app.kubernetes.io/component=<primary component>` and `app.kubernetes.io/managed-by=pragmatic-tenant-admin`,
- *   plus `component.pragmatic-tech.ai/<component>=true` for every component the pod runs (an init container such as the
- *   UI unpacker included), which is what the console selects a component's targets by. Labels go on the Deployment and
- *   its pod template, never on the selector (a selector is immutable on a live Deployment);
+ *   plus `component.pragmatic-tech.ai/<component>=<container>` for every component the pod runs (an init container such
+ *   as the UI unpacker included), which is what the console selects a component's targets by and how it finds the
+ *   container (and so the image) that runs it. Labels go on the Deployment and its pod template, never on the selector
+ *   (a selector is immutable on a live Deployment);
  * - per component, read-only in its own container: the ConfigMap `pragmatic-config-<component>` (optional: absent means no
  *   configuration) at `/etc/pragmatic/configuration`, the Secret `pragmatic-secrets-<component>` (optional; the secret
  *   store `file`) at `/run/secrets/pragmatic/<component>`, and a memory-backed `emptyDir` at `/run/pragmatic/secrets` where
@@ -20,9 +21,8 @@ export class ComponentConfigurationMounts
     public static readonly ComponentLabel = AppliedConfigurationKeys.ComponentLabel
     public static readonly ManagedByLabel = AppliedConfigurationKeys.ManagedByLabel
     public static readonly ManagedBy = AppliedConfigurationKeys.ManagedBy
-    /** `component.pragmatic-tech.ai/<component>`: one per component a pod runs. */
+    /** `component.pragmatic-tech.ai/<component>` = the container that runs it: one per component a pod runs. */
     public static readonly ConfiguresLabelPrefix = 'component.pragmatic-tech.ai/'
-    public static readonly ConfiguresValue = 'true'
     public static readonly SecretNamePrefix = 'pragmatic-secrets-'
     public static readonly ConfigurationMount = ConfigurationRuntimeReader.DefaultDirectory
     public static readonly RuntimeSecretsMount = ComponentStartConfiguration.DefaultSecretsDir
@@ -79,7 +79,7 @@ export class ComponentConfigurationMounts
     public static SelectorOf(component: string): string
     {
         const M = ComponentConfigurationMounts
-        return `${M.ConfiguresLabel(component)}=${M.ConfiguresValue},${M.ManagedByLabel}=${M.ManagedBy}`
+        return `${M.ConfiguresLabel(component)},${M.ManagedByLabel}=${M.ManagedBy}`
     }
 
     /** `pragmatic-secrets-<component>`: the Secret the console writes a component's secret values into (store `file`). */
@@ -94,16 +94,23 @@ export class ComponentConfigurationMounts
         return AppliedConfigurationKeys.ObjectNamePrefix + component
     }
 
-    /** The labels of a workload whose main container is `primary` and whose pod also runs `others`. */
-    public static Labels(primary: string, others: readonly string[] = []): Record<string, string>
+    /** The labels of a workload running `components` (container and component; the first is the primary one). */
+    public static Labels(components: ReadonlyArray<{ Container: string; Component: string }>): Record<string, string>
     {
         const M = ComponentConfigurationMounts
-        const labels: Record<string, string> = { [M.ComponentLabel]: primary, [M.ManagedByLabel]: M.ManagedBy }
-        for (const component of [primary, ...others])
+        const labels: Record<string, string> = { [M.ComponentLabel]: components[0].Component, [M.ManagedByLabel]: M.ManagedBy }
+        for (const entry of components)
         {
-            labels[M.ConfiguresLabel(component)] = M.ConfiguresValue
+            labels[M.ConfiguresLabel(entry.Component)] = entry.Container
         }
         return labels
+    }
+
+    /** The container that runs `component` in a Deployment with these labels; undefined when it does not run it. */
+    public static ContainerOf(labels: Readonly<Record<string, unknown>> | undefined, component: string): string | undefined
+    {
+        const container = labels?.[ComponentConfigurationMounts.ConfiguresLabel(component)]
+        return typeof container === 'string' ? container : undefined
     }
 
     /** The pod volumes of `component`'s configuration. */
@@ -145,8 +152,7 @@ export class ComponentConfigurationMounts
     public static Attach(deployment: K8sObject, components: ReadonlyArray<{ Container: string; Component: string }>): K8sObject
     {
         const M = ComponentConfigurationMounts
-        const [primary, ...others] = components.map(entry => entry.Component)
-        const labels = M.Labels(primary, others)
+        const labels = M.Labels(components)
         const metadata = deployment[M.MetadataKey] as K8sObject
         metadata[M.LabelsKey] = { ...(metadata[M.LabelsKey] as Record<string, string> | undefined), ...labels }
         const spec = deployment[M.SpecKey] as K8sObject

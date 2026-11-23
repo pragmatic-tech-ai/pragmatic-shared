@@ -9,7 +9,7 @@ test('the package entry exports the repository, the applied object and the runti
         'InMemoryConfigurationRepository', 'SqlConfigurationRepository', 'SqlConfigurationMigrations', 'ConfigurationHeadMovedError',
         'ConfigurationRejectedError', 'AppliedConfiguration', 'AppliedConfigurationCodec', 'AppliedConfigurationKeys',
         'ConfigurationRuntimeReader', 'ConfigurationStartError', 'RuntimeConfiguration', 'SecretStoreDirectory', 'SecretValue',
-        'SettingValueEncoding', 'MountedSecretStore', 'ConfigurationEnvironmentOverlay', 'ComponentStartConfiguration', 'ComponentStartReport',
+        'SettingValueEncoding', 'SecretVariable', 'MountedSecretStore', 'ConfigurationEnvironmentOverlay', 'ComponentStartConfiguration', 'ComponentStartReport',
     ])
     {
         assert.ok(name in entry, name);

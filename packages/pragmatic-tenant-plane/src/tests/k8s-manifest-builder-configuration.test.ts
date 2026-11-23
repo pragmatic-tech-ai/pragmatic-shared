@@ -130,9 +130,10 @@ describe('K8sManifestBuilder configuration mounts', () =>
             {
                 assert.equal(labels['app.kubernetes.io/component'], primary)
                 assert.equal(labels['app.kubernetes.io/managed-by'], 'pragmatic-tenant-admin')
-                for (const component of Object.values(Components))
+                for (const [container, component] of Object.entries(Components))
                 {
-                    assert.equal(labels[`component.pragmatic-tech.ai/${component}`], 'true', component)
+                    assert.equal(labels[`component.pragmatic-tech.ai/${component}`], container, component)
+                    assert.equal(ComponentConfigurationMounts.ContainerOf(labels, component), container)
                 }
             }
             const selector = Deployment.spec.selector.matchLabels
@@ -189,8 +190,9 @@ describe('K8sManifestBuilder configuration mounts', () =>
         assert.deepEqual(roles.sort(), ['Role/pragmatic-idp-acme', 'Role/pragmatic-system', 'RoleBinding/pragmatic-idp-acme', 'RoleBinding/pragmatic-system'].sort())
     })
 
-    it('the selector of a component finds it by its configures label and the console as manager', () =>
+    it('the selector of a component finds it by its component label and the console as manager', () =>
     {
-        assert.equal(ComponentConfigurationMounts.SelectorOf('pragmatic-ui-unpack'), 'component.pragmatic-tech.ai/pragmatic-ui-unpack=true,app.kubernetes.io/managed-by=pragmatic-tenant-admin')
+        assert.equal(ComponentConfigurationMounts.SelectorOf('pragmatic-ui-unpack'), 'component.pragmatic-tech.ai/pragmatic-ui-unpack,app.kubernetes.io/managed-by=pragmatic-tenant-admin')
+        assert.equal(ComponentConfigurationMounts.ContainerOf({}, 'pragmatic-ui-unpack'), undefined)
     })
 })

@@ -36,6 +36,7 @@ class TenantRoutePolicy
         [HttpMethod.Put, '/tenant-api/settings/email-domains'], [HttpMethod.Post, '/tenant-api/settings/email-domains/verify'],
         [HttpMethod.Post, '/tenant-api/configuration/components/pragmatic-env-server/versions'],
         [HttpMethod.Post, '/tenant-api/configuration/components/pragmatic-env-server/versions/1/apply'],
+        [HttpMethod.Put, '/tenant-api/configuration/components/pragmatic-hive-agent/secrets/agent-token'],
     ]
     public static readonly Reads: readonly string[] = [
         '/tenant-api/profile', '/tenant-api/hives', '/tenant-api/environments', '/tenant-api/manifests', '/tenant-api/hives/h1/rollout', '/tenant-api/hives/h1/health',

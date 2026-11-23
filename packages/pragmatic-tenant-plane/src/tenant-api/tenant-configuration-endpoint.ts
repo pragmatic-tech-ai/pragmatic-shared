@@ -1,7 +1,7 @@
 import { HttpMethod, HttpProblem, RouteAuth, type RequestContext, type RouteTable } from '@pragmatic-tech-ai/pragmatic-app-host'
 import { ConfigurationHeadMovedError, ConfigurationRejectedError, ConfigurationRequestError } from '@pragmatic-tech-ai/pragmatic-configuration'
-import { ConfigurationNoTargetError, ConfigurationNotFoundError, type ConfigurationService } from '../configuration/configuration-service.js'
-import { ConfigurationApplyUnavailableError } from '../configuration/kube-configuration-applier.js'
+import { ConfigurationNoTargetError, ConfigurationNotFoundError, ConfigurationSecretNameError, type ConfigurationService } from '../configuration/configuration-service.js'
+import { ConfigurationApplyUnavailableError, ConfigurationDescriptorMismatchError, DescriptorUnavailableError } from '../configuration/configuration-ports.js'
 import { TenantRoles } from '../tenant-auth/tenant-roles.js'
 import { TenantSessionClaims, type TenantSession } from '../tenant-auth/tenant-sessions.js'
 
@@ -9,8 +9,11 @@ import { TenantSessionClaims, type TenantSession } from '../tenant-auth/tenant-s
  * The configuration repository's routes on the tenant API (`/tenant-api/configuration/*`), scoped to the session's tenant
  * (its realm). Reads are open to any session of the tenant; saving and applying a version need the tenant role `admin`.
  * A document that does not validate is 422 with the paths and fixed messages (never the values); a save based on a
- * version that is no longer the head is 409 with the head; an unknown component, version or environment 404; a component
- * with no target there 409; a console outside its cluster 503.
+ * version that is no longer the head is 409 with the head; an unknown component, version or target 404; a component
+ * with no target 409; a target whose image runs another descriptor 409 `descriptor-mismatch` naming both digests; a
+ * console outside its cluster, or a release descriptor it cannot read (`descriptor-unavailable`), 503. A secret value
+ * (PUT .../secrets/:name, admin) goes into the component's own Secret; the answer is its reference, and neither the
+ * response nor the audit entry carries the value.
  */
 export class TenantConfigurationEndpoint
 {
@@ -20,6 +23,16 @@ export class TenantConfigurationEndpoint
     private static readonly VersionPath = '/tenant-api/configuration/components/:component/versions/:version'
     private static readonly ApplyPath = '/tenant-api/configuration/components/:component/versions/:version/apply'
     private static readonly DiffPath = '/tenant-api/configuration/components/:component/diff'
+    private static readonly SecretPath = '/tenant-api/configuration/components/:component/secrets/:name'
+    private static readonly NameParam = 'name'
+    private static readonly ValueField = 'value'
+    private static readonly ComponentVersionField = 'componentVersion'
+    private static readonly CodeField = 'code'
+    private static readonly SavedField = 'saved'
+    private static readonly RunningField = 'running'
+    /** A secret value is a token, a key or a certificate: 32 KiB holds any of them. */
+    public static readonly MaxSecretBodyBytes = 32 * 1024
+    private static readonly SecretFieldsMessage = 'value (a non-empty string) is required'
     private static readonly ComponentParam = 'component'
     private static readonly VersionParam = 'version'
     private static readonly FromParam = 'from'
@@ -43,7 +56,7 @@ export class TenantConfigurationEndpoint
     private static readonly StatusUnprocessable = 422
     private static readonly StatusUnavailable = 503
     private static readonly UnauthenticatedMessage = 'Not signed in'
-    private static readonly SaveFieldsMessage = 'basedOn (an integer, 0 for the first version), document (an object) and an optional comment (a string) are required'
+    private static readonly SaveFieldsMessage = 'basedOn (an integer, 0 for the first version), document (an object), an optional comment and an optional componentVersion (strings) are required'
     private static readonly ApplyFieldsMessage = 'environment (a non-empty string) is required'
     private static readonly DiffParamsMessage = 'from and to (version numbers; from 0 is the empty document) are required'
     private static readonly RejectedMessage = 'The configuration does not fit the component version it runs with.'
@@ -68,6 +81,7 @@ export class TenantConfigurationEndpoint
         read(C.DiffPath, (ctx, s) => this.Diff(ctx, s))
         table.Add({ Method: HttpMethod.Post, Pattern: C.VersionsPath, Auth: RouteAuth.Session, ...admin, BodyLimit: C.MaxBodyBytes, Handler: ctx => this.Run(ctx, (c, s) => this.Save(c, s)) })
         table.Add({ Method: HttpMethod.Post, Pattern: C.ApplyPath, Auth: RouteAuth.Session, ...admin, Handler: ctx => this.Run(ctx, (c, s) => this.Apply(c, s)) })
+        table.Add({ Method: HttpMethod.Put, Pattern: C.SecretPath, Auth: RouteAuth.Session, ...admin, BodyLimit: C.MaxSecretBodyBytes, Handler: ctx => this.Run(ctx, (c, s) => this.PutSecret(c, s)) })
     }
 
     /** Runs a route with the session's tenant view and answers the service's refusals with their statuses. */
@@ -96,13 +110,31 @@ export class TenantConfigurationEndpoint
         const basedOn = body[C.BasedOnField]
         const document = body[C.DocumentField]
         const comment = body[C.CommentField] ?? C.NoComment
-        if (typeof basedOn !== 'number' || !Number.isSafeInteger(basedOn) || basedOn < 0 || typeof document !== 'object' || document === null || Array.isArray(document) || typeof comment !== 'string')
+        const componentVersion = body[C.ComponentVersionField]
+        if (typeof basedOn !== 'number' || !Number.isSafeInteger(basedOn) || basedOn < 0 || typeof document !== 'object' || document === null || Array.isArray(document) || typeof comment !== 'string'
+            || (componentVersion !== undefined && (typeof componentVersion !== 'string' || componentVersion.length === 0)))
         {
             ctx.WriteJson(C.StatusBadRequest, { [C.ErrorField]: C.SaveFieldsMessage })
             return
         }
         ctx.NoteAudit(ctx.Param(C.ComponentParam))
-        ctx.WriteJson(C.StatusCreated, await this.service.Save(session.tenantId, ctx.Param(C.ComponentParam), basedOn, document, session.principalId, comment))
+        ctx.WriteJson(C.StatusCreated, await this.service.Save(session.tenantId, ctx.Param(C.ComponentParam), basedOn, document, session.principalId, comment, componentVersion as string | undefined))
+    }
+
+    private async PutSecret(ctx: RequestContext, session: TenantSession): Promise<void>
+    {
+        const C = TenantConfigurationEndpoint
+        const body = await ctx.ReadJsonObject()
+        const value = body[C.ValueField]
+        if (typeof value !== 'string' || value.length === 0)
+        {
+            ctx.WriteJson(C.StatusBadRequest, { [C.ErrorField]: C.SecretFieldsMessage })
+            return
+        }
+        const name = ctx.Param(C.NameParam)
+        // The audit names the component and the secret, never the value.
+        ctx.NoteAudit(`${ctx.Param(C.ComponentParam)}/${name}`)
+        ctx.WriteJson(C.StatusOk, await this.service.PutSecret(session.tenantId, ctx.Param(C.ComponentParam), name, value))
     }
 
     private async Apply(ctx: RequestContext, session: TenantSession): Promise<void>
@@ -170,6 +202,21 @@ export class TenantConfigurationEndpoint
         if (err instanceof ConfigurationApplyUnavailableError)
         {
             ctx.WriteJson(C.StatusUnavailable, { [C.ErrorField]: err.message })
+            return
+        }
+        if (err instanceof DescriptorUnavailableError)
+        {
+            ctx.WriteJson(C.StatusUnavailable, { [C.ErrorField]: err.message, [C.CodeField]: DescriptorUnavailableError.Code })
+            return
+        }
+        if (err instanceof ConfigurationDescriptorMismatchError)
+        {
+            ctx.WriteJson(C.StatusConflict, { [C.ErrorField]: err.message, [C.CodeField]: ConfigurationDescriptorMismatchError.Code, [C.SavedField]: err.Saved, [C.RunningField]: err.Running })
+            return
+        }
+        if (err instanceof ConfigurationSecretNameError)
+        {
+            ctx.WriteJson(C.StatusBadRequest, { [C.ErrorField]: err.message })
             return
         }
         throw err
