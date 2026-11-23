@@ -1,9 +1,8 @@
 import type { ISqlSession } from '@pragmatic-tech-ai/todl'
-import { IdentityConfig, SecurityModelValidator } from '@pragmatic-tech-ai/pragmatic-identity'
+import { IdentityConfig, InvalidSecurityModelError, SecurityModelIssue, SecurityModelIssueCode, SecurityModelValidator } from '@pragmatic-tech-ai/pragmatic-identity'
 import type { DelegationDepth, Role, IRealmConfigStore, ISecurityModelConfig } from '@pragmatic-tech-ai/pragmatic-identity'
 import { SqlMigrationRunner } from '../sql/sql-migration-runner.js'
 import { SqlRealmConfigMigrations } from './sql-identity-migrations.js'
-
 
 /** Postgres-backed realm-config store. Mirrors FileRealmConfigStore: the three ReadonlyMap fields persist
  *  as JSON [key, value] arrays (GroupRoleMap values are integer Role enum values), the security model as JSON (validated
@@ -12,6 +11,9 @@ import { SqlRealmConfigMigrations } from './sql-identity-migrations.js'
 export class SqlRealmConfigStore implements IRealmConfigStore
 {
     private static readonly Table = 'identity_realm_config'
+    private static readonly SecurityModelPath = 'securityModel'
+    private static readonly NotAnObjectMessage = 'stored security model is not an object'
+    private static readonly UnparseableMessage = 'stored security model is not valid JSON'
 
     private readonly session: ISqlSession
 
@@ -65,9 +67,31 @@ export class SqlRealmConfigStore implements IRealmConfigStore
         {
             return undefined
         }
-        const model = JSON.parse(String(value)) as ISecurityModelConfig
-        SecurityModelValidator.AssertValid(model)
-        return model
+        const model = SqlRealmConfigStore.ParseSecurityModel(String(value))
+        if (typeof model !== 'object' || model === null || Array.isArray(model))
+        {
+            throw SqlRealmConfigStore.Malformed(SqlRealmConfigStore.NotAnObjectMessage)
+        }
+        SecurityModelValidator.AssertValid(model as ISecurityModelConfig)
+        return model as ISecurityModelConfig
+    }
+
+    private static ParseSecurityModel(text: string): unknown
+    {
+        try
+        {
+            return JSON.parse(text)
+        }
+        catch
+        {
+            throw SqlRealmConfigStore.Malformed(SqlRealmConfigStore.UnparseableMessage)
+        }
+    }
+
+    /** The same malformed-section error FileRealmConfigStore raises for a stored model that is not an object. */
+    private static Malformed(message: string): InvalidSecurityModelError
+    {
+        return new InvalidSecurityModelError([new SecurityModelIssue(SecurityModelIssueCode.MalformedSection, SqlRealmConfigStore.SecurityModelPath, message)])
     }
 
     private static ToRoleMap(value: unknown): ReadonlyMap<string, Role>

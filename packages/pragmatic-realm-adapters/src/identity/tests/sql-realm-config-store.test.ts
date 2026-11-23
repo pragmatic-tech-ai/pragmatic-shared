@@ -70,4 +70,17 @@ SqlTestSessions.Describe('SqlRealmConfigStore', (makeSession, backend) =>
         await session.Execute('UPDATE identity_realm_config SET security_model = $1 WHERE realm_id = $2', [JSON.stringify(invalid), tid])
         await assert.rejects(store.Get(tid), InvalidSecurityModelError)
     })
+
+    test(`${backend}: a stored JSON null, array, scalar or unparseable security model fails closed with InvalidSecurityModelError`, async () =>
+    {
+        const tid = `cfg-${randomUUID()}`
+        const session = await makeSession()
+        const store = await SqlRealmConfigStore.Open(session)
+        await store.Save(tid, config())
+        for (const stored of ['null', '[]', '[{"businessUnits":[]}]', '42', '"model"', 'true', '{not json'])
+        {
+            await session.Execute('UPDATE identity_realm_config SET security_model = $1 WHERE realm_id = $2', [stored, tid])
+            await assert.rejects(store.Get(tid), (err: unknown) => err instanceof InvalidSecurityModelError && err.Issues.length === 1 && err.Issues[0]!.Path === 'securityModel', stored)
+        }
+    })
 })
