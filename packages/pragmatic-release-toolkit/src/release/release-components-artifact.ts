@@ -19,6 +19,7 @@ export class ReleaseComponentsArtifact
     public static readonly TitleAnnotation = 'org.opencontainers.image.title'
     public static readonly VersionAnnotation = 'org.pragmatic.release.version'
     private static readonly JsonExtension = '.json'
+    private static readonly MissingAssetPrefix = 'ReleaseComponentsArtifact: no component descriptor asset for '
 
     /** `components-<version>`. */
     public static TagOf(version: string): string
@@ -40,6 +41,7 @@ export class ReleaseComponentsArtifact
     }
 
     /** The layers of a release's descriptors, in the given app order. */
+    /** One layer per app, in `apps` order; every app must have its asset (a release never carries a partial set). */
     public static Layers(assets: ReadonlyMap<ReleaseApp, Uint8Array>, apps: readonly ReleaseApp[]): OciArtifactLayer[]
     {
         const S = ReleaseComponentsArtifact
@@ -47,10 +49,11 @@ export class ReleaseComponentsArtifact
         for (const app of apps)
         {
             const bytes = assets.get(app)
-            if (bytes !== undefined)
+            if (bytes === undefined)
             {
-                layers.push({ mediaType: S.LayerMediaType, bytes, annotations: { [S.TitleAnnotation]: S.TitleOf(app) } })
+                throw new Error(S.MissingAssetPrefix + app)
             }
+            layers.push({ mediaType: S.LayerMediaType, bytes, annotations: { [S.TitleAnnotation]: S.TitleOf(app) } })
         }
         return layers
     }

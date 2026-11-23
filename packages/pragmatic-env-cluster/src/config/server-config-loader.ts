@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { SettingValueEncoding } from '@pragmatic-tech-ai/pragmatic-configuration-runtime'
 import type { MasterKeyRef } from './master-key-ref.js'
 import { DeploymentMode } from '../platform/deployment-mode.js'
 import { DeploymentProvider } from '../platform/deployment-provider.js'
@@ -141,7 +142,7 @@ export class ServerConfigLoader
     private static readonly EnvAdapterPacksEvictVersions = 'PRAGMATIC_ADAPTER_PACKS_EVICT_MAX_VERSIONS'
     private static readonly EnvAdapterPacksEvictAgeMs = 'PRAGMATIC_ADAPTER_PACKS_EVICT_MAX_AGE_MS'
     private static readonly EnvAdapterPacksScriptAllowlist = 'PRAGMATIC_ADAPTER_PACKS_SCRIPT_ALLOWLIST'
-    private static readonly CsvSeparator = ','
+    private static readonly BadList = 'PRAGMATIC_ADAPTER_PACKS_SCRIPT_ALLOWLIST is JSON array text of strings or a comma list'
     private static readonly BadSandboxStrategy = 'PRAGMATIC_ADAPTER_PACKS_SANDBOX must be worker or child'
     private static readonly BadRequireSignatures = 'PRAGMATIC_ADAPTER_PACKS_REQUIRE_SIGNATURES must be true or false'
     private static readonly PacksOptionsWithoutDir = 'PRAGMATIC_ADAPTER_PACKS_* options (signatures, limits, eviction) require PRAGMATIC_ADAPTER_PACKS_DIR; the feature is off without it'
@@ -175,7 +176,12 @@ export class ServerConfigLoader
         {
             return undefined
         }
-        const names = value.split(ServerConfigLoader.CsvSeparator).map(n => n.trim()).filter(n => n.length > 0)
+        // JSON array text (what the start step writes for a configured list) or the hand-written comma form.
+        const names = SettingValueEncoding.ReadList(value)
+        if (names === undefined)
+        {
+            throw new Error(ServerConfigLoader.BadList)
+        }
         return names.length === 0 ? undefined : names
     }
 

@@ -21,21 +21,24 @@ export interface ComponentStartOptions
     SecretsDir?: string;
 }
 
-/** What the start step did: the applied version and realm (null when no configuration is mounted) and the settings it
- *  set, by name only (never a value). */
+/** What the start step did: the applied version and realm (null when no configuration is mounted), the settings it
+ *  set and those it left to the environment (an equal default), by name only (never a value). */
 export class ComponentStartReport
 {
-    public static readonly None = new ComponentStartReport(null, null, []);
+    public static readonly None = new ComponentStartReport(null, null, [], []);
 
     public readonly Settings: readonly string[];
+    public readonly Kept: readonly string[];
 
     public constructor(
         public readonly Version: number | null,
         public readonly Realm: string | null,
         settings: readonly string[],
+        kept: readonly string[] = [],
     )
     {
         this.Settings = Object.freeze([...settings]);
+        this.Kept = Object.freeze([...kept]);
         Object.freeze(this);
     }
 
@@ -45,7 +48,8 @@ export class ComponentStartReport
     }
 }
 
-/** The process a component exits through when its configuration refuses the start. */
+/** The process a component exits through when its configuration refuses the start. Its members mirror Node's `process`
+ *  (lowercase, so `process` itself fits), not this codebase's PascalCase. */
 export interface IStartProcess
 {
     exit(code: number): never;
@@ -87,8 +91,8 @@ export class ComponentStartConfiguration
         const configuration = await C.Read(reader, ConfigurationRuntimeReader.PathFrom(options.Env));
         if (configuration === undefined) return ComponentStartReport.None;
         const overlay = new ConfigurationEnvironmentOverlay(declaration, options.SecretsDir ?? C.DefaultSecretsDir);
-        const settings = await C.Overlay(overlay, configuration, options.Env);
-        return new ComponentStartReport(configuration.Version, configuration.Realm, settings);
+        const result = await overlay.Apply(configuration, options.Env);
+        return new ComponentStartReport(configuration.Version, configuration.Realm, result.Applied, result.Kept);
     }
 
     /** `Apply`, exiting with ExitCode and the reason when the configuration refuses the start. */
@@ -116,20 +120,6 @@ export class ComponentStartConfiguration
         {
             if (error instanceof ConfigurationStartError && error.Reason === ConfigurationStartReason.Missing) return undefined;
             throw error;
-        }
-    }
-
-    private static async Overlay(overlay: ConfigurationEnvironmentOverlay, configuration: RuntimeConfiguration, env: NodeJS.ProcessEnv): Promise<readonly string[]>
-    {
-        try
-        {
-            return await overlay.Apply(configuration, env);
-        }
-        catch (error)
-        {
-            if (error instanceof ConfigurationStartError) throw error;
-            const code = (error as { code?: unknown }).code;
-            throw new ConfigurationStartError(ConfigurationStartReason.SecretsUnwritable, `cannot write the resolved secrets under ${overlay.SecretsDirectory}: ${String(code)}`);
         }
     }
 }

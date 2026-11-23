@@ -1,7 +1,8 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { K8sManifestBuilder } from '../k8s-manifest-builder.js'
-import { ComponentConfigurationMounts } from '../component-configuration-mounts.js'
+import { ComponentConfigurationMounts, WorkloadRoll } from '../component-configuration-mounts.js'
+import { TenantConsoleAdmission } from '../tenant-console-admission.js'
 import type { EnvironmentWorkload } from '../environment-workload.js'
 import type { IdpWorkloadSpec } from '../idp-workload-driver.js'
 import type { TenantAdminWorkloadSpec } from '../tenant-admin-workload.js'
@@ -160,15 +161,64 @@ describe('K8sManifestBuilder configuration mounts', () =>
         }
     })
 
-    it('deployments roll with maxUnavailable 0', () =>
+    it('a stateless deployment rolls with maxUnavailable 0; one with a single-writer volume is recreated', () =>
     {
-        for (const { Deployment } of ConfigurationFixture.Deployments())
+        const [agent, idp, console, server] = ConfigurationFixture.Deployments().map(d => d.Deployment.spec.strategy)
+        assert.deepEqual(agent, { type: 'RollingUpdate', rollingUpdate: { maxUnavailable: 0, maxSurge: 1 } })
+        for (const strategy of [idp, console, server])
         {
-            assert.deepEqual(Deployment.spec.strategy, { type: 'RollingUpdate', rollingUpdate: { maxUnavailable: 0, maxSurge: 1 } })
+            assert.deepEqual(strategy, { type: 'Recreate' }, 'an embedded Postgres or data volume never gets a second writer')
+        }
+        assert.deepEqual(ComponentConfigurationMounts.Strategy(WorkloadRoll.Surge), agent)
+    })
+
+    it('the hive agent runs as its image user with an fsGroup that can read its mounted secret store', () =>
+    {
+        const [agent] = ConfigurationFixture.Deployments()
+        assert.deepEqual(agent.Deployment.spec.template.spec.securityContext, { runAsNonRoot: true, runAsUser: 10001, fsGroup: 10001 })
+    })
+
+    it('renders each hive-namespace component\'s ConfigMap and Secret empty, so the console never creates there', () =>
+    {
+        const F = ConfigurationFixture
+        const builder = new K8sManifestBuilder()
+        const pairs: Array<[string, string, Obj[]]> = [
+            ['pragmatic-hive-agent', 'pragmatic-system', F.Items(builder.RenderHiveAgent(F.HiveId, 'http://channel.example:7000', 'agent-token-secret', 'pragmatic-hive-agent:dev'))],
+            ['pragmatic-tenant-admin', 'pragmatic-system', F.Items(builder.RenderTenantAdmin(F.TenantAdmin()))],
+            ['pragmatic-tenant-idp', K8sManifestBuilder.IdpNameOf(F.TenantId), F.Items(builder.RenderIdp(F.Idp()))],
+        ]
+        for (const [component, namespace, items] of pairs)
+        {
+            const map = items.find(i => i.kind === 'ConfigMap' && i.metadata.name === `pragmatic-config-${component}`) as Obj
+            const secret = items.find(i => i.kind === 'Secret' && i.metadata.name === `pragmatic-secrets-${component}`) as Obj
+            assert.ok(map !== undefined && secret !== undefined, component)
+            assert.equal(map.metadata.namespace, namespace)
+            assert.equal(map.data, undefined, 'no data: a re-applied manifest never clears what the console wrote')
+            assert.deepEqual([secret.type, secret.data], ['Opaque', undefined], 'Opaque (immutable type): never a service-account token Secret')
         }
     })
 
-    it('the console may configure the hive components in pragmatic-system and the IdP namespace by name only', () =>
+    it('outside its environment namespaces the console may only roll a Deployment by its configuration hash', () =>
+    {
+        const F = ConfigurationFixture
+        const policy = F.Items(new K8sManifestBuilder().RenderTenantAdmin(F.TenantAdmin())).find(i => i.kind === 'ValidatingAdmissionPolicy') as Obj
+        assert.ok(policy.spec.matchConstraints.resourceRules.some((r: Obj) => r.resources.includes('deployments') && r.apiGroups.includes('apps') && r.operations.includes('UPDATE')))
+        const rule = policy.spec.validations.find((v: Obj) => v.expression.includes(TenantConsoleAdmission.HashRollOnly())) as Obj
+        assert.ok(rule.expression.startsWith("request.resource.resource != 'deployments' || request.namespace.startsWith('pragmatic-env-')"))
+        for (const field of ['spec.template.spec', 'spec.replicas', 'spec.selector', 'spec.strategy', 'metadata.labels', 'spec.template.metadata.labels'])
+        {
+            assert.ok(TenantConsoleAdmission.HashRollOnly().includes(`object.${field} == oldObject.${field}`), field)
+        }
+        assert.ok(TenantConsoleAdmission.HashRollOnly().includes("k == 'pragmatic-tech.ai/configuration-hash'"))
+    })
+
+    it('refuses a component or container name outside the Kubernetes label grammar', () =>
+    {
+        assert.throws(() => ComponentConfigurationMounts.ConfiguresLabel('Bad/Name'))
+        assert.throws(() => ComponentConfigurationMounts.Labels([{ Container: 'x'.repeat(64), Component: 'pragmatic-a' }]))
+    })
+
+    it('the console may configure the hive components in pragmatic-system and the IdP namespace by name only, never create or delete there', () =>
     {
         const F = ConfigurationFixture
         const builder = new K8sManifestBuilder()
@@ -179,6 +229,10 @@ describe('K8sManifestBuilder configuration mounts', () =>
         assert.deepEqual(named(system, 'configmaps', 'patch'), ['pragmatic-config-pragmatic-hive-agent', 'pragmatic-config-pragmatic-tenant-admin'])
         assert.deepEqual(named(system, 'secrets', 'get'), ['pragmatic-secrets-pragmatic-hive-agent', 'pragmatic-secrets-pragmatic-tenant-admin'])
         assert.deepEqual(named(system, 'deployments', 'patch'), [K8sManifestBuilder.HiveAgentNameOf(F.HiveId), K8sManifestBuilder.TenantAdminNameOf(F.TenantId)])
+        for (const verb of ['create', 'delete', 'update', '*'])
+        {
+            assert.deepEqual(system.rules.filter((rule: Obj) => rule.verbs.includes(verb)), [], verb)
+        }
         const idpItems = F.Items(builder.RenderIdp(F.Idp()))
         const idp = role(idpItems)
         assert.equal(idp.metadata.namespace, K8sManifestBuilder.IdpNameOf(F.TenantId))

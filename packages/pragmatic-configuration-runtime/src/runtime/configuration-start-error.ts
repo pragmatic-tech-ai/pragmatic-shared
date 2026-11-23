@@ -11,6 +11,8 @@ export enum ConfigurationStartReason
     SecretMissing = 'secret-missing',
     /** The resolved secrets could not be written to the component's secrets directory. */
     SecretsUnwritable = 'secrets-unwritable',
+    /** A secret store failed to answer (other than "absent"), or cannot serve the reference's form. */
+    SecretUnreadable = 'secret-unreadable',
 }
 
 /** The component cannot start on its applied configuration. The message says what to do; it names settings and secret

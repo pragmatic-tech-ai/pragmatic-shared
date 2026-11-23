@@ -1,7 +1,13 @@
 import type { SecretReference } from '@pragmatic-tech-ai/pragmatic-component';
-import type { ISecretStore } from '@pragmatic-tech-ai/pragmatic-identity';
 import { ConfigurationStartError, ConfigurationStartReason } from './configuration-start-error.js';
 import { SecretValue } from './secret-value.js';
+
+/** Where a secret is read from: any `ISecretStore` of pragmatic-identity fits (only `Get` is used). */
+export interface ISecretSource
+{
+    /** Null when absent; never throws for absence. */
+    Get(reference: string): Promise<string | null>;
+}
 
 /**
  * The realm's secrets home as a component sees it: its secret stores by the store name a `SecretReference` carries
@@ -14,10 +20,11 @@ export class SecretStoreDirectory
     private static readonly VersionSeparator = '@';
     private static readonly BadName = 'a secret store name is lowercase letters, digits and "-"';
     private static readonly Duplicate = 'a secret store is already registered under';
+    private static readonly UnknownError = 'unknown error';
 
-    private readonly stores = new Map<string, ISecretStore>();
+    private readonly stores = new Map<string, ISecretSource>();
 
-    public Add(name: string, store: ISecretStore): SecretStoreDirectory
+    public Add(name: string, store: ISecretSource): SecretStoreDirectory
     {
         if (!SecretStoreDirectory.StorePattern.test(name)) throw new Error(SecretStoreDirectory.BadName);
         if (this.stores.has(name)) throw new Error(`${SecretStoreDirectory.Duplicate} '${name}'`);
@@ -39,11 +46,27 @@ export class SecretStoreDirectory
         {
             throw new ConfigurationStartError(ConfigurationStartReason.UnknownSecretStore, `${where} refers to ${reference.Format()}, but no secret store '${reference.Store}' is available to this component`);
         }
-        const value = await store.Get(SecretStoreDirectory.KeyOf(reference));
+        let value: string | null;
+        try
+        {
+            value = await store.Get(SecretStoreDirectory.KeyOf(reference));
+        }
+        catch (error)
+        {
+            if (error instanceof ConfigurationStartError) throw error;
+            throw new ConfigurationStartError(ConfigurationStartReason.SecretUnreadable, `${where} refers to ${reference.Format()}, which its store could not read: ${SecretStoreDirectory.CodeOf(error)}`);
+        }
         if (value === null)
         {
             throw new ConfigurationStartError(ConfigurationStartReason.SecretMissing, `${where} refers to ${reference.Format()}, which the realm's secrets home does not hold`);
         }
         return new SecretValue(value);
+    }
+
+    // The error's code or name only: a store's message could carry what it read.
+    private static CodeOf(error: unknown): string
+    {
+        const code = (error as { code?: unknown }).code;
+        return typeof code === 'string' ? code : error instanceof Error ? error.name : SecretStoreDirectory.UnknownError;
     }
 }

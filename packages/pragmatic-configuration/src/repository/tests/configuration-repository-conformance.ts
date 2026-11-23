@@ -13,7 +13,7 @@ import {
     ConfigurationVersionNotFoundError,
 } from '../configuration-repository-errors.js';
 import { ConfigurationSaveRequest } from '../configuration-save-request.js';
-import { ConfigurationScope } from '../configuration-scope.js';
+import { ConfigurationScope } from '@pragmatic-tech-ai/pragmatic-configuration-runtime';
 
 /** Opens a fresh, empty repository stamped by `clock`. */
 export type RepositoryOpener = (clock: TestClock) => Promise<IConfigurationRepository>;

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { ComponentDescriptorBuilder, SettingType } from '@pragmatic-tech-ai/pragmatic-component';
 import type { ComponentDescriptor, JsonValue } from '@pragmatic-tech-ai/pragmatic-component';
 import type { IConfigurationClock } from '../../repository/configuration-clock.js';
-import { ConfigurationScope } from '../../repository/configuration-scope.js';
+import { ConfigurationScope } from '@pragmatic-tech-ai/pragmatic-configuration-runtime';
 import { ConfigurationSaveRequest } from '../../repository/configuration-save-request.js';
 
 /** A clock the tests move by hand. */

@@ -1,4 +1,4 @@
-import { ConfigurationScope } from './configuration-scope.js';
+import { ConfigurationScope } from '@pragmatic-tech-ai/pragmatic-configuration-runtime';
 
 /** Where an apply ended: still in progress, written next to the deployment and rolled out, or not. */
 export enum ApplyOutcome

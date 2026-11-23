@@ -91,9 +91,9 @@ describe('workspace manifests', () =>
 {
     const packages = Workspace.Packages();
 
-    it('lists the twenty-eight packages', () =>
+    it('lists the twenty-nine packages', () =>
     {
-        assert.equal(packages.length, 28);
+        assert.equal(packages.length, 29);
     });
 
     it('lists the six packages lifted out of pragmatic-server with Apache-2.0 and the workspace version', () =>
@@ -149,6 +149,7 @@ describe('workspace manifests', () =>
             'pragmatic-realm-gcp': ['@pragmatic-tech-ai/todl', '@pragmatic-tech-ai/todl-runtime'],
             'pragmatic-realm-aws': ['@pragmatic-tech-ai/todl', '@pragmatic-tech-ai/todl-runtime'],
             'pragmatic-realm-azure': ['@pragmatic-tech-ai/todl', '@pragmatic-tech-ai/todl-runtime'],
+            'pragmatic-configuration-runtime': [],
             'pragmatic-configuration': ['@pragmatic-tech-ai/todl', '@pragmatic-tech-ai/todl-runtime'],
             'pragmatic-app-host': ['@pragmatic-tech-ai/todl', '@pragmatic-tech-ai/todl-runtime'],
             'pragmatic-entitlements-contract': [],

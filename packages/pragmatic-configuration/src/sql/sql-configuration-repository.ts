@@ -9,7 +9,7 @@ import type { IConfigurationClock } from '../repository/configuration-clock.js';
 import type { IConfigurationRepository } from '../repository/configuration-repository.js';
 import { ApplyRecordNotFoundError, ConfigurationHeadMovedError, ConfigurationVersionNotFoundError } from '../repository/configuration-repository-errors.js';
 import type { ConfigurationSaveRequest } from '../repository/configuration-save-request.js';
-import type { ConfigurationScope } from '../repository/configuration-scope.js';
+import type { ConfigurationScope } from '@pragmatic-tech-ai/pragmatic-configuration-runtime';
 import { ConfigurationVersion } from '../repository/configuration-version.js';
 
 /** The repository's two tables: configuration versions (one row per realm, component, version) and apply records. */

@@ -8,6 +8,8 @@ import { ReleaseDescriptorCodec } from '../release-descriptor.js'
 import { ReleaseManifest } from '../release-manifest.js'
 import { ReleasePublisher, type ReleasePublishResult } from '../release-publisher.js'
 import { ReleaseApp, ReleaseApps } from '../release-tag.js'
+import { ReleaseSignature } from '../release-signature.js'
+import { OciRegistryClient } from '../../oci-registry-client.js'
 import { ReleaseWorld } from './release-manifest-fixture.js'
 
 class DescriptorKeys
@@ -139,11 +141,25 @@ describe('ReleaseComponentDescriptors: the descriptors a platform release carrie
         const r = new PublishedRelease()
         await r.Publish()
         const client = r.World.Client()
-        // The same signed descriptor under another version, as releases published before the descriptors were: no components artifact.
+        // A release of its own version, signed, published before the descriptors were: no components artifact.
         const release = await client.PullArtifactLayer(PublishedRelease.DescriptorRepo, ReleaseWorld.ReleaseVersion)
-        await client.PushArtifact(PublishedRelease.DescriptorRepo, PublishedRelease.OlderVersion, ReleasePublisher.ArtifactType, ReleasePublisher.LayerMediaType, release.layer, release.annotations)
+        const older = ReleaseDescriptorCodec.Encode({ ...ReleaseDescriptorCodec.Decode(release.layer), version: PublishedRelease.OlderVersion })
+        await client.PushArtifact(PublishedRelease.DescriptorRepo, PublishedRelease.OlderVersion, ReleasePublisher.ArtifactType, ReleasePublisher.LayerMediaType, older, {
+            [ReleasePublisher.SignatureAnnotation]: ReleaseSignature.Sign(OciRegistryClient.DigestOf(older), r.Key.Private),
+            [ReleasePublisher.KeyAnnotation]: PublishedRelease.KeyId,
+        })
         await assert.rejects(r.Reader().Descriptors(PublishedRelease.OlderVersion), (e: unknown) =>
             e instanceof ReleaseDescriptorsAbsentError && e.Version === PublishedRelease.OlderVersion)
+    })
+
+    it('a signed release re-tagged under another version is refused, with its carried descriptors', async () =>
+    {
+        const r = new PublishedRelease()
+        await r.Publish()
+        const client = r.World.Client()
+        const release = await client.PullArtifactLayer(PublishedRelease.DescriptorRepo, ReleaseWorld.ReleaseVersion)
+        await client.PushArtifact(PublishedRelease.DescriptorRepo, PublishedRelease.OlderVersion, ReleasePublisher.ArtifactType, ReleasePublisher.LayerMediaType, release.layer, release.annotations)
+        await assert.rejects(r.Reader().Descriptors(PublishedRelease.OlderVersion), (e: unknown) => e instanceof ReleaseDescriptorUnverifiedError)
     })
 
     it('a release descriptor no trusted key signed is refused before anything it binds is read', async () =>

@@ -1,5 +1,5 @@
 import type { ComponentDescriptor } from '@pragmatic-tech-ai/pragmatic-component';
-import type { ConfigurationScope } from './configuration-scope.js';
+import type { ConfigurationScope } from '@pragmatic-tech-ai/pragmatic-configuration-runtime';
 
 /**
  * A new configuration version: the document (as authored), the descriptor of the container version it will run with,

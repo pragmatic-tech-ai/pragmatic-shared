@@ -1,7 +1,7 @@
 import { HttpMethod, HttpProblem, RouteAuth, type RequestContext, type RouteTable } from '@pragmatic-tech-ai/pragmatic-app-host'
 import { ConfigurationHeadMovedError, ConfigurationRejectedError, ConfigurationRequestError } from '@pragmatic-tech-ai/pragmatic-configuration'
 import { ConfigurationNoTargetError, ConfigurationNotFoundError, ConfigurationSecretNameError, type ConfigurationService } from '../configuration/configuration-service.js'
-import { ConfigurationApplyUnavailableError, ConfigurationDescriptorMismatchError, DescriptorUnavailableError } from '../configuration/configuration-ports.js'
+import { ConfigurationApplyInProgressError, ConfigurationApplyUnavailableError, ConfigurationDescriptorMismatchError, ConfigurationSecretWriteError, DescriptorUnavailableError } from '../configuration/configuration-ports.js'
 import { TenantRoles } from '../tenant-auth/tenant-roles.js'
 import { TenantSessionClaims, type TenantSession } from '../tenant-auth/tenant-sessions.js'
 
@@ -32,7 +32,7 @@ export class TenantConfigurationEndpoint
     private static readonly RunningField = 'running'
     /** A secret value is a token, a key or a certificate: 32 KiB holds any of them. */
     public static readonly MaxSecretBodyBytes = 32 * 1024
-    private static readonly SecretFieldsMessage = 'value (a non-empty string) is required'
+    private static readonly SecretFieldsMessage = 'value and environment (the target: its environment or namespace), non-empty strings, are required'
     private static readonly ComponentParam = 'component'
     private static readonly VersionParam = 'version'
     private static readonly FromParam = 'from'
@@ -55,9 +55,10 @@ export class TenantConfigurationEndpoint
     private static readonly StatusConflict = 409
     private static readonly StatusUnprocessable = 422
     private static readonly StatusUnavailable = 503
+    private static readonly StatusBadGateway = 502
     private static readonly UnauthenticatedMessage = 'Not signed in'
     private static readonly SaveFieldsMessage = 'basedOn (an integer, 0 for the first version), document (an object), an optional comment and an optional componentVersion (strings) are required'
-    private static readonly ApplyFieldsMessage = 'environment (a non-empty string) is required'
+    private static readonly ApplyFieldsMessage = 'environment (the target: its environment or namespace, a non-empty string) is required'
     private static readonly DiffParamsMessage = 'from and to (version numbers; from 0 is the empty document) are required'
     private static readonly RejectedMessage = 'The configuration does not fit the component version it runs with.'
     private static readonly HeadMovedMessage = 'Another version was saved meanwhile: start again from the newest version.'
@@ -126,7 +127,8 @@ export class TenantConfigurationEndpoint
         const C = TenantConfigurationEndpoint
         const body = await ctx.ReadJsonObject()
         const value = body[C.ValueField]
-        if (typeof value !== 'string' || value.length === 0)
+        const target = body[C.EnvironmentField]
+        if (typeof value !== 'string' || value.length === 0 || typeof target !== 'string' || target.length === 0)
         {
             ctx.WriteJson(C.StatusBadRequest, { [C.ErrorField]: C.SecretFieldsMessage })
             return
@@ -134,7 +136,7 @@ export class TenantConfigurationEndpoint
         const name = ctx.Param(C.NameParam)
         // The audit names the component and the secret, never the value.
         ctx.NoteAudit(`${ctx.Param(C.ComponentParam)}/${name}`)
-        ctx.WriteJson(C.StatusOk, await this.service.PutSecret(session.tenantId, ctx.Param(C.ComponentParam), name, value))
+        ctx.WriteJson(C.StatusOk, await this.service.PutSecret(session.tenantId, ctx.Param(C.ComponentParam), target, name, value))
     }
 
     private async Apply(ctx: RequestContext, session: TenantSession): Promise<void>
@@ -212,6 +214,16 @@ export class TenantConfigurationEndpoint
         if (err instanceof ConfigurationDescriptorMismatchError)
         {
             ctx.WriteJson(C.StatusConflict, { [C.ErrorField]: err.message, [C.CodeField]: ConfigurationDescriptorMismatchError.Code, [C.SavedField]: err.Saved, [C.RunningField]: err.Running })
+            return
+        }
+        if (err instanceof ConfigurationApplyInProgressError)
+        {
+            ctx.WriteJson(C.StatusConflict, { [C.ErrorField]: err.message, [C.CodeField]: ConfigurationApplyInProgressError.Code })
+            return
+        }
+        if (err instanceof ConfigurationSecretWriteError)
+        {
+            ctx.WriteJson(C.StatusBadGateway, { [C.ErrorField]: err.message })
             return
         }
         if (err instanceof ConfigurationSecretNameError)

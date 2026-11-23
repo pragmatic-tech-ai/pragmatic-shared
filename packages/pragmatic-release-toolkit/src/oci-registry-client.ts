@@ -307,6 +307,9 @@ export class OciRegistryClient
     private static readonly ManifestAccept = OciRegistryClient.ManifestMediaTypes.join(OciRegistryClient.AcceptSeparator)
     private static readonly ManifestSchemaVersion = 2
     private static readonly MaxTagPages = 1000
+    /** The most layers, and the largest layer, PullArtifactLayers accepts (a release carries nine small descriptors). */
+    public static readonly MaxArtifactLayers = 64
+    public static readonly MaxArtifactLayerBytes = 1024 * 1024
     private static readonly MethodHead = 'HEAD'
     private static readonly MethodPost = 'POST'
     private static readonly MethodPut = 'PUT'
@@ -566,10 +569,16 @@ export class OciRegistryClient
         {
             throw new OciProtocolError(S.BadAnnotationsMessage, OciProtocolFault.BadAnnotations)
         }
+        // Bounded: a hostile registry cannot make a reader fetch without end.
+        if (manifest.layers.length > S.MaxArtifactLayers)
+        {
+            throw new OciProtocolError(S.BadManifestMessage, OciProtocolFault.BadManifest)
+        }
         const listed: { mediaType: string; digest: string; annotations: Record<string, string> }[] = []
         for (const layer of manifest.layers as unknown[])
         {
-            if (!S.IsPlainObject(layer) || typeof layer.mediaType !== 'string' || typeof layer.digest !== 'string' || !S.DigestShape.test(layer.digest))
+            if (!S.IsPlainObject(layer) || typeof layer.mediaType !== 'string' || typeof layer.digest !== 'string' || !S.DigestShape.test(layer.digest)
+                || typeof layer.size !== 'number' || layer.size < 0 || layer.size > S.MaxArtifactLayerBytes)
             {
                 throw new OciProtocolError(S.BadManifestMessage, OciProtocolFault.BadManifest)
             }
@@ -584,7 +593,7 @@ export class OciRegistryClient
         for (const entry of listed)
         {
             const bytes = await this.PullBlob(repo, entry.digest)
-            if (S.DigestOf(bytes) !== entry.digest)
+            if (bytes.length > S.MaxArtifactLayerBytes || S.DigestOf(bytes) !== entry.digest)
             {
                 throw new OciProtocolError(S.LayerMismatchMessage, OciProtocolFault.LayerMismatch)
             }

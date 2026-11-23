@@ -1,6 +1,6 @@
 import type { ApplyOutcome, ApplyRecord, ApplyRequest, ApplyTarget } from './apply-record.js';
 import type { ConfigurationSaveRequest } from './configuration-save-request.js';
-import type { ConfigurationScope } from './configuration-scope.js';
+import type { ConfigurationScope } from '@pragmatic-tech-ai/pragmatic-configuration-runtime';
 import type { ConfigurationVersion } from './configuration-version.js';
 
 /**

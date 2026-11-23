@@ -1,6 +1,6 @@
 import type { JsonValue } from '@pragmatic-tech-ai/pragmatic-component';
-import { ConfigurationScope } from './configuration-scope.js';
-import { JsonDocument } from './json-document.js';
+import { ConfigurationScope } from '@pragmatic-tech-ai/pragmatic-configuration-runtime';
+import { JsonDocument } from '@pragmatic-tech-ai/pragmatic-configuration-runtime';
 
 /**
  * One saved configuration version of a scope: its number (1, 2, ... in save order), the document as authored (A6 shape,

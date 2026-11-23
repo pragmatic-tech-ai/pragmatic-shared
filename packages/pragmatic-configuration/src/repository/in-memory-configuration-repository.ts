@@ -6,7 +6,7 @@ import type { IConfigurationClock } from './configuration-clock.js';
 import type { IConfigurationRepository } from './configuration-repository.js';
 import { ApplyRecordNotFoundError, ConfigurationVersionNotFoundError } from './configuration-repository-errors.js';
 import type { ConfigurationSaveRequest } from './configuration-save-request.js';
-import type { ConfigurationScope } from './configuration-scope.js';
+import type { ConfigurationScope } from '@pragmatic-tech-ai/pragmatic-configuration-runtime';
 import type { ConfigurationVersion } from './configuration-version.js';
 
 /** One scope's history in memory. */

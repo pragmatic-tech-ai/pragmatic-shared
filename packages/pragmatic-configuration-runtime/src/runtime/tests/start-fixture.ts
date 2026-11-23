@@ -3,12 +3,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ComponentDeclarations, SettingType } from '@pragmatic-tech-ai/pragmatic-component';
 import type { ComponentDeclaration, JsonValue } from '@pragmatic-tech-ai/pragmatic-component';
-import type { ISecretStore } from '@pragmatic-tech-ai/pragmatic-identity';
 import { AppliedConfiguration } from '../../applied/applied-configuration.js';
-import { SecretStoreDirectory } from '../secret-store-directory.js';
+import { SecretStoreDirectory, type ISecretSource } from '../secret-store-directory.js';
 
 /** A read-only map store for the start-step tests. */
-export class FixedSecretStore implements ISecretStore
+export class FixedSecretStore implements ISecretSource
 {
     public constructor(private readonly secrets: ReadonlyMap<string, string>)
     {

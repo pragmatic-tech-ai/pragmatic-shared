@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ApplyTarget } from '../apply-record.js';
-import { ConfigurationScope } from '../configuration-scope.js';
+import { ConfigurationScope } from '@pragmatic-tech-ai/pragmatic-configuration-runtime';
 
 test('a scope is a realm id and a component name that fits a Kubernetes object name', () =>
 {

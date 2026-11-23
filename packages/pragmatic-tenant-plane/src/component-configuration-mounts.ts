@@ -2,6 +2,15 @@ import { AppliedConfigurationKeys, ComponentStartConfiguration, ConfigurationRun
 
 type K8sObject = Record<string, unknown>
 
+/** How a workload rolls when its configuration (or image) changes. */
+export enum WorkloadRoll
+{
+    /** Stateless: the old pod serves until a new one is ready. */
+    Surge = 'surge',
+    /** A single-writer volume: the old pod stops before the new one starts. */
+    Recreate = 'recreate',
+}
+
 /**
  * What every hive workload the console's manifests render carries so the tenant admin console can configure it (C3.1):
  *
@@ -14,7 +23,9 @@ type K8sObject = Record<string, unknown>
  *   configuration) at `/etc/pragmatic/configuration`, the Secret `pragmatic-secrets-<component>` (optional; the secret
  *   store `file`) at `/run/secrets/pragmatic/<component>`, and a memory-backed `emptyDir` at `/run/pragmatic/secrets` where
  *   the start step writes resolved secrets (per container, so no component reads another's);
- * - the roll: `RollingUpdate` with `maxUnavailable: 0, maxSurge: 1`, so the old pod serves until the new one is ready.
+ * - the roll: `RollingUpdate` with `maxUnavailable: 0, maxSurge: 1` for a stateless workload, so the old pod serves
+ *   until the new one is ready; `Recreate` for one with a single-writer volume (an embedded Postgres, a data volume),
+ *   because a surge pod would start a second writer on the same ReadWriteOnce data while the old one runs.
  */
 export class ComponentConfigurationMounts
 {
@@ -35,6 +46,11 @@ export class ComponentConfigurationMounts
     private static readonly PathSeparator = '/'
     private static readonly MemoryMedium = 'Memory'
     private static readonly RollingUpdate = 'RollingUpdate'
+    private static readonly RecreateType = 'Recreate'
+    /** Kubernetes label grammar: a name part (63 at most) and a value. */
+    private static readonly LabelName = /^[A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$/
+    private static readonly BadComponent = 'ComponentConfigurationMounts: a component name must be a Kubernetes label name:'
+    private static readonly BadContainer = 'ComponentConfigurationMounts: a container name must be a Kubernetes label value:'
     /** Read-only for the owner and group: the pod's fsGroup reads the mounted secrets. */
     private static readonly SecretFileMode = 0o440
     private static readonly RuntimeSecretsSizeLimit = '1Mi'
@@ -64,6 +80,13 @@ export class ComponentConfigurationMounts
     private static readonly VolumesKey = 'volumes'
     private static readonly VolumeMountsKey = 'volumeMounts'
     private static readonly NoContainer = 'ComponentConfigurationMounts: the pod runs no container named'
+    private static readonly ApiVersionKey = 'apiVersion'
+    private static readonly KindKey = 'kind'
+    private static readonly NamespaceKey = 'namespace'
+    private static readonly CoreApiVersion = 'v1'
+    private static readonly ConfigMapKind = 'ConfigMap'
+    private static readonly SecretKind = 'Secret'
+    private static readonly OpaqueType = 'Opaque'
 
     private constructor()
     {
@@ -72,7 +95,9 @@ export class ComponentConfigurationMounts
     /** `component.pragmatic-tech.ai/<component>`. */
     public static ConfiguresLabel(component: string): string
     {
-        return ComponentConfigurationMounts.ConfiguresLabelPrefix + component
+        const M = ComponentConfigurationMounts
+        if (!M.LabelName.test(component)) throw new Error(`${M.BadComponent} ${component}`)
+        return M.ConfiguresLabelPrefix + component
     }
 
     /** The label selector of `component`'s targets. */
@@ -101,6 +126,7 @@ export class ComponentConfigurationMounts
         const labels: Record<string, string> = { [M.ComponentLabel]: components[0].Component, [M.ManagedByLabel]: M.ManagedBy }
         for (const entry of components)
         {
+            if (!M.LabelName.test(entry.Container)) throw new Error(`${M.BadContainer} ${entry.Container}`)
             labels[M.ConfiguresLabel(entry.Component)] = entry.Container
         }
         return labels
@@ -137,26 +163,45 @@ export class ComponentConfigurationMounts
         ]
     }
 
-    /** The Deployment strategy: the old pod serves until the new one is ready. */
-    public static Strategy(): K8sObject
+    /**
+     * The empty `pragmatic-config-<component>` ConfigMap and `pragmatic-secrets-<component>` Secret (type Opaque, which is
+     * immutable) a hive manifest renders next to a component the console may not create objects beside (pragmatic-system,
+     * the IdP namespace): the console then writes them by name only and never holds `create` there, so it can never mint
+     * a service-account token Secret. Neither carries `data`, so a re-applied manifest never clears what the console wrote;
+     * an empty ConfigMap reads as no configuration.
+     */
+    public static EmptyObjects(component: string, namespace: string, labels: Record<string, string>): K8sObject[]
     {
         const M = ComponentConfigurationMounts
-        return { [M.TypeKey]: M.RollingUpdate, [M.RollingUpdateKey]: { [M.MaxUnavailableKey]: 0, [M.MaxSurgeKey]: 1 } }
+        const metadata = (name: string): K8sObject => ({ [M.NameKey]: name, [M.NamespaceKey]: namespace, [M.LabelsKey]: { ...labels } })
+        return [
+            { [M.ApiVersionKey]: M.CoreApiVersion, [M.KindKey]: M.ConfigMapKind, [M.MetadataKey]: metadata(M.ConfigMapNameOf(component)) },
+            { [M.ApiVersionKey]: M.CoreApiVersion, [M.KindKey]: M.SecretKind, [M.MetadataKey]: metadata(M.SecretNameOf(component)), [M.TypeKey]: M.OpaqueType },
+        ]
+    }
+
+    /** The Deployment strategy of a workload that rolls `roll`. */
+    public static Strategy(roll: WorkloadRoll): K8sObject
+    {
+        const M = ComponentConfigurationMounts
+        return roll === WorkloadRoll.Recreate
+            ? { [M.TypeKey]: M.RecreateType }
+            : { [M.TypeKey]: M.RollingUpdate, [M.RollingUpdateKey]: { [M.MaxUnavailableKey]: 0, [M.MaxSurgeKey]: 1 } }
     }
 
     /**
-     * Makes a rendered Deployment configurable: labels on it and its pod template, the strategy, and for each
+     * Makes a rendered Deployment configurable: labels on it and its pod template, the strategy of its `roll`, and for each
      * `{ Container, Component }` (the first is the workload's primary component) that component's volumes and that
      * container's mounts. The container is looked up among the pod's containers and init containers.
      */
-    public static Attach(deployment: K8sObject, components: ReadonlyArray<{ Container: string; Component: string }>): K8sObject
+    public static Attach(deployment: K8sObject, components: ReadonlyArray<{ Container: string; Component: string }>, roll: WorkloadRoll): K8sObject
     {
         const M = ComponentConfigurationMounts
         const labels = M.Labels(components)
         const metadata = deployment[M.MetadataKey] as K8sObject
         metadata[M.LabelsKey] = { ...(metadata[M.LabelsKey] as Record<string, string> | undefined), ...labels }
         const spec = deployment[M.SpecKey] as K8sObject
-        spec[M.StrategyKey] = M.Strategy()
+        spec[M.StrategyKey] = M.Strategy(roll)
         const template = spec[M.TemplateKey] as K8sObject
         const templateMetadata = template[M.MetadataKey] as K8sObject
         templateMetadata[M.LabelsKey] = { ...(templateMetadata[M.LabelsKey] as Record<string, string> | undefined), ...labels }

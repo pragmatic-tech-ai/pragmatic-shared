@@ -1,4 +1,4 @@
-import type { ComponentDescriptor } from '@pragmatic-tech-ai/pragmatic-component'
+import type { ComponentDescriptor, SecretReference } from '@pragmatic-tech-ai/pragmatic-component'
 import {
     AppliedConfiguration,
     ApplyOutcome,
@@ -11,8 +11,10 @@ import {
 } from '@pragmatic-tech-ai/pragmatic-configuration'
 import { ConfigurationDiff, type ConfigurationChange } from './configuration-diff.js'
 import {
+    ConfigurationApplyInProgressError,
     ConfigurationApplyResult,
     ConfigurationApplyUnavailableError,
+    ConfigurationSecretWriteError,
     ConfigurationDescriptorMismatchError,
     type ConfigurationTarget,
     type IComponentDescriptorSource,
@@ -58,7 +60,7 @@ export class ConfigurationNotFoundError extends Error
     private static readonly ErrorName = 'ConfigurationNotFoundError'
     public static readonly ComponentMessage = 'This console does not configure that component.'
     public static readonly VersionMessage = 'That configuration version does not exist.'
-    public static readonly EnvironmentMessage = 'That environment does not exist.'
+    public static readonly EnvironmentMessage = 'That target does not exist.'
     public static readonly ComponentVersionMessage = 'No platform release this hive adopted ships that component version.'
 
     public constructor(message: string)
@@ -112,8 +114,15 @@ export class ConfigurationService
     public static readonly DescriptorChangedDetail = 'The version was validated for another component version; save it again for this one.'
     /** The new pods did not become ready in time; the previous configuration is running again. */
     public static readonly RolloutNotReadyDetail = 'rollout-not-ready'
+    /** Applied to a target whose running descriptor could not be read (a development image): only the component's own
+     *  start check compared the descriptors. */
+    public static readonly UnverifiedTargetDetail = 'unverified-target'
     private static readonly NoDetail = ''
     private static readonly SecretNamePattern = /^[A-Za-z0-9_-][A-Za-z0-9._-]{0,252}$/
+    private static readonly KeySeparator = '|'
+
+    // The targets an apply is waiting on (one console process serves a tenant): a second apply there is refused.
+    private readonly applying = new Set<string>()
 
     public constructor(
         private readonly repository: IConfigurationRepository,
@@ -218,18 +227,32 @@ export class ConfigurationService
         }
         const descriptor = await this.components.For(component, saved.ComponentVersion)
         const scope = new ConfigurationScope(tenantId, component)
-        const pending = await this.repository.BeginApply(new ApplyRequest(scope, saved.Number, found.Target, requestedBy))
-        const outcome = await this.Write(saved, descriptor, found)
-        const record = await this.repository.CompleteApply(scope, pending.Id, outcome.outcome, outcome.detail)
-        return ConfigurationService.ApplyDto(record, targets)
+        const key = scope.Key() + ConfigurationService.KeySeparator + found.Target.Key()
+        if (this.applying.has(key))
+        {
+            throw new ConfigurationApplyInProgressError()
+        }
+        this.applying.add(key)
+        try
+        {
+            const pending = await this.repository.BeginApply(new ApplyRequest(scope, saved.Number, found.Target, requestedBy))
+            const outcome = await this.Write(saved, descriptor, found)
+            const record = await this.repository.CompleteApply(scope, pending.Id, outcome.outcome, outcome.detail)
+            return ConfigurationService.ApplyDto(record, targets)
+        }
+        finally
+        {
+            this.applying.delete(key)
+        }
     }
 
     /**
-     * Writes `value` as the secret `name` of `component` (key `name` of its Secret `pragmatic-secrets-<component>` in every
-     * target's namespace) and answers the reference a configuration uses for it, `secret:file/<name>`. The value is never
-     * kept, logged or answered.
+     * Writes `value` as the secret `name` of `component` for one target (key `name` of the Secret
+     * `pragmatic-secrets-<component>` in that target's namespace, so an environment never sees another's value) and answers
+     * the reference a configuration uses for it, `secret:file/<name>`. The value is never kept, logged or answered; a
+     * refused write is ConfigurationSecretWriteError.
      */
-    public async PutSecret(tenantId: string, component: string, name: string, value: string): Promise<ConfigurationSecretDto>
+    public async PutSecret(tenantId: string, component: string, target: string, name: string, value: string): Promise<ConfigurationSecretDto>
     {
         this.CurrentOf(component)
         if (!ConfigurationService.SecretNamePattern.test(name))
@@ -245,7 +268,20 @@ export class ConfigurationService
         {
             throw new ConfigurationNoTargetError()
         }
-        const reference = await this.secrets.Put(component, name, value, targets.map(t => t.Target))
+        const found = targets.find(t => t.Name === target)
+        if (found === undefined)
+        {
+            throw new ConfigurationNotFoundError(ConfigurationNotFoundError.EnvironmentMessage)
+        }
+        let reference: SecretReference
+        try
+        {
+            reference = await this.secrets.Put(component, name, value, [found.Target])
+        }
+        catch
+        {
+            throw new ConfigurationSecretWriteError()
+        }
         return { name, reference: reference.Format() }
     }
 
@@ -268,9 +304,11 @@ export class ConfigurationService
         try
         {
             const result = await this.applier.Apply(applied, target.Target)
-            return result === ConfigurationApplyResult.Applied
-                ? { outcome: ApplyOutcome.Applied, detail: S.NoDetail }
-                : { outcome: ApplyOutcome.Failed, detail: S.RolloutNotReadyDetail }
+            if (result !== ConfigurationApplyResult.Applied)
+            {
+                return { outcome: ApplyOutcome.Failed, detail: S.RolloutNotReadyDetail }
+            }
+            return { outcome: ApplyOutcome.Applied, detail: target.DescriptorDigest === undefined ? S.UnverifiedTargetDetail : S.NoDetail }
         }
         catch
         {

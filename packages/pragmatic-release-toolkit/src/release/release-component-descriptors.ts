@@ -110,6 +110,11 @@ export class ReleaseComponentDescriptors
             throw new ReleaseDescriptorUnverifiedError(version)
         }
         const descriptor = ReleaseDescriptorCodec.Decode(pulled.layer)
+        // A signed descriptor of another release re-tagged under this version, or one naming another key, is not this one.
+        if (descriptor.version !== version || descriptor.signingKeyId !== keyId)
+        {
+            throw new ReleaseDescriptorUnverifiedError(version)
+        }
         const digests = new Map<string, string>()
         for (const [app, image] of ReleaseDescriptorCodec.ImagesOf(descriptor))
         {

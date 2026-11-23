@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { ReleaseApp, UiArtifact } from '@pragmatic-tech-ai/pragmatic-release-toolkit'
-import { ComponentConfigurationMounts } from './component-configuration-mounts.js'
+import { ComponentConfigurationMounts, WorkloadRoll } from './component-configuration-mounts.js'
 import { EnvConventions } from './seed/env-conventions.js'
 import { EnvironmentDatabaseSecret, type EnvironmentWorkload, type WorkloadAppDeployment, type WorkloadDatabase } from './environment-workload.js'
 import { EnvServerSeedSource } from './env-server-seed.js'
@@ -135,6 +135,8 @@ export class K8sManifestBuilder
      */
     public static readonly AgentImage = 'pragmatic-hive-agent:dev'
     private static readonly AgentContainerName = 'agent'
+    /** The user the pragmatic-hive-agent image runs as (its Dockerfile `USER`). */
+    private static readonly AgentUid = 10001
     private static readonly AgentEntrypoint = ['node', 'dist/bin/pragmatic-agentd.js']
     private static readonly AgentRegistryUrlVar = 'PRAGMATIC_AGENT_REGISTRY_URL'
     private static readonly AgentHiveIdVar = 'PRAGMATIC_AGENT_HIVE_ID'
@@ -178,6 +180,9 @@ export class K8sManifestBuilder
     private static readonly HostsKey = 'hosts'
     private static readonly SslPassthroughValue = 'true'
     private static readonly BackendProtocolAnnotation = 'nginx.ingress.kubernetes.io/backend-protocol'
+    private static readonly ProxyReadTimeoutAnnotation = 'nginx.ingress.kubernetes.io/proxy-read-timeout'
+    /** Above the console's watched apply (120 s) with room for the writes around it. */
+    private static readonly ConsoleProxyReadTimeoutSeconds = '180'
     private static readonly BackendProtocolHttps = 'HTTPS'
     private static readonly ProxySslSecretAnnotation = 'nginx.ingress.kubernetes.io/proxy-ssl-secret'
     private static readonly ProxySslVerifyAnnotation = 'nginx.ingress.kubernetes.io/proxy-ssl-verify'
@@ -229,6 +234,7 @@ export class K8sManifestBuilder
     private static readonly IdpPostgresSize = '1Gi'
     private static readonly IdpPostgresDataVolume = 'postgres-data'
     private static readonly IdpDatabaseUrlVar = 'PRAGMATIC_IDP_DATABASE_URL_FILE'
+    private static readonly IdpSecretsDirVar = 'PRAGMATIC_IDP_SECRETS_DIR'
     private static readonly IdpDatabaseVolume = 'database-url'
     private static readonly IdpDatabaseMount = '/run/secrets/pragmatic-tenant-idp-database'
     /** The mounted URL file (the mount plus the one projected item, IdpDatabaseSecret.UrlKey). */
@@ -594,6 +600,7 @@ export class K8sManifestBuilder
             this.HiveAgentClusterRole(hiveId),
             this.HiveAgentClusterRoleBinding(hiveId),
             this.HiveAgentDeployment(hiveId, registryUrl, tokenSecretName, agentImage),
+            ...ComponentConfigurationMounts.EmptyObjects(ReleaseApp.HiveAgent, K8sManifestBuilder.HiveAgentNamespace, this.HiveLabels(hiveId)),
         ]
         return JSON.stringify({
             [K8sManifestBuilder.ApiVersionKey]: K8sManifestBuilder.ApiVersionCore,
@@ -725,6 +732,12 @@ export class K8sManifestBuilder
                     [K8sManifestBuilder.MetadataKey]: { [K8sManifestBuilder.LabelsKey]: this.Selector(name) },
                     [K8sManifestBuilder.SpecKey]: {
                         [K8sManifestBuilder.ServiceAccountNameKey]: K8sManifestBuilder.HiveAgentNameOf(hiveId),
+                        // The image runs as AgentUid; fsGroup lets it read its mounted secret store (group-readable).
+                        [K8sManifestBuilder.SecurityContextKey]: {
+                            [K8sManifestBuilder.RunAsNonRootKey]: true,
+                            [K8sManifestBuilder.RunAsUserKey]: K8sManifestBuilder.AgentUid,
+                            [K8sManifestBuilder.FsGroupKey]: K8sManifestBuilder.AgentUid,
+                        },
                         [K8sManifestBuilder.ContainersKey]: [{
                             [K8sManifestBuilder.NameKey]: K8sManifestBuilder.AgentContainerName,
                             [K8sManifestBuilder.ImageKey]: agentImage,
@@ -747,7 +760,7 @@ export class K8sManifestBuilder
                     },
                 },
             },
-        }, [{ Container: K8sManifestBuilder.AgentContainerName, Component: ReleaseApp.HiveAgent }])
+        }, [{ Container: K8sManifestBuilder.AgentContainerName, Component: ReleaseApp.HiveAgent }], WorkloadRoll.Surge)
     }
 
     public static IdpNameOf(tenantId: string): string
@@ -791,6 +804,7 @@ export class K8sManifestBuilder
             this.IdpPostgresConfig(spec),
             this.IdpDeployment(spec),
             this.IdpServiceObject(spec),
+            ...ComponentConfigurationMounts.EmptyObjects(ReleaseApp.TenantIdp, K8sManifestBuilder.IdpNameOf(spec.tenantId), this.HiveLabels(spec.hiveId)),
             ...this.TenantConsoleConfigurationRbac(spec.tenantId, K8sManifestBuilder.IdpNameOf(spec.tenantId), this.HiveLabels(spec.hiveId), [
                 { Component: ReleaseApp.TenantIdp, Deployment: K8sManifestBuilder.IdpNameOf(spec.tenantId) },
             ]),
@@ -976,7 +990,7 @@ export class K8sManifestBuilder
                     },
                 },
             },
-        }, [{ Container: K8sManifestBuilder.IdpContainerName, Component: ReleaseApp.TenantIdp }])
+        }, [{ Container: K8sManifestBuilder.IdpContainerName, Component: ReleaseApp.TenantIdp }], WorkloadRoll.Recreate)
     }
 
     /**
@@ -997,6 +1011,8 @@ export class K8sManifestBuilder
             this.EnvLiteral(K8sManifestBuilder.IdpDataVar, K8sManifestBuilder.IdpDataMount),
             this.EnvLiteral(K8sManifestBuilder.IdpAdminTokenRefVar, spec.adminTokenRef),
             this.EnvLiteral(K8sManifestBuilder.IdpDatabaseUrlVar, K8sManifestBuilder.IdpDatabaseUrlFile),
+            // A realm's `secret:file/<name>` reads the Secret the console writes (pragmatic-secrets-pragmatic-tenant-idp).
+            this.EnvLiteral(K8sManifestBuilder.IdpSecretsDirVar, ComponentConfigurationMounts.SecretStoreRoot + K8sManifestBuilder.PathSeparator + ReleaseApp.TenantIdp),
         ]
     }
 
@@ -1217,6 +1233,7 @@ export class K8sManifestBuilder
             this.TenantConsoleClusterRoleBinding(spec),
             this.TenantConsoleEnvClusterRole(spec),
             ...this.TenantConsoleTlsReadRbac(spec),
+            ...ComponentConfigurationMounts.EmptyObjects(ReleaseApp.TenantAdmin, K8sManifestBuilder.SystemNamespace, this.HiveLabels(spec.hiveId)),
             ...this.TenantConsoleConfigurationRbac(spec.tenantId, K8sManifestBuilder.SystemNamespace, this.HiveLabels(spec.hiveId), [
                 { Component: ReleaseApp.HiveAgent, Deployment: K8sManifestBuilder.HiveAgentNameOf(spec.hiveId) },
                 { Component: ReleaseApp.TenantAdmin, Deployment: K8sManifestBuilder.TenantAdminNameOf(spec.tenantId) },
@@ -1423,9 +1440,12 @@ export class K8sManifestBuilder
 
     /**
      * How the console configures the hive's own components in `namespace` (C3.1): their ConfigMaps
-     * `pragmatic-config-<component>` and Secrets `pragmatic-secrets-<component>` (get, patch, delete by name; create, which
-     * RBAC cannot fence by name), their Deployments (get and patch by name: the configuration-hash annotation; list, to find
-     * targets by label). Never another object's Secret, never a Deployment's image beyond what patch on those names allows.
+     * `pragmatic-config-<component>` and Secrets `pragmatic-secrets-<component>` by name only (get and patch; the manifests
+     * render both empty, so the console never needs `create` or `delete` there, which RBAC could not fence by name), their
+     * Deployments (get and patch by name; list, to find targets by label). Patch on those Deployments is fenced further
+     * by the console's admission policy (TenantConsoleAdmission): outside its environment namespaces it may change the
+     * pod template's configuration-hash annotation and nothing else, so it can never swap an image, a command, a volume or
+     * a service account there.
      */
     private TenantConsoleConfigurationRbac(tenantId: string, namespace: string, labels: Record<string, string>, targets: ReadonlyArray<{ Component: string; Deployment: string }>): K8sObject[]
     {
@@ -1433,7 +1453,7 @@ export class K8sManifestBuilder
         const M = ComponentConfigurationMounts
         const name = B.TenantConsoleConfigurationRoleNameOf(tenantId)
         const meta: K8sObject = { [B.NameKey]: name, [B.NamespaceKey]: namespace, [B.LabelsKey]: labels }
-        const byName = [B.GetVerb, B.PatchVerb, B.DeleteVerb]
+        const byName = [B.GetVerb, B.PatchVerb]
         return [
             {
                 [B.ApiVersionKey]: B.ApiVersionRbac,
@@ -1442,7 +1462,6 @@ export class K8sManifestBuilder
                 [B.RulesKey]: [
                     this.Rule(B.CoreApiGroup, [B.ConfigMapsResource], byName, targets.map(t => M.ConfigMapNameOf(t.Component))),
                     this.Rule(B.CoreApiGroup, [B.SecretsResource], byName, targets.map(t => M.SecretNameOf(t.Component))),
-                    this.Rule(B.CoreApiGroup, [B.ConfigMapsResource, B.SecretsResource], [B.CreateVerb]),
                     this.Rule(B.AppsApiGroup, [B.DeploymentsResource], [B.GetVerb, B.PatchVerb], targets.map(t => t.Deployment)),
                     this.Rule(B.AppsApiGroup, [B.DeploymentsResource], [B.ListVerb]),
                 ],
@@ -1471,7 +1490,10 @@ export class K8sManifestBuilder
         const name = K8sManifestBuilder.TenantAdminNameOf(spec.tenantId)
         const { host, ingressTls } = spec.console
         const meta = this.HiveAgentNamespacedMeta(spec.hiveId, name)
-        return [this.TerminatingIngress(meta, host, name, spec.port, ingressTls, this.TenantConsoleTlsSecretNameOf(spec, ingressTls)), this.TenantConsoleNetworkPolicy(spec)]
+        const ingress = this.TerminatingIngress(meta, host, name, spec.port, ingressTls, this.TenantConsoleTlsSecretNameOf(spec, ingressTls))
+        // A configuration apply answers once its roll is watched (up to 120 s): nginx's 60 s default would cut it off.
+        meta[K8sManifestBuilder.AnnotationsKey] = { ...(meta[K8sManifestBuilder.AnnotationsKey] as Record<string, string> | undefined), [K8sManifestBuilder.ProxyReadTimeoutAnnotation]: K8sManifestBuilder.ConsoleProxyReadTimeoutSeconds }
+        return [ingress, this.TenantConsoleNetworkPolicy(spec)]
     }
 
     /**
@@ -1650,7 +1672,7 @@ export class K8sManifestBuilder
                     [K8sManifestBuilder.SpecKey]: pod,
                 },
             },
-        }, [{ Container: K8sManifestBuilder.TenantAdminContainerName, Component: ReleaseApp.TenantAdmin }])
+        }, [{ Container: K8sManifestBuilder.TenantAdminContainerName, Component: ReleaseApp.TenantAdmin }], WorkloadRoll.Recreate)
     }
 
     private TenantAdminSeedContainer(spec: TenantAdminWorkloadSpec): K8sObject
@@ -2062,7 +2084,7 @@ export class K8sManifestBuilder
                     },
                 },
             },
-        }, components)
+        }, components, WorkloadRoll.Recreate)
     }
 
     /** The env server sidecar's applications.conf: the server's one database and role. */

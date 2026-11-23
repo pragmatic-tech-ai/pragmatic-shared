@@ -2,9 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { InMemoryConfigurationRepository } from '../../repository/in-memory-configuration-repository.js';
 import { ConfigurationFixtures, TestClock } from '../../tests/fixtures/configuration-fixtures.js';
-import { AppliedConfiguration } from '../applied-configuration.js';
-import { AppliedConfigurationCodec } from '../applied-configuration-codec.js';
-import { AppliedConfigurationError } from '../applied-configuration-error.js';
+import { AppliedConfiguration } from '@pragmatic-tech-ai/pragmatic-configuration-runtime';
+import { AppliedConfigurationCodec } from '@pragmatic-tech-ai/pragmatic-configuration-runtime';
+import { AppliedConfigurationError } from '@pragmatic-tech-ai/pragmatic-configuration-runtime';
 
 class AppliedFixture
 {

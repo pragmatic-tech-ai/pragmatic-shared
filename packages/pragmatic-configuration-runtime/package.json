@@ -1,0 +1,44 @@
+{
+  "name": "@pragmatic-tech-ai/pragmatic-configuration-runtime",
+  "version": "0.17.9",
+  "license": "Apache-2.0",
+  "description": "What a hive component reads at start: the applied-configuration object (pragmatic-config-<component>), the runtime reader, and the start step that overlays the applied configuration onto the process environment (secrets as memory-backed files). Depends on pragmatic-component only, so a lean container (hive agent, gateway, UI unpacker) can carry it.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pragmatic-tech-ai/pragmatic-shared.git",
+    "directory": "packages/pragmatic-configuration-runtime"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "clean": "rimraf dist",
+    "prepublishOnly": "npm run clean && npm run build",
+    "test": "tsx --test \"src/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@pragmatic-tech-ai/pragmatic-component": "0.17.9"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "rimraf": "^6.0.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.0"
+  }
+}

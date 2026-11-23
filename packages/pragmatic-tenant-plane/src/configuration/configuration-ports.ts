@@ -107,6 +107,33 @@ export class ConfigurationDescriptorMismatchError extends Error
     }
 }
 
+/** Another apply to the same target is still waiting for its roll. */
+export class ConfigurationApplyInProgressError extends Error
+{
+    public static readonly Code = 'apply-in-progress'
+    private static readonly ErrorName = 'ConfigurationApplyInProgressError'
+    private static readonly Text = 'Another configuration is being applied to that target; wait for it to finish.'
+
+    public constructor()
+    {
+        super(ConfigurationApplyInProgressError.Text)
+        this.name = ConfigurationApplyInProgressError.ErrorName
+    }
+}
+
+/** The cluster refused a secret write (its own text is not kept: it is not shown, and could echo what was sent). */
+export class ConfigurationSecretWriteError extends Error
+{
+    private static readonly ErrorName = 'ConfigurationSecretWriteError'
+    private static readonly Text = 'The cluster refused to store the secret.'
+
+    public constructor()
+    {
+        super(ConfigurationSecretWriteError.Text)
+        this.name = ConfigurationSecretWriteError.ErrorName
+    }
+}
+
 /** The applier of a console outside a cluster: every apply is refused. */
 export class UnavailableConfigurationApplier implements IConfigurationApplier
 {

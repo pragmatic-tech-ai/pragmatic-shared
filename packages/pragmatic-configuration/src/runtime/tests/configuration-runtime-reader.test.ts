@@ -6,14 +6,14 @@ import { join } from 'node:path';
 import { inspect } from 'node:util';
 import { SecretReference } from '@pragmatic-tech-ai/pragmatic-component';
 import type { ISecretStore } from '@pragmatic-tech-ai/pragmatic-identity';
-import { AppliedConfiguration } from '../../applied/applied-configuration.js';
-import { AppliedConfigurationCodec } from '../../applied/applied-configuration-codec.js';
+import { AppliedConfiguration } from '@pragmatic-tech-ai/pragmatic-configuration-runtime';
+import { AppliedConfigurationCodec } from '@pragmatic-tech-ai/pragmatic-configuration-runtime';
 import { InMemoryConfigurationRepository } from '../../repository/in-memory-configuration-repository.js';
 import { ConfigurationFixtures, TestClock } from '../../tests/fixtures/configuration-fixtures.js';
-import { ConfigurationRuntimeReader } from '../configuration-runtime-reader.js';
-import { ConfigurationStartError, ConfigurationStartReason } from '../configuration-start-error.js';
-import { SecretStoreDirectory } from '../secret-store-directory.js';
-import { SecretValue } from '../secret-value.js';
+import { ConfigurationRuntimeReader } from '@pragmatic-tech-ai/pragmatic-configuration-runtime';
+import { ConfigurationStartError, ConfigurationStartReason } from '@pragmatic-tech-ai/pragmatic-configuration-runtime';
+import { SecretStoreDirectory } from '@pragmatic-tech-ai/pragmatic-configuration-runtime';
+import { SecretValue } from '@pragmatic-tech-ai/pragmatic-configuration-runtime';
 
 class MapSecretStore implements ISecretStore
 {

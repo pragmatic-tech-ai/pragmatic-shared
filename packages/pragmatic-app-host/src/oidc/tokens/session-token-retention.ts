@@ -1,5 +1,5 @@
 import type { IncomingMessage } from 'node:http'
-import type { OidcTokenSet } from '@pragmatic-tech-ai/pragmatic-identity-source-oidc'
+import { OidcTokenSet } from '@pragmatic-tech-ai/pragmatic-identity-source-oidc'
 import type { OidcRelyingParty } from '../oidc-relying-party.js'
 import type { IOidcClientProvider } from '../oidc-client-config.js'
 import { OidcLoginError } from '../oidc-login-error.js'
@@ -25,6 +25,9 @@ export interface SessionTokenRetentionOptions
     /** Without a refresh token the session ends when the ID token does (less the margin); default true. False keeps the
      *  sign-in endpoint's policy, and handlers then get no tokens once the ID token has expired. */
     EndWithIdToken?: boolean
+    /** Keep the ID token only (no access or refresh token is sealed): for an application that keeps tokens for the
+     *  logout's `id_token_hint` alone and calls nothing downstream. Default false. */
+    IdTokenOnly?: boolean
     Now?: () => Date
 }
 
@@ -73,7 +76,14 @@ export class SessionTokenRetention
         await this.options.Repository.DeleteExpired(this.now()).catch(() => 0)
         const session = issued.Session
         const expiresAt = new Date(Math.max(session.ExpiresAt.getTime(), session.IssuedAt.getTime() + session.Policy.MaxLifetimeMs))
-        await this.options.Repository.Put(new SealedSessionTokens(session.Id, this.options.Vault.Seal(issued.Token, tokens), expiresAt))
+        const kept = this.options.IdTokenOnly === true ? SessionTokenRetention.IdTokenOf(tokens) : tokens
+        await this.options.Repository.Put(new SealedSessionTokens(session.Id, this.options.Vault.Seal(issued.Token, kept), expiresAt))
+    }
+
+    /** The set without its access and refresh tokens. */
+    public static IdTokenOf(tokens: OidcTokenSet): OidcTokenSet
+    {
+        return new OidcTokenSet(tokens.Subject, tokens.IdToken, tokens.IdTokenExpiresAt, null, null, null)
     }
 
     /** The live tokens of the session `bearer` names, refreshed when due and refreshable; null when there are none. */

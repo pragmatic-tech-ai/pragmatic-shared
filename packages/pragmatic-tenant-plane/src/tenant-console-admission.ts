@@ -25,7 +25,9 @@ export interface TenantConsoleAdmissionSpec
  * baseline or restricted Pod Security level, so the env role cannot run a privileged pod there), and any RoleBinding other than the
  * console's own env binding (its env ClusterRole, its ServiceAccount as the only subject) in such a namespace. A binding also needs
  * its namespace to enforce an admitted Pod Security level, so a hive-labelled namespace made before that label existed (which the
- * console cannot relabel) is never bound. It applies
+ * console cannot relabel) is never bound. Outside those namespaces (pragmatic-system, the realm sign-in service's) an update
+ * of a Deployment the console may patch by name changes the pod template's configuration-hash annotation and nothing else
+ * (C3.1: a configuration apply), so patch there never swaps an image, a command, a volume or a service account. It applies
  * only to the console's exact ServiceAccount user and fails closed. The console has no admissionregistration grants.
  */
 export class TenantConsoleAdmission
@@ -43,6 +45,19 @@ export class TenantConsoleAdmission
     private static readonly RbacVersion = 'v1'
     private static readonly NamespacesResource = 'namespaces'
     private static readonly RoleBindingsResource = 'rolebindings'
+    private static readonly AppsGroup = 'apps'
+    private static readonly AppsVersion = 'v1'
+    private static readonly DeploymentsResource = 'deployments'
+    /** What the console may change on a Deployment outside its environment namespaces: this one pod-template annotation. */
+    public static readonly ConfigurationHashAnnotation = 'pragmatic-tech.ai/configuration-hash'
+    /** The Deployment fields a hash roll leaves as they are (has-safe: an absent field must stay absent). */
+    private static readonly FrozenDeploymentFields: readonly string[] = [
+        'metadata.labels', 'metadata.annotations', 'spec.replicas', 'spec.selector', 'spec.strategy', 'spec.minReadySeconds',
+        'spec.revisionHistoryLimit', 'spec.progressDeadlineSeconds', 'spec.paused', 'spec.template.metadata.labels', 'spec.template.spec',
+    ]
+    private static readonly TemplateAnnotations = 'spec.template.metadata.annotations'
+    private static readonly NewObject = 'object.'
+    private static readonly OldObject = 'oldObject.'
     private static readonly Create = 'CREATE'
     private static readonly Update = 'UPDATE'
     private static readonly Delete = 'DELETE'
@@ -62,6 +77,7 @@ export class TenantConsoleAdmission
     private static readonly BindingNameMessage = 'The console may only create its own environment role binding.'
     private static readonly BindingRoleMessage = 'The console may only bind its own environment ClusterRole.'
     private static readonly BindingSubjectsMessage = 'The console may only bind its environment role to its own ServiceAccount.'
+    private static readonly DeploymentRollMessage = 'Outside its environment namespaces the console may only change a Deployment\'s configuration-hash annotation.'
 
     /**
      * Whether the cluster serves both admission kinds at admissionregistration.k8s.io/v1 (Kubernetes >= 1.30). Without them the fence
@@ -87,6 +103,7 @@ export class TenantConsoleAdmission
                     resourceRules: [
                         { apiGroups: [C.CoreGroup], apiVersions: [C.CoreVersion], operations: [C.Create, C.Update, C.Delete], resources: [C.NamespacesResource] },
                         { apiGroups: [C.RbacGroup], apiVersions: [C.RbacVersion], operations: [C.Create, C.Update], resources: [C.RoleBindingsResource] },
+                        { apiGroups: [C.AppsGroup], apiVersions: [C.AppsVersion], operations: [C.Update], resources: [C.DeploymentsResource] },
                     ],
                 },
                 matchConditions: [{ name: C.MatchConditionName, expression: C.UserCondition(spec) }],
@@ -152,7 +169,32 @@ export class TenantConsoleAdmission
                 expression: `${isBinding} || (has(object.subjects) && size(object.subjects) == 1 && object.subjects[0].kind == ${s(C.ServiceAccountKind)} && object.subjects[0].namespace == ${s(spec.serviceAccountNamespace)} && object.subjects[0].name == ${s(spec.serviceAccountName)})`,
                 message: C.BindingSubjectsMessage,
             },
+            {
+                expression: `request.resource.resource != ${s(C.DeploymentsResource)} || request.namespace.startsWith(${s(spec.namespacePrefix)}) || (${C.HashRollOnly()})`,
+                message: C.DeploymentRollMessage,
+            },
         ]
+    }
+
+    /** The update leaves every frozen field as it was and changes no pod-template annotation but the configuration hash. */
+    public static HashRollOnly(): string
+    {
+        const C = TenantConsoleAdmission
+        const same = C.FrozenDeploymentFields.map(field => C.SameField(field))
+        const hash = C.CelString(C.ConfigurationHashAnnotation)
+        const now = C.NewObject + C.TemplateAnnotations
+        const before = C.OldObject + C.TemplateAnnotations
+        const kept = (a: string, b: string): string => `(!has(${a}) || ${a}.all(k, k == ${hash} || (has(${b}) && k in ${b} && ${b}[k] == ${a}[k])))`
+        return [...same, kept(now, before), kept(before, now)].join(' && ')
+    }
+
+    /** `field` is absent in both or equal in both. */
+    private static SameField(field: string): string
+    {
+        const C = TenantConsoleAdmission
+        const now = C.NewObject + field
+        const before = C.OldObject + field
+        return `(has(${now}) == has(${before}) && (!has(${now}) || ${now} == ${before}))`
     }
 
     /** `<objectExpr>` enforces an admitted Pod Security level (follows OwnNamespace, which already guarded has(labels)). */

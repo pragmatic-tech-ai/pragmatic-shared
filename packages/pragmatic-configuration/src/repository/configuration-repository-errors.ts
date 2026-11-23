@@ -1,5 +1,5 @@
 import type { ConfigurationError } from '@pragmatic-tech-ai/pragmatic-component';
-import type { ConfigurationScope } from './configuration-scope.js';
+import type { ConfigurationScope } from '@pragmatic-tech-ai/pragmatic-configuration-runtime';
 
 /** The document does not fit the descriptor of the container version it is saved for. Lists paths and fixed messages,
  *  never the rejected values (a literal secret must not reach a log through this error). */

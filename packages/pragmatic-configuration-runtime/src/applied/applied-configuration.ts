@@ -1,9 +1,18 @@
 import { CanonicalJson, ConfigurationValidator } from '@pragmatic-tech-ai/pragmatic-component';
 import type { ComponentDescriptor, JsonValue } from '@pragmatic-tech-ai/pragmatic-component';
-import type { ConfigurationVersion } from '../repository/configuration-version.js';
 import { JsonDocument } from '../repository/json-document.js';
 import { AppliedConfigurationError } from './applied-configuration-error.js';
 import { AppliedConfigurationKeys } from './applied-configuration-keys.js';
+
+/** A saved configuration version as `AppliedConfiguration.From` needs it (pragmatic-configuration's `ConfigurationVersion`). */
+export interface IAppliedVersionSource
+{
+    readonly Scope: { readonly Realm: string; readonly Component: string };
+    readonly Number: number;
+    readonly ComponentVersion: string;
+    readonly DescriptorDigest: string;
+    readonly Document: unknown;
+}
 
 /**
  * The configuration version applied to a deployment, as the tenant admin console writes it next to the deployment: the
@@ -33,7 +42,7 @@ export class AppliedConfiguration
 
     /** The applied form of a saved version: re-validated against `descriptor` (the one the version was validated
      *  against, checked by digest) and resolved, so the component reads every default the console saw. */
-    public static From(version: ConfigurationVersion, descriptor: ComponentDescriptor): AppliedConfiguration
+    public static From(version: IAppliedVersionSource, descriptor: ComponentDescriptor): AppliedConfiguration
     {
         if (descriptor.ContentDigest() !== version.DescriptorDigest) throw new AppliedConfigurationError(AppliedConfiguration.DigestMismatch);
         const validation = new ConfigurationValidator(descriptor).Validate(version.Document);

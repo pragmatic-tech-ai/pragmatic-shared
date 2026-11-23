@@ -34,6 +34,7 @@
   },
   "dependencies": {
     "@pragmatic-tech-ai/pragmatic-component": "0.17.9",
+    "@pragmatic-tech-ai/pragmatic-configuration-runtime": "0.17.9",
     "@pragmatic-tech-ai/pragmatic-identity": "0.17.9",
     "@pragmatic-tech-ai/pragmatic-realm-adapters": "0.17.9"
   },
