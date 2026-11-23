@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { writeFile } from 'node:fs/promises';
+import { mkdir, symlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { ComponentDeclarations } from '@pragmatic-tech-ai/pragmatic-component';
 import { AppliedConfiguration } from '../../applied/applied-configuration.js';
@@ -151,13 +151,49 @@ test('a revalidating reader (the console) runs an applied document that validate
     });
 });
 
-test('a revalidating reader still refuses an applied document its own descriptor rejects', async () =>
+test('a revalidating reader leaves behind the settings its descriptor no longer declares, and says which', async () =>
 {
     await StartFixture.InFolder(async folder =>
     {
         const path = await StartFixture.Configuration(folder, StartFixture.Applied({ registryUrl: 'https://old.example/', retired: 'x' }, 3, PreparedCase.Old));
+        const read = await PreparedCase.Reader(PreparedCase.New, true).Read(path);
+        assert.equal(read.Revalidated, true);
+        assert.deepEqual(read.Dropped, ['core.retired']);
+        const report = await ComponentStartConfiguration.Apply({ Declaration: PreparedCase.New, Env: { PRAGMATIC_CONFIGURATION_FILE: path }, Stores: StartFixture.Stores(), SecretsDir: join(folder, 's'), Revalidate: true });
+        assert.deepEqual(report.Dropped, ['core.retired']);
+    });
+});
+
+test('a revalidating start that cannot carry the document over goes on without it; any other reader refuses', async () =>
+{
+    await StartFixture.InFolder(async folder =>
+    {
+        const path = await StartFixture.Configuration(folder, StartFixture.Applied({ registryUrl: 'not a url' }, 3, PreparedCase.Old));
         const error = await PreparedCase.Refusal(PreparedCase.Reader(PreparedCase.New, true).Read(path));
-        assert.equal(error.Reason, ConfigurationStartReason.Invalid);
-        assert.match(error.message, /retired/);
+        assert.equal(error.Reason, ConfigurationStartReason.Unrevalidated);
+        const env: NodeJS.ProcessEnv = { PRAGMATIC_CONFIGURATION_FILE: path, TEST_REGISTRY_URL: 'https://from-env.example/' };
+        const report = await ComponentStartConfiguration.Apply({ Declaration: PreparedCase.New, Env: env, Stores: StartFixture.Stores(), SecretsDir: join(folder, 's'), Revalidate: true });
+        assert.equal(report.Applied, false);
+        assert.match(report.Ignored ?? '', /registryUrl/);
+        assert.equal(env.TEST_REGISTRY_URL, 'https://from-env.example/', 'the environment is left as it was');
+        assert.equal((await PreparedCase.Refusal(ComponentStartConfiguration.Apply({ Declaration: PreparedCase.New, Env: { PRAGMATIC_CONFIGURATION_FILE: path }, Stores: StartFixture.Stores(), SecretsDir: join(folder, 's') }))).Reason, ConfigurationStartReason.DescriptorMismatch);
+    });
+});
+
+test('in a mounted ConfigMap layout the entry is read from the folder the applied file resolves to', async () =>
+{
+    await StartFixture.InFolder(async folder =>
+    {
+        // kubelet: <mount>/..2026_x/<key> files, <mount>/..data -> ..2026_x, <mount>/<key> -> ..data/<key>.
+        const stamp = join(folder, '..2026_11_23');
+        await mkdir(stamp);
+        const old = StartFixture.Applied({ registryUrl: 'https://old.example/' }, 3, PreparedCase.Old);
+        const entry = StartFixture.Applied({ registryUrl: 'https://new.example/' }, 4, PreparedCase.New);
+        await writeFile(join(stamp, 'configuration.json'), old.ToCanonicalJson());
+        await writeFile(join(stamp, AppliedConfigurationEntries.KeyOf(entry.DescriptorDigest)), entry.ToCanonicalJson());
+        await symlink(stamp, join(folder, '..data'), 'junction');
+        await symlink(join(folder, '..data', 'configuration.json'), join(folder, 'configuration.json'));
+        const read = await PreparedCase.Reader().Read(join(folder, 'configuration.json'));
+        assert.equal(read.Version, 4);
     });
 });

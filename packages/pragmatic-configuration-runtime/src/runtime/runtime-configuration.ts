@@ -10,6 +10,8 @@ export class RuntimeConfiguration
 {
     private static readonly KeySeparator = '/';
     private readonly secrets: ReadonlyMap<string, SecretValue>;
+    /** Revalidated only: the members (`option` or `option.setting`) of the applied document its descriptor no longer declares. */
+    public readonly Dropped: readonly string[];
 
     public constructor(
         public readonly Version: number,
@@ -22,8 +24,10 @@ export class RuntimeConfiguration
         /** Run on an applied document validated for another descriptor, re-validated against this container's own (the
          *  tenant admin console's start only; ConfigurationRuntimeReader). */
         public readonly Revalidated: boolean = false,
+        dropped: readonly string[] = [],
     )
     {
+        this.Dropped = Object.freeze([...dropped]);
         this.secrets = new Map(secrets);
         Object.freeze(this);
     }

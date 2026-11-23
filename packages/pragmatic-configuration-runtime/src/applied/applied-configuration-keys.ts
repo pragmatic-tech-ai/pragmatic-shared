@@ -37,4 +37,10 @@ export class AppliedConfigurationKeys
     /** On the ConfigMap: the descriptors the applied document does not validate against, a JSON array of
      *  `{ descriptorDigest, componentVersion, settings, reason }` (the console writes it). */
     public static readonly PreparationRefusedAnnotation = 'pragmatic-tech.ai/preparation-refused';
+    /** On the ConfigMap: the configuration hash of the `configuration.json` the prepared entries and refusals were
+     *  derived from. The status holds only while it equals the ConfigMap's configuration-hash annotation: an apply since
+     *  makes it stale until the console prepares again. */
+    public static readonly PreparedFromAnnotation = 'pragmatic-tech.ai/prepared-from';
+    /** A descriptor digest (and a content hash): `sha256:<64 hex>`. */
+    public static readonly DigestPattern = /^sha256:[0-9a-f]{64}$/;
 }

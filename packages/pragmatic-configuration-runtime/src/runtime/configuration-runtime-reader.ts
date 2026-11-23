@@ -1,8 +1,9 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, realpath } from 'node:fs/promises';
 import { ConfigurationValidator } from '@pragmatic-tech-ai/pragmatic-component';
 import type { ComponentDescriptor } from '@pragmatic-tech-ai/pragmatic-component';
 import { AppliedConfigurationCodec } from '../applied/applied-configuration-codec.js';
 import { AppliedConfigurationEntries } from '../applied/applied-configuration-entries.js';
+import { AppliedDocumentCarryOver } from '../applied/applied-document-carry-over.js';
 import { AppliedConfigurationError } from '../applied/applied-configuration-error.js';
 import { AppliedConfigurationKeys } from '../applied/applied-configuration-keys.js';
 import type { AppliedConfiguration } from '../applied/applied-configuration.js';
@@ -20,9 +21,15 @@ import type { SecretValue } from './secret-value.js';
  * The folder holds one entry per descriptor digest (AppliedConfigurationEntries): `configuration.json` when it was
  * validated for this container's descriptor, else the entry prepared beside it for that descriptor
  * (`configuration.json.sha256-<hex>`, same component and realm), else the start is refused (descriptor-mismatch, C
- * Ledger 9). A missing `configuration.json` means no configuration, whatever else the folder holds. `revalidate` (the
- * tenant admin console alone, which owns the configurations and prepares the entries) instead runs an applied document
- * of another descriptor when it validates against its own; `RuntimeConfiguration.Revalidated` then says so.
+ * Ledger 9). A missing `configuration.json` means no configuration, whatever else the folder holds. Both files are read
+ * from the one folder the applied file resolves to (a mounted ConfigMap swaps its whole folder at once), so a primary
+ * and an entry of two different writes are never paired. Entries are looked up as `<applied file>.sha256-<hex>`; the
+ * console writes them for `configuration.json` only.
+ *
+ * `revalidate` (the tenant admin console alone, which owns the configurations and prepares the entries) instead carries
+ * an applied document of another descriptor over to its own (AppliedDocumentCarryOver: settings it no longer declares
+ * are left behind, `RuntimeConfiguration.Dropped`) and runs it when it validates (`Revalidated`); when it does not, the
+ * start is refused with reason `unrevalidated`, which the start step turns into "no configuration".
  */
 export class ConfigurationRuntimeReader
 {
@@ -55,13 +62,14 @@ export class ConfigurationRuntimeReader
     public async Read(path: string = ConfigurationRuntimeReader.DefaultPath): Promise<RuntimeConfiguration>
     {
         const primary = ConfigurationRuntimeReader.Decode(await ConfigurationRuntimeReader.ReadText(path), path);
-        const selected = await this.Select(primary, path);
+        const selected = await this.Select(primary, await ConfigurationRuntimeReader.Resolved(path));
         const applied = selected.Applied;
-        const validation = new ConfigurationValidator(this.Descriptor).Validate(applied.Document);
+        const validation = new ConfigurationValidator(this.Descriptor).Validate(selected.Document);
         if (validation.Configuration === undefined)
         {
             const errors = validation.Errors.map(error => error.toString()).join(ConfigurationRuntimeReader.ErrorSeparator);
-            throw new ConfigurationStartError(ConfigurationStartReason.Invalid, `version ${applied.Version} of ${applied.Component} does not validate: ${errors}`);
+            const reason = selected.Revalidated ? ConfigurationStartReason.Unrevalidated : ConfigurationStartReason.Invalid;
+            throw new ConfigurationStartError(reason, `version ${applied.Version} of ${applied.Component} does not validate: ${errors}`);
         }
         const secrets = new Map<string, SecretValue>();
         for (const secret of validation.Configuration.SecretReferences())
@@ -69,12 +77,12 @@ export class ConfigurationRuntimeReader
             const where = `${secret.Option}.${secret.Setting}`;
             secrets.set(RuntimeConfiguration.SecretKey(secret.Option, secret.Setting), await this.secrets.Resolve(secret.Reference, where));
         }
-        return new RuntimeConfiguration(applied.Version, applied.ComponentVersion, applied.DescriptorDigest, validation.Configuration, secrets, applied.Realm, selected.Revalidated);
+        return new RuntimeConfiguration(applied.Version, applied.ComponentVersion, applied.DescriptorDigest, validation.Configuration, secrets, applied.Realm, selected.Revalidated, selected.Dropped);
     }
 
     // The entry for this container's descriptor: the applied file, else the prepared entry beside it, else (revalidating)
     // the applied file to validate against this descriptor, else a refusal.
-    private async Select(primary: AppliedConfiguration, path: string): Promise<{ Applied: AppliedConfiguration; Revalidated: boolean }>
+    private async Select(primary: AppliedConfiguration, path: string): Promise<{ Applied: AppliedConfiguration; Document: unknown; Revalidated: boolean; Dropped: readonly string[] }>
     {
         const R = ConfigurationRuntimeReader;
         const own = this.Descriptor;
@@ -83,7 +91,7 @@ export class ConfigurationRuntimeReader
             throw new ConfigurationStartError(ConfigurationStartReason.ComponentMismatch, `the mounted configuration is for ${primary.Component}, this container is ${own.Name}`);
         }
         const digest = own.ContentDigest();
-        if (primary.DescriptorDigest === digest) return { Applied: primary, Revalidated: false };
+        if (primary.DescriptorDigest === digest) return { Applied: primary, Document: primary.Document, Revalidated: false, Dropped: [] };
         const entryPath = AppliedConfigurationEntries.PathOf(path, digest);
         const text = await R.ReadOptional(entryPath);
         if (text !== undefined)
@@ -91,14 +99,32 @@ export class ConfigurationRuntimeReader
             const entry = R.Decode(text, entryPath);
             if (entry.DescriptorDigest !== digest) throw new ConfigurationStartError(ConfigurationStartReason.Malformed, `${entryPath}: ${R.EntryOtherDescriptor}`);
             if (entry.Component !== primary.Component || entry.Realm !== primary.Realm) throw new ConfigurationStartError(ConfigurationStartReason.Malformed, `${entryPath}: ${R.EntryOtherScope}`);
-            return { Applied: entry, Revalidated: false };
+            return { Applied: entry, Document: entry.Document, Revalidated: false, Dropped: [] };
         }
-        if (this.revalidate) return { Applied: primary, Revalidated: true };
+        if (this.revalidate)
+        {
+            const carried = AppliedDocumentCarryOver.Carry(primary.Document, own);
+            return { Applied: primary, Document: carried.Document, Revalidated: true, Dropped: carried.Dropped };
+        }
         throw new ConfigurationStartError(
             ConfigurationStartReason.DescriptorMismatch,
             `configuration version ${primary.Version} of ${primary.Component} was validated against descriptor ${primary.DescriptorDigest} (component version ${primary.ComponentVersion}), `
             + `but this container's descriptor is ${digest} (component version ${own.Version})${R.NonePrepared}; save and apply a configuration version validated for ${own.Version}`,
         );
+    }
+
+    // The applied file through its folder's symlinks (a ConfigMap volume's `..data`), so its entry is read from the same
+    // folder; the path itself when it does not resolve (the read then reports it).
+    private static async Resolved(path: string): Promise<string>
+    {
+        try
+        {
+            return await realpath(path);
+        }
+        catch
+        {
+            return path;
+        }
     }
 
     // A prepared entry's text, or undefined when there is none.

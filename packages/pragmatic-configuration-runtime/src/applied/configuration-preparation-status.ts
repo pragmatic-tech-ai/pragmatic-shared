@@ -47,20 +47,26 @@ export class ConfigurationPreparationRefusal
 /**
  * Where a component's configuration stands for the descriptors of a release it is about to run, as the tenant admin
  * console records it on the `pragmatic-config-<component>` ConfigMap (R4): `pragmatic-tech.ai/prepared-digests` (the
- * descriptor digests a prepared entry exists for, comma separated) and `pragmatic-tech.ai/preparation-refused` (a JSON
- * array of refusals). Whoever rolls the component onto a new image (the platform's installer) reads these and waits; it
+ * descriptor digests a prepared entry exists for, comma separated), `pragmatic-tech.ai/preparation-refused` (a JSON
+ * array of refusals) and `pragmatic-tech.ai/prepared-from` (the configuration hash of the applied file they were derived
+ * from; the status holds only while it equals the ConfigMap's configuration-hash annotation). Whoever rolls the component onto a new image (the platform's installer) reads these and waits; it
  * never writes them. Immutable; an unreadable annotation reads as no status.
  */
 export class ConfigurationPreparationStatus
 {
-    public static readonly Empty = new ConfigurationPreparationStatus([], []);
+    public static readonly Empty = new ConfigurationPreparationStatus([], [], undefined);
     private static readonly Separator = ',';
-    private static readonly DigestPattern = /^sha256:[0-9a-f]{64}$/;
+    private static readonly DigestPattern = AppliedConfigurationKeys.DigestPattern;
 
     public readonly Prepared: readonly string[];
     public readonly Refusals: readonly ConfigurationPreparationRefusal[];
 
-    public constructor(prepared: readonly string[], refusals: readonly ConfigurationPreparationRefusal[])
+    public constructor(
+        prepared: readonly string[],
+        refusals: readonly ConfigurationPreparationRefusal[],
+        /** The configuration hash of the applied file this status was derived from (undefined: unknown, never current). */
+        public readonly From: string | undefined = undefined,
+    )
     {
         this.Prepared = Object.freeze([...new Set(prepared)].sort());
         this.Refusals = Object.freeze([...refusals].sort((a, b) => a.DescriptorDigest.localeCompare(b.DescriptorDigest)));
@@ -74,7 +80,21 @@ export class ConfigurationPreparationStatus
         if (!JsonDocument.IsObject(annotations)) return S.Empty;
         const marks = annotations[AppliedConfigurationKeys.PreparedDigestsAnnotation];
         const prepared = typeof marks === 'string' ? marks.split(S.Separator).filter(d => S.DigestPattern.test(d)) : [];
-        return new ConfigurationPreparationStatus(prepared, S.RefusalsOf(annotations[AppliedConfigurationKeys.PreparationRefusedAnnotation]));
+        const from = annotations[AppliedConfigurationKeys.PreparedFromAnnotation];
+        return new ConfigurationPreparationStatus(prepared, S.RefusalsOf(annotations[AppliedConfigurationKeys.PreparationRefusedAnnotation]), typeof from === 'string' && S.DigestPattern.test(from) ? from : undefined);
+    }
+
+    /** Whether this status was derived from the applied file whose configuration hash is `hash` (else it is stale). */
+    public Holds(hash: string | undefined): boolean
+    {
+        return hash !== undefined && this.From === hash;
+    }
+
+    /** The status for the applied file `hash`: this one when derived from it, else an empty one (what was prepared from
+     *  another file is stale). */
+    public DerivedFrom(hash: string): ConfigurationPreparationStatus
+    {
+        return this.From === hash ? this : new ConfigurationPreparationStatus([], [], hash);
     }
 
     public IsPrepared(digest: string): boolean
@@ -90,28 +110,29 @@ export class ConfigurationPreparationStatus
     /** Prepared for `digest`: its refusal, if any, is dropped. */
     public WithPrepared(digest: string): ConfigurationPreparationStatus
     {
-        return new ConfigurationPreparationStatus([...this.Prepared, digest], this.Refusals.filter(r => r.DescriptorDigest !== digest));
+        return new ConfigurationPreparationStatus([...this.Prepared, digest], this.Refusals.filter(r => r.DescriptorDigest !== digest), this.From);
     }
 
     /** Refused for the refusal's digest: its prepared mark, if any, is dropped and an earlier refusal replaced. */
     public WithRefusal(refusal: ConfigurationPreparationRefusal): ConfigurationPreparationStatus
     {
         const digest = refusal.DescriptorDigest;
-        return new ConfigurationPreparationStatus(this.Prepared.filter(d => d !== digest), [...this.Refusals.filter(r => r.DescriptorDigest !== digest), refusal]);
+        return new ConfigurationPreparationStatus(this.Prepared.filter(d => d !== digest), [...this.Refusals.filter(r => r.DescriptorDigest !== digest), refusal], this.From);
     }
 
     /** Neither prepared nor refused for any of `digests`. */
     public Without(digests: readonly string[]): ConfigurationPreparationStatus
     {
-        return new ConfigurationPreparationStatus(this.Prepared.filter(d => !digests.includes(d)), this.Refusals.filter(r => !digests.includes(r.DescriptorDigest)));
+        return new ConfigurationPreparationStatus(this.Prepared.filter(d => !digests.includes(d)), this.Refusals.filter(r => !digests.includes(r.DescriptorDigest)), this.From);
     }
 
-    /** The two annotations, each only when it has something to say. */
+    /** The annotations, each only when it has something to say (the source alone: derived from that file, nothing prepared or refused yet). */
     public ToAnnotations(): Record<string, string>
     {
         const out: Record<string, string> = {};
         if (this.Prepared.length > 0) out[AppliedConfigurationKeys.PreparedDigestsAnnotation] = this.Prepared.join(ConfigurationPreparationStatus.Separator);
         if (this.Refusals.length > 0) out[AppliedConfigurationKeys.PreparationRefusedAnnotation] = JSON.stringify(this.Refusals.map(r => r.ToJson()));
+        if (this.From !== undefined) out[AppliedConfigurationKeys.PreparedFromAnnotation] = this.From;
         return out;
     }
 
@@ -121,6 +142,7 @@ export class ConfigurationPreparationStatus
         const out = { ...annotations };
         delete out[AppliedConfigurationKeys.PreparedDigestsAnnotation];
         delete out[AppliedConfigurationKeys.PreparationRefusedAnnotation];
+        delete out[AppliedConfigurationKeys.PreparedFromAnnotation];
         return { ...out, ...this.ToAnnotations() };
     }
 

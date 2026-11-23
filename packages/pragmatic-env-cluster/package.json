@@ -1,6 +1,6 @@
 {
   "name": "@pragmatic-tech-ai/pragmatic-env-cluster",
-  "version": "0.18.4",
+  "version": "0.18.5",
   "license": "Apache-2.0",
   "description": "What the environment server and the environment gateway share: the cluster keys, machine headers and TLS, the worker routing seam and registration, the server configuration loader, its types and option declarations, access audit sinks, health endpoint, rate limiting, OpenTelemetry observability, request correlation, drain, and the bootstrap pieces both compose.",
   "repository": {
@@ -41,10 +41,10 @@
     "@opentelemetry/sdk-trace-base": "2.12.0",
     "@opentelemetry/sdk-trace-node": "2.12.0",
     "@opentelemetry/semantic-conventions": "1.43.0",
-    "@pragmatic-tech-ai/pragmatic-component": "0.18.4",
-    "@pragmatic-tech-ai/pragmatic-configuration-runtime": "0.18.4",
-    "@pragmatic-tech-ai/pragmatic-identity": "0.18.4",
-    "@pragmatic-tech-ai/pragmatic-observability": "0.18.4",
+    "@pragmatic-tech-ai/pragmatic-component": "0.18.5",
+    "@pragmatic-tech-ai/pragmatic-configuration-runtime": "0.18.5",
+    "@pragmatic-tech-ai/pragmatic-identity": "0.18.5",
+    "@pragmatic-tech-ai/pragmatic-observability": "0.18.5",
     "redis": "^4"
   },
   "devDependencies": {

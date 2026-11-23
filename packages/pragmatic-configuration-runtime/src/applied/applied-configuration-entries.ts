@@ -16,7 +16,7 @@ import { ConfigurationPreparationStatus } from './configuration-preparation-stat
  */
 export class AppliedConfigurationEntries
 {
-    private static readonly DigestPattern = /^sha256:[0-9a-f]{64}$/;
+    private static readonly DigestPattern = AppliedConfigurationKeys.DigestPattern;
     private static readonly HexLength = 64;
     private static readonly BadDigest = 'a prepared entry needs a sha256 descriptor digest';
     private static readonly KeyMismatch = 'the prepared entry names another descriptor than its key';

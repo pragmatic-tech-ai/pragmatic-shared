@@ -7,6 +7,9 @@ export enum ConfigurationStartReason
     ComponentMismatch = 'component-mismatch',
     DescriptorMismatch = 'descriptor-mismatch',
     Invalid = 'invalid',
+    /** A revalidating reader (the console's start) found an applied document of another descriptor that does not
+     *  validate against its own even with the settings it no longer declares left behind. */
+    Unrevalidated = 'unrevalidated',
     UnknownSecretStore = 'unknown-secret-store',
     SecretMissing = 'secret-missing',
     /** The resolved secrets could not be written to the component's secrets directory. */

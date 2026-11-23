@@ -28,7 +28,7 @@ export interface IAppliedConfigMap
  */
 export class AppliedConfigurationCodec
 {
-    private static readonly DigestPattern = /^sha256:[0-9a-f]{64}$/;
+    private static readonly DigestPattern = AppliedConfigurationKeys.DigestPattern;
     private static readonly Members = [
         AppliedConfigurationKeys.Schema,
         AppliedConfigurationKeys.Realm,

@@ -5,6 +5,7 @@ export type { IAppliedVersionSource } from './applied/applied-configuration.js';
 export { AppliedConfigurationCodec } from './applied/applied-configuration-codec.js';
 export type { IAppliedConfigMap } from './applied/applied-configuration-codec.js';
 export { AppliedConfigurationEntries } from './applied/applied-configuration-entries.js';
+export { AppliedDocumentCarryOver, CarriedDocument } from './applied/applied-document-carry-over.js';
 export { ConfigurationPreparationRefusal, ConfigurationPreparationStatus } from './applied/configuration-preparation-status.js';
 export { AppliedConfigurationError } from './applied/applied-configuration-error.js';
 export { AppliedConfigurationKeys } from './applied/applied-configuration-keys.js';

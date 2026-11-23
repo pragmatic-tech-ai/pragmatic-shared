@@ -32,6 +32,8 @@ export class ComponentStartReport
 
     public readonly Settings: readonly string[];
     public readonly Kept: readonly string[];
+    /** Revalidated only: the members of the applied document this descriptor no longer declares, left behind. */
+    public readonly Dropped: readonly string[];
 
     public constructor(
         public readonly Version: number | null,
@@ -40,10 +42,14 @@ export class ComponentStartReport
         kept: readonly string[] = [],
         /** The applied document was validated for another descriptor and re-validated against this one. */
         public readonly Revalidated: boolean = false,
+        dropped: readonly string[] = [],
+        /** Revalidating only: why an applied document of another descriptor was not used (the start went on without it). */
+        public readonly Ignored: string | undefined = undefined,
     )
     {
         this.Settings = Object.freeze([...settings]);
         this.Kept = Object.freeze([...kept]);
+        this.Dropped = Object.freeze([...dropped]);
         Object.freeze(this);
     }
 
@@ -69,7 +75,9 @@ export interface IStartProcess
  *
  * No file means no configuration: the environment is left exactly as it was. A file that does not read, validate or
  * resolve refuses the start with `ConfigurationStartError` and its reason (C Ledger 9); `ApplyOrExit` turns that into
- * exit code 78 (EX_CONFIG) with the reason on stderr. It logs nothing else.
+ * exit code 78 (EX_CONFIG) with the reason on stderr. It logs nothing else. `Revalidate` (the tenant admin console
+ * only) carries an applied document of another descriptor over (`Dropped`), and starts without it when that does not
+ * validate (`Ignored`, the environment left as it was).
  */
 export class ComponentStartConfiguration
 {
@@ -93,11 +101,22 @@ export class ComponentStartConfiguration
         const declaration = options.Declaration;
         const stores = options.Stores ?? C.Stores(declaration.name);
         const reader = new ConfigurationRuntimeReader(ComponentDeclarations.Build(declaration), stores, options.Revalidate === true);
-        const configuration = await C.Read(reader, ConfigurationRuntimeReader.PathFrom(options.Env));
+        let configuration: RuntimeConfiguration | undefined;
+        try
+        {
+            configuration = await C.Read(reader, ConfigurationRuntimeReader.PathFrom(options.Env));
+        }
+        catch (error)
+        {
+            // Only a revalidating start (the console) goes on without a configuration it cannot carry over: refusing would
+            // leave the tenant without the one component that prepares configurations.
+            if (!(error instanceof ConfigurationStartError) || error.Reason !== ConfigurationStartReason.Unrevalidated) throw error;
+            return new ComponentStartReport(null, null, [], [], false, [], error.message);
+        }
         if (configuration === undefined) return ComponentStartReport.None;
         const overlay = new ConfigurationEnvironmentOverlay(declaration, options.SecretsDir ?? C.DefaultSecretsDir);
         const result = await overlay.Apply(configuration, options.Env);
-        return new ComponentStartReport(configuration.Version, configuration.Realm, result.Applied, result.Kept, configuration.Revalidated);
+        return new ComponentStartReport(configuration.Version, configuration.Realm, result.Applied, result.Kept, configuration.Revalidated, configuration.Dropped);
     }
 
     /** `Apply`, exiting with ExitCode and the reason when the configuration refuses the start. */
