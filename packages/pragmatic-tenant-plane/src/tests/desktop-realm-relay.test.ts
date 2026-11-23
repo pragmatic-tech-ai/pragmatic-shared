@@ -197,7 +197,8 @@ class SwitchableHttp implements IHttpClient
 /**
  * The in-hive console's desktop surface and relay over one AppHost, composed as TenantPlaneComposer does for a console
  * tenant: the realm is a fake IdP (its discovery and keys through a fake HTTP client) found through the IdP connection.
- * Token lifetimes stay under the relay's 30 s heartbeat, so no ping falls inside a test's clock steps.
+ * Clock steps go to a token's exp (AdvanceToExp), so they track real token times; a heartbeat ping landing inside a step
+ * is answered by the client and changes nothing.
  */
 class RealmRelayKit
 {
@@ -209,16 +210,19 @@ class RealmRelayKit
     public static readonly Subject = 'acct-1'
     public static readonly Email = 'ada@acme.example'
     public static readonly TenantHost = 'acme.lvh.me'
+    public static readonly OtherHost = 'globex.lvh.me'
     public static readonly TestTimeout = { timeout: 30_000 }
 
-    public readonly clock = new ManualRelayClock()
-    public readonly directory = new RealmRelayDirectory()
-    public readonly sessions = new TenantSessions(TenantSessions.InMemory(), false)
-    public readonly service = new RealmRelayService(this.clock)
-    public principals!: TenantPrincipalSessions
-    public idp!: FakeOidcIdp
-    public http!: SwitchableHttp
-    public relay: DesktopRelay | undefined
+    public readonly Clock = new ManualRelayClock()
+    public readonly Directory = new RealmRelayDirectory()
+    public readonly Sessions = new TenantSessions(TenantSessions.InMemory(), false)
+    public readonly Service = new RealmRelayService(this.Clock)
+    public Principals!: TenantPrincipalSessions
+    public Idp!: FakeOidcIdp
+    public Http!: SwitchableHttp
+    public Relay: DesktopRelay | undefined
+    /** When set, the IdP connection cannot be read (a mounted file missing). */
+    public ConnectFails = false
     private upstream = new EmptyUpstream()
     private host: AppHost | undefined
     private port = 0
@@ -227,30 +231,30 @@ class RealmRelayKit
     public async Start(tokenAuthMethods: readonly string[] | null = ['client_secret_basic', 'none'], realmSignIn: boolean = true, coHosted: boolean = false): Promise<void>
     {
         const K = RealmRelayKit
-        this.idp = await FakeOidcIdp.Create(K.Issuer)
-        this.idp.TokenAuthMethods = tokenAuthMethods
-        this.http = new SwitchableHttp(new FakeOidcHttpClient(this.idp))
+        this.Idp = await FakeOidcIdp.Create(K.Issuer)
+        this.Idp.TokenAuthMethods = tokenAuthMethods
+        this.Http = new SwitchableHttp(new FakeOidcHttpClient(this.Idp))
         const conn: IdpConnection = { baseUrl: K.Browser, browserBaseUrl: K.Browser, ca: Buffer.alloc(0), adminToken: 'admin', adminTokenRef: 'ref', caDir: '' }
-        const realms = new DesktopRealms({ ConnectForTenant: async () => conn }, this.directory, realmSignIn, { HttpFor: () => this.http })
+        const realms = new DesktopRealms({ ConnectForTenant: async () => { if (this.ConnectFails) { throw new Error('unreadable') } return conn } }, this.Directory, realmSignIn, { HttpFor: () => this.Http })
         const consoleTenant = coHosted ? undefined : K.TenantId
         const bearer = new RealmDesktopBearer(realms, consoleTenant)
-        const gate = new DesktopAuthGate(this.sessions.Store, this.directory, bearer)
-        const service = this.service as unknown as IEnvironmentService
+        const gate = new DesktopAuthGate(this.Sessions.Store, this.Directory, bearer)
+        const service = this.Service as unknown as IEnvironmentService
         const targets = new DesktopTargets(service)
         const upstreamPort = await this.upstream.Start()
         const audit = new AuditRegistry(new MemoryRecordMap<AuditRecord>())
         await audit.Load()
-        const relay = new DesktopRelay(gate, targets, service, new RealmRelayReach(upstreamPort) as unknown as IEnvironmentReach, audit, new WsUpstreamDialer(), undefined, false, this.clock)
-        this.relay = relay
-        this.principals = new TenantPrincipalSessions(this.sessions.Store)
-        this.principals.Attach(bearer)
-        this.principals.Attach(relay)
-        const endpoint = new DesktopEndpoint({ RelyingParty: new OidcRelyingParty(new InMemoryOidcFlowStateStore()), Clients: new UnusedClients() }, this.sessions, gate, new DesktopSignInFlows(), targets, this.directory,
+        const relay = new DesktopRelay(gate, targets, service, new RealmRelayReach(upstreamPort) as unknown as IEnvironmentReach, audit, new WsUpstreamDialer(), undefined, false, this.Clock)
+        this.Relay = relay
+        this.Principals = new TenantPrincipalSessions(this.Sessions.Store)
+        this.Principals.Attach(bearer)
+        this.Principals.Attach(relay)
+        const endpoint = new DesktopEndpoint({ RelyingParty: new OidcRelyingParty(new InMemoryOidcFlowStateStore()), Clients: new UnusedClients() }, this.Sessions, gate, new DesktopSignInFlows(), targets, this.Directory,
             s => ({ principalId: s.principalId, roleLabel: TenantAdminCapabilities.For(s).roleLabel, appRoles: s.appRoles }) as unknown as TenantProfileDto, relay, consoleTenant, realms, coHosted ? { TenantFor: (host: string | undefined) => host?.startsWith(K.TenantHost) === true ? K.TenantId : undefined } : undefined)
         const routes = new RouteTable()
         endpoint.Register(routes)
         routes.AddSocket({ Pattern: DesktopRelay.Path, Auth: RouteAuth.Public, Admit: req => relay.Admit(req), Handler: (ws, ctx) => relay.Attach(ws, ctx.Request) })
-        this.host = new AppHost(new AppHostConfig({ AllowedHosts: [K.TenantHost] }), { Routes: routes })
+        this.host = new AppHost(new AppHostConfig({ AllowedHosts: [K.TenantHost, K.OtherHost] }), { Routes: routes })
         await this.host.Listen(0, K.Loopback)
         this.port = this.host.Address().port
     }
@@ -259,21 +263,21 @@ class RealmRelayKit
     {
         await this.upstream.Stop()
         await this.host?.Close()
-        await this.relay?.Close()
+        await this.Relay?.Close()
     }
 
     /** A realm access token as the realm sign-in service issues one for plexus. */
     public Access(sid: string, claims: Record<string, unknown> = {}, expSecondsFromNow: number = 20, typ: string = 'at+jwt'): Promise<string>
     {
         const K = RealmRelayKit
-        return this.idp.MintIdToken({ sub: K.Subject, aud: 'pragmatic-tenant-admin', azp: 'plexus', client_id: 'plexus', sid, email: K.Email, roles: [], app_roles: {}, ...claims }, { typ, expSecondsFromNow })
+        return this.Idp.MintIdToken({ sub: K.Subject, aud: 'pragmatic-tenant-admin', azp: 'plexus', client_id: 'plexus', sid, email: K.Email, roles: [], app_roles: {}, ...claims }, { typ, expSecondsFromNow })
     }
 
     /** Moves the relay clock to `offsetMs` from the token's `exp` (the deadline the relay set from it). */
     public AdvanceToExp(token: string, offsetMs: number): void
     {
         const exp = JSON.parse(Buffer.from(token.split('.')[1]!, 'base64url').toString('utf8')).exp as number
-        this.clock.Advance(exp * 1000 + offsetMs - this.clock.now)
+        this.Clock.Advance(exp * 1000 + offsetMs - this.Clock.now)
     }
 
     public Get(path: string, bearer?: string): Promise<{ status: number; body: Record<string, unknown> | undefined }>
@@ -403,7 +407,7 @@ describe('the console names its realm sign-in and takes realm access tokens (E.s
     it('an ID token as bearer is 401, and so is an access token for the client instead of the console', K.TestTimeout, async () =>
     {
         await kit.Start()
-        const idToken = await kit.idp.MintIdToken({ sub: K.Subject, aud: 'plexus', azp: 'plexus', sid: 'fam-1', email: K.Email })
+        const idToken = await kit.Idp.MintIdToken({ sub: K.Subject, aud: 'plexus', azp: 'plexus', sid: 'fam-1', email: K.Email })
         assert.equal((await kit.Get('/desktop/targets', idToken)).status, 401)
         assert.equal((await kit.Get('/desktop/targets', await kit.Access('fam-1', { aud: 'plexus' }))).status, 401)
         assert.equal((await kit.Get('/desktop/targets', await kit.Access('fam-1', {}, 20, 'JWT'))).status, 401)
@@ -412,7 +416,7 @@ describe('the console names its realm sign-in and takes realm access tokens (E.s
     it('another realm\'s or another client\'s token is 401', K.TestTimeout, async () =>
     {
         await kit.Start()
-        const otherRealm = await kit.idp.MintIdToken({ sub: K.Subject, aud: 'pragmatic-tenant-admin', azp: 'plexus', sid: 'fam-1' }, { typ: 'at+jwt', issuer: 'https://idp.acme.example/realms/globex' })
+        const otherRealm = await kit.Idp.MintIdToken({ sub: K.Subject, aud: 'pragmatic-tenant-admin', azp: 'plexus', sid: 'fam-1' }, { typ: 'at+jwt', issuer: 'https://idp.acme.example/realms/globex' })
         assert.equal((await kit.Get('/desktop/targets', otherRealm)).status, 401)
         const forger = await FakeOidcIdp.Create(K.Issuer)
         const forged = await forger.MintIdToken({ sub: K.Subject, aud: 'pragmatic-tenant-admin', azp: 'plexus', sid: 'fam-1' }, { typ: 'at+jwt' })
@@ -433,26 +437,26 @@ describe('the console names its realm sign-in and takes realm access tokens (E.s
     {
         await kit.Start()
         const token = await kit.Access('fam-1')
-        kit.directory.createdAt = new Date(Date.now() + 60_000).toISOString()
+        kit.Directory.createdAt = new Date(Date.now() + 60_000).toISOString()
         assert.equal((await kit.Get('/desktop/targets', token)).status, 401)
     })
 
     it('a realm that cannot be reached is 503 on the routes and the relay, never a sign-out', K.TestTimeout, async () =>
     {
         await kit.Start()
-        kit.http.Down = true
+        kit.Http.Down = true
         const token = await kit.Access('fam-1')
         assert.equal((await kit.Get('/desktop/targets', token)).status, 503)
         assert.equal((await kit.Send('POST', '/desktop/sign-out', token)).status, 503)
         assert.equal((await kit.Dial(token)).status, 503)
-        kit.http.Down = false
+        kit.Http.Down = false
         assert.equal((await kit.Get('/desktop/targets', token)).status, 200, 'a failed fetch is not cached')
     })
 
     it('the desktop session bearer still works', K.TestTimeout, async () =>
     {
         await kit.Start()
-        const issued = await kit.sessions.IssueDesktop(new SignedInIdentity(K.Subject, TenantSessionClaims.Of(K.TenantId, K.Email)))
+        const issued = await kit.Sessions.IssueDesktop(new SignedInIdentity(K.Subject, TenantSessionClaims.Of(K.TenantId, K.Email)))
         assert.equal((await kit.Get('/desktop/targets', issued.Token)).status, 200)
         assert.equal((await kit.Send('POST', '/desktop/sign-out', issued.Token)).status, 204)
         assert.equal((await kit.Get('/desktop/targets', issued.Token)).status, 401, 'its sign-out ended it')
@@ -509,9 +513,9 @@ describe('the console names its realm sign-in and takes realm access tokens (E.s
     {
         await kit.Start()
         let release: () => void = () => undefined
-        kit.service.hold = new Promise<void>(res => { release = res })
+        kit.Service.hold = new Promise<void>(res => { release = res })
         const dial = kit.Dial(await kit.Access('fam-1'))
-        await RealmRelayKit.Until(() => kit.service.minting)
+        await RealmRelayKit.Until(() => kit.Service.minting)
         assert.equal((await kit.Send('POST', '/desktop/sign-out', await kit.Access('fam-1'))).status, 204)
         release()
         assert.equal((await dial).status, 401)
@@ -535,7 +539,7 @@ describe('the console names its realm sign-in and takes realm access tokens (E.s
         const token = await kit.Access('fam-1')
         const ws = await kit.Open(token)
         const closed = RealmRelayKit.Closed(ws)
-        await kit.principals.RevokeAllFor(K.TenantId, K.Subject)
+        await kit.Principals.RevokeAllFor(K.TenantId, K.Subject)
         assert.equal(await closed, 1008)
         assert.equal((await kit.Get('/desktop/targets', token)).status, 401)
     })
@@ -552,6 +556,23 @@ describe('the console names its realm sign-in and takes realm access tokens (E.s
         ws.close()
     })
 
+    it('an IdP connection that cannot be read is 503 on the routes and the relay', K.TestTimeout, async () =>
+    {
+        kit.ConnectFails = true
+        await kit.Start()
+        const token = await kit.Access('fam-1')
+        assert.equal((await kit.Get('/desktop/targets', token)).status, 503)
+        assert.equal((await kit.Dial(token)).status, 503)
+    })
+
+    it('on the co-hosted plane another tenant host names nothing, and the bearer is not bound to the host', K.TestTimeout, async () =>
+    {
+        await kit.Start(undefined, true, true)
+        const other = await kit.Send('GET', '/desktop/console', undefined, K.OtherHost)
+        assert.equal(other.status, 404)
+        assert.equal((await kit.Send('GET', '/desktop/targets', await kit.Access('fam-1'), K.OtherHost)).status, 200, 'the tenant is the token realm, whatever the host')
+    })
+
     it('a realm relay is refused without a valid token and still closes 4003 on retirement', K.TestTimeout, async () =>
     {
         await kit.Start()
@@ -559,7 +580,7 @@ describe('the console names its realm sign-in and takes realm access tokens (E.s
         assert.equal((await kit.Dial(await kit.Access('fam-1', { aud: 'plexus' }))).status, 401)
         const ws = await kit.Open(await kit.Access('fam-1'))
         const closed = RealmRelayKit.Closed(ws)
-        kit.relay!.Retire(DesktopRelay.ConsoleRetiredCloseCode)
+        kit.Relay!.Retire(DesktopRelay.ConsoleRetiredCloseCode)
         assert.equal(await closed, 4003)
     })
 })

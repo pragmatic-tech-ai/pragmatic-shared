@@ -78,6 +78,7 @@ export class DesktopRealmSignIn implements IDesktopTenantRealm
     private static readonly HashAlgorithm = 'sha256'
     private static readonly HexEncoding = 'hex'
     private static readonly LogPrefix = '[desktop-realm-sign-in] the realm discovery probe failed:'
+    private static readonly ConnectLogPrefix = '[desktop-realm-sign-in] the tenant IdP connection could not be read:'
 
     private readonly nowMs: () => number
     private readonly httpFor: (conn: IdpConnection) => IHttpClient
@@ -121,13 +122,24 @@ export class DesktopRealmSignIn implements IDesktopTenantRealm
         return await this.probing
     }
 
+    /** The realm's address from the IdP connection; a missing or unreadable connection is no realm, kept 30 s. */
     private async Connect(): Promise<DesktopRealm | undefined>
     {
         const D = DesktopRealmSignIn
         const now = this.nowMs()
-        const conn = await this.idp.ConnectForTenant(this.tenantId)
-        const realm = conn === undefined ? undefined : new DesktopRealm(TenantOidcClients.IssuerFor(conn, this.tenantId), TenantOidcClients.DiscoveryUrlFor(conn, this.tenantId), this.httpFor(conn),
-            createHash(D.HashAlgorithm).update(conn.ca).digest(D.HexEncoding))
+        let realm: DesktopRealm | undefined
+        try
+        {
+            const conn = await this.idp.ConnectForTenant(this.tenantId)
+            realm = conn === undefined ? undefined : new DesktopRealm(TenantOidcClients.IssuerFor(conn, this.tenantId), TenantOidcClients.DiscoveryUrlFor(conn, this.tenantId), this.httpFor(conn),
+                createHash(D.HashAlgorithm).update(conn.ca).digest(D.HexEncoding))
+        }
+        catch (err)
+        {
+            // Mounted files unreadable, a malformed address: no realm now (callers answer 503). Only the error's name is logged.
+            console.error(D.ConnectLogPrefix, err instanceof Error ? err.name : typeof err)
+            realm = undefined
+        }
         this.known = { realm, untilMs: now + (realm === undefined ? D.FailedProbeTtlMs : D.ProbeTtlMs) }
         return realm
     }
@@ -174,6 +186,8 @@ export interface IDesktopRealmDirectory
 {
     /** The tenant's realm, or undefined for a tenant this console does not know. */
     For(tenantId: string): IDesktopTenantRealm | undefined
+    /** Forgets what is cached for the tenant (it ended; a tenant re-created under the id starts afresh). */
+    Forget(tenantId: string): void
 }
 
 /**
@@ -207,5 +221,10 @@ export class DesktopRealms implements IDesktopRealmDirectory
         const signIn = new DesktopRealmSignIn(this.idp, tenantId, this.enabled, this.options)
         this.realms.set(tenantId, signIn)
         return signIn
+    }
+
+    public Forget(tenantId: string): void
+    {
+        this.realms.delete(tenantId)
     }
 }

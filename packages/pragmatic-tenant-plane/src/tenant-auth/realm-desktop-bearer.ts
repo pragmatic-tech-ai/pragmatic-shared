@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { SessionClaims, SessionPolicy, SessionRecord } from '@pragmatic-tech-ai/pragmatic-app-host'
 import { RealmTokenVerifier, TokenVerifierUnavailableError, type IRealmTokenVerifier, type RealmTokenPrincipal } from '@pragmatic-tech-ai/pragmatic-identity-source-oidc'
-import { DesktopRealmSignIn, type DesktopRealm, type IDesktopRealmDirectory } from './desktop-realm-sign-in.js'
+import { DesktopRealmSignIn, type DesktopRealm, type IDesktopRealmDirectory, type IDesktopRealmSource } from './desktop-realm-sign-in.js'
 import type { IPrincipalConnections } from './tenant-principal-sessions.js'
 import { TenantOidcClients } from './tenant-oidc-clients.js'
 import { TenantSessionClaims, TenantSessionKind, type TenantSession } from './tenant-sessions.js'
@@ -14,7 +14,7 @@ export interface IDesktopRealmBearer
 {
     /** The session a realm access token stands for, or null; throws TokenVerifierUnavailableError when it cannot decide. */
     SessionOf(token: string): Promise<SessionRecord | null>
-    /** Ends a realm session here: its tokens are refused from now on (a sign-out). */
+    /** Ends a realm session here (a sign-out): every token of its sub + sid is refused for as long as one can live. */
     EndSession(session: TenantSession): void
 }
 
@@ -41,11 +41,16 @@ export interface RealmDesktopBearerOptions
  * relay ends at the token's `exp` and a sign-out closes the relays of that sign-in only. The incarnation check rests on
  * `iat`, which a refresh renews: that holds because a tenant's realm, and its refresh families, end with the tenant.
  *
- * Nothing about a realm session is stored, so what ends one here is kept in process until its tokens expire: a sign-out
- * (`EndSession`: every token of that `sub` + `sid`) and an Owner reset or tenant end (`ClosePrincipal`, `CloseTenant`,
- * as an IPrincipalConnections: every token issued until then). A tenant whose realm cannot be reached (no IdP connection,
- * or its keys unreachable) makes it throw TokenVerifierUnavailableError: the routes answer 503, never a sign-out. The
- * token is never logged.
+ * Nothing about a realm session is stored, so what ends one here is kept in this process for as long as any token it
+ * covers can live (the realm's longest access token lifetime, 60 minutes, plus the skew; a token claiming a longer
+ * lifetime is refused): a sign-out (`EndSession`: every token of that `sub` + `sid`, a newer one included) and an Owner
+ * reset or tenant end (`ClosePrincipal`, `CloseTenant`, as an IPrincipalConnections: every token issued up to and
+ * including the reset's second, an IdP clock ahead of the console's within the skew aside). These do not reach the
+ * realm: a reset principal who refreshes there gets a token issued after the reset, which is accepted (the reset ends the
+ * console's sessions, not the person's realm sign-in), and they do not reach another replica of the console (the
+ * consoles run one replica). A tenant whose realm cannot be reached (no or an unreadable IdP connection, keys
+ * unreachable, an unusable realm address) makes it throw TokenVerifierUnavailableError: the routes answer 503, never a
+ * sign-out. The token is never logged.
  */
 export class RealmDesktopBearer implements IDesktopRealmBearer, IPrincipalConnections
 {
@@ -53,8 +58,10 @@ export class RealmDesktopBearer implements IDesktopRealmBearer, IPrincipalConnec
     public static readonly AuthorizedParty = DesktopRealmSignIn.PlexusClientId
     public static readonly AccessTokenType = 'at+jwt'
     public static readonly SkewSeconds = 60
-    /** How long a reset is remembered: the longest access token lifetime a realm may set (60 minutes) and the skew. */
-    public static readonly ResetMemoryMs = 61 * 60 * 1000
+    /** The longest access token lifetime a realm may set (pragmatic-tenant-idp `tokens.accessTokenLifetime`, 1m-60m). */
+    public static readonly MaxLifetimeMs = 60 * 60 * 1000
+    /** How long an end is remembered: the longest lifetime and the skew. */
+    public static readonly ResetMemoryMs = RealmDesktopBearer.MaxLifetimeMs + RealmDesktopBearer.SkewSeconds * 1000
     /** The prefix of a realm bearer's session id (a stored session's id is a bare digest). */
     public static readonly IdPrefix = 'realm:'
     private static readonly SidClaim = 'sid'
@@ -74,6 +81,7 @@ export class RealmDesktopBearer implements IDesktopRealmBearer, IPrincipalConnec
     private static readonly MsPerSecond = 1000
     private static readonly NoValue = ''
     private static readonly UnreachableRealm = 'the tenant realm has no IdP connection'
+    private static readonly UnusableRealm = 'the tenant realm address is not usable'
 
     /** One verifier per tenant and realm address (its key and discovery caches); a moved IdP gets a new one. */
     private readonly verifiers = new Map<string, { key: string; verifier: IRealmTokenVerifier }>()
@@ -148,21 +156,23 @@ export class RealmDesktopBearer implements IDesktopRealmBearer, IPrincipalConnec
             return null
         }
         const tenantId = this.tenantId ?? RealmDesktopBearer.TenantNamedBy(token)
-        const realm = tenantId === undefined ? undefined : this.realms.For(tenantId)
-        if (tenantId === undefined || realm === undefined)
+        const tenantRealm = tenantId === undefined ? undefined : this.realms.For(tenantId)
+        if (tenantId === undefined || tenantRealm === undefined)
         {
             return null
         }
-        const principal = await (await this.Verifier(tenantId, realm)).Verify(token)
+        const principal = await (await this.Verifier(tenantId, tenantRealm)).Verify(token)
         const record = principal === undefined ? null : this.RecordOf(tenantId, principal)
         return record === null || this.IsEnded(record, tenantId) ? null : record
     }
 
     public EndSession(session: TenantSession): void
     {
+        const R = RealmDesktopBearer
         const now = this.nowMs()
         this.Prune(now)
-        this.ended.set(session.id, Date.parse(session.expiresAt) + RealmDesktopBearer.SkewSeconds * RealmDesktopBearer.MsPerSecond)
+        // A newer token of the same sign-in (a refresh racing the sign-out) lives at most the longest lifetime from now.
+        this.ended.set(session.id, Math.max(Date.parse(session.expiresAt) + R.SkewSeconds * R.MsPerSecond, now + R.ResetMemoryMs))
     }
 
     /** An Owner reset: every realm token of the principal issued until now is refused. Closes nothing itself (0). */
@@ -172,10 +182,13 @@ export class RealmDesktopBearer implements IDesktopRealmBearer, IPrincipalConnec
         return 0
     }
 
-    /** The tenant ended: every realm token of the tenant issued until now is refused. Closes nothing itself (0). */
+    /** The tenant ended: every realm token of the tenant issued until now is refused, and what is cached for it is
+     *  dropped (a tenant re-created under the id starts afresh). Closes nothing itself (0). */
     public CloseTenant(tenantId: string): number
     {
         this.Reset(RealmDesktopBearer.TenantKey(tenantId))
+        this.verifiers.delete(tenantId)
+        this.realms.Forget(tenantId)
         return 0
     }
 
@@ -216,7 +229,7 @@ export class RealmDesktopBearer implements IDesktopRealmBearer, IPrincipalConnec
         }
     }
 
-    private async Verifier(tenantId: string, tenant: { Realm(): Promise<DesktopRealm | undefined> }): Promise<IRealmTokenVerifier>
+    private async Verifier(tenantId: string, tenant: IDesktopRealmSource): Promise<IRealmTokenVerifier>
     {
         const realm = await tenant.Realm()
         if (realm === undefined)
@@ -228,7 +241,16 @@ export class RealmDesktopBearer implements IDesktopRealmBearer, IPrincipalConnec
         {
             return known.verifier
         }
-        const verifier = this.verifierFor(realm)
+        let verifier: IRealmTokenVerifier
+        try
+        {
+            verifier = this.verifierFor(realm)
+        }
+        catch
+        {
+            // An address the verifier refuses (not https): the realm cannot be checked now.
+            throw new TokenVerifierUnavailableError(RealmDesktopBearer.UnusableRealm)
+        }
         this.verifiers.set(tenantId, { key: realm.Key, verifier })
         return verifier
     }
@@ -239,7 +261,8 @@ export class RealmDesktopBearer implements IDesktopRealmBearer, IPrincipalConnec
         const sid = principal.Claims[R.SidClaim]
         const exp = principal.Claims[R.ExpClaim]
         const iat = principal.Claims[R.IatClaim]
-        if (typeof sid !== 'string' || sid.length === 0 || typeof exp !== 'number' || typeof iat !== 'number' || exp * R.MsPerSecond <= this.nowMs())
+        if (typeof sid !== 'string' || sid.length === 0 || typeof exp !== 'number' || typeof iat !== 'number'
+            || exp * R.MsPerSecond <= this.nowMs() || (exp - iat) * R.MsPerSecond > R.MaxLifetimeMs)
         {
             return null
         }

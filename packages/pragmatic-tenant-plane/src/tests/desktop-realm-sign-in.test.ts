@@ -2,6 +2,7 @@ import { strict as assert } from 'node:assert'
 import type { IncomingMessage } from 'node:http'
 import { describe, it } from 'node:test'
 import { SignedInIdentity } from '@pragmatic-tech-ai/pragmatic-app-host'
+import { TokenVerifierUnavailableError } from '@pragmatic-tech-ai/pragmatic-identity-source-oidc'
 import type { IHttpClient } from '@pragmatic-tech-ai/pragmatic-identity-source-oidc'
 import { FakeOidcHttpClient, FakeOidcIdp } from '@pragmatic-tech-ai/pragmatic-identity-source-oidc/testing'
 import type { IdpConnection } from '../idp-workload-driver.js'
@@ -10,7 +11,7 @@ import type { ITenantDirectory } from '../tenant-api/tenant-directory.js'
 import { DesktopAuthGate } from '../tenant-auth/desktop-auth-gate.js'
 import { DesktopRealm, DesktopRealmSignIn, DesktopRealms, type IDesktopRealmDirectory, type IDesktopTenantRealm } from '../tenant-auth/desktop-realm-sign-in.js'
 import { RealmDesktopBearer } from '../tenant-auth/realm-desktop-bearer.js'
-import { TenantSessionClaims, TenantSessionKind, TenantSessions } from '../tenant-auth/tenant-sessions.js'
+import { TenantSessionClaims, TenantSessionKind, TenantSessions, type TenantSession } from '../tenant-auth/tenant-sessions.js'
 import { TenantPlaneComposer } from '../tenant-plane-composer.js'
 
 /** The realm's discovery as the console reads it over the internal origin; counts the reads, can fail. */
@@ -98,6 +99,18 @@ class TwoRealms implements IDesktopRealmDirectory
         const realm = this.realms.get(tenantId)
         return realm === undefined ? undefined : { Realm: async () => realm, Advert: async () => undefined }
     }
+
+    public Forget(): void
+    {
+    }
+}
+
+/** A movable bearer clock (ms) around now. */
+class BearerClock
+{
+    public Ms = Date.now()
+
+    public readonly Now = (): number => this.Ms
 }
 
 /** A gate over realm bearers of the acme realm (and, for the co-hosted plane, of globex). */
@@ -129,7 +142,17 @@ class BearerKit
     /** The in-hive console's gate (one tenant), or the co-hosted plane's (tenant from the token). */
     public Gate(coHosted: boolean = false): DesktopAuthGate
     {
-        return new DesktopAuthGate(this.Sessions.Store, this.Directory, new RealmDesktopBearer(this.Realms, coHosted ? undefined : SignInFixture.TenantId))
+        return new DesktopAuthGate(this.Sessions.Store, this.Directory, this.Bearer(coHosted))
+    }
+
+    public Bearer(coHosted: boolean = false, clock?: BearerClock): RealmDesktopBearer
+    {
+        return new RealmDesktopBearer(this.Realms, coHosted ? undefined : SignInFixture.TenantId, clock === undefined ? {} : { NowMs: clock.Now })
+    }
+
+    public static async SessionOf(gate: DesktopAuthGate, token: string): Promise<TenantSession | null>
+    {
+        return await gate.Principal(BearerKit.Request(token))
     }
 
     public static Request(token: string): IncomingMessage
@@ -137,9 +160,9 @@ class BearerKit
         return { headers: { authorization: 'Bearer ' + token } } as unknown as IncomingMessage
     }
 
-    public Access(claims: Record<string, unknown> = {}, expSecondsFromNow: number = 600, idp: FakeOidcIdp = this.Idp): Promise<string>
+    public Access(claims: Record<string, unknown> = {}, expSecondsFromNow: number = 600, idp: FakeOidcIdp = this.Idp, iatSecondsFromNow: number = 0): Promise<string>
     {
-        return idp.MintIdToken({ sub: 'acct-1', aud: 'pragmatic-tenant-admin', azp: 'plexus', client_id: 'plexus', sid: 'fam-1', email: BearerKit.Email, roles: ['admin'], app_roles: { 'pragmatic-tenant-admin': ['environment-admin'], ledger: ['viewer'] }, ...claims }, { typ: 'at+jwt', expSecondsFromNow })
+        return idp.MintIdToken({ sub: 'acct-1', aud: 'pragmatic-tenant-admin', azp: 'plexus', client_id: 'plexus', sid: 'fam-1', email: BearerKit.Email, roles: ['admin'], app_roles: { 'pragmatic-tenant-admin': ['environment-admin'], ledger: ['viewer'] }, ...claims }, { typ: 'at+jwt', expSecondsFromNow, iatSecondsFromNow })
     }
 }
 
@@ -322,8 +345,8 @@ describe('RealmDesktopBearer through DesktopAuthGate (S5)', () =>
         const desktop = await kit.Sessions.IssueDesktop(new SignedInIdentity('acct-1', TenantSessionClaims.Of(F.TenantId, BearerKit.Email)))
         assert.equal((await gate.Principal(BearerKit.Request(desktop.Token)))?.principalId, 'acct-1')
         assert.equal(gate.IsRealmBearer(BearerKit.Request(desktop.Token)), false)
-        const console = await kit.Sessions.Store.Issue('acct-1', TenantSessionClaims.Of(F.TenantId, BearerKit.Email))
-        assert.equal(await gate.Principal(BearerKit.Request(console.Token)), null)
+        const consoleSession = await kit.Sessions.Store.Issue('acct-1', TenantSessionClaims.Of(F.TenantId, BearerKit.Email))
+        assert.equal(await gate.Principal(BearerKit.Request(consoleSession.Token)), null)
     })
 
     it('without realms a JWT-shaped bearer is no session and no realm bearer', async () =>
@@ -353,5 +376,92 @@ describe('RealmDesktopBearer through DesktopAuthGate (S5)', () =>
         assert.equal(await bearer.SessionOf('not-a-jwt'), null)
         assert.equal(RealmDesktopBearer.IsJwt('a.b.c'), true)
         assert.equal(RealmDesktopBearer.IsJwt('opaque-session-token'), false)
+    })
+})
+
+describe('RealmDesktopBearer ends and refusals (S5-S6)', () =>
+{
+    const F = SignInFixture
+
+    it('a sign-out also refuses a newer token of the same sign-in, after any pruning', async () =>
+    {
+        const kit = await BearerKit.Create()
+        const clock = new BearerClock()
+        const bearer = kit.Bearer(false, clock)
+        const gate = new DesktopAuthGate(kit.Sessions.Store, kit.Directory, bearer)
+        const old = await BearerKit.SessionOf(gate, await kit.Access({}, 60))
+        assert.ok(old !== null)
+        bearer.EndSession(old)
+        const newer = await kit.Access({}, 600)
+        clock.Ms += 10 * 60 * 1000
+        bearer.EndSession({ ...old, id: 'realm:another', expiresAt: new Date(clock.Ms).toISOString() })
+        assert.equal(await BearerKit.SessionOf(gate, newer), null)
+        assert.notEqual(await BearerKit.SessionOf(gate, await kit.Access({ sid: 'fam-2' }, 3600)), null, 'another sign-in is untouched')
+    })
+
+    it('an Owner reset refuses the tokens issued until then and accepts one issued after it', async () =>
+    {
+        const kit = await BearerKit.Create()
+        const clock = new BearerClock()
+        clock.Ms = Date.now() - 5_000
+        const bearer = kit.Bearer(false, clock)
+        const gate = new DesktopAuthGate(kit.Sessions.Store, kit.Directory, bearer)
+        const before = await kit.Access({}, 600, kit.Idp, -10)
+        bearer.ClosePrincipal(F.TenantId, 'acct-1')
+        clock.Ms = Date.now()
+        assert.equal(await BearerKit.SessionOf(gate, before), null)
+        assert.notEqual(await BearerKit.SessionOf(gate, await kit.Access()), null)
+        assert.notEqual(await BearerKit.SessionOf(gate, await kit.Access({ sub: 'acct-2' }, 600, kit.Idp, -10)), null, 'another principal is untouched')
+    })
+
+    it('refuses a token claiming a lifetime longer than a realm may set', async () =>
+    {
+        const kit = await BearerKit.Create()
+        assert.equal(await BearerKit.SessionOf(kit.Gate(), await kit.Access({}, 61 * 60)), null)
+        assert.notEqual(await BearerKit.SessionOf(kit.Gate(), await kit.Access({}, 60 * 60)), null)
+    })
+
+    it('a tenant end forgets the tenant realm and its verifier', async () =>
+    {
+        const kit = await BearerKit.Create()
+        const forgotten: string[] = []
+        const realms = { For: (id: string) => kit.Realms.For(id), Forget: (id: string) => { forgotten.push(id) } }
+        let built = 0
+        const bearer = new RealmDesktopBearer(realms, F.TenantId, { VerifierFor: realm => { built++; return RealmDesktopBearer.VerifierOf(realm) } })
+        const gate = new DesktopAuthGate(kit.Sessions.Store, kit.Directory, bearer)
+        await BearerKit.SessionOf(gate, await kit.Access())
+        bearer.CloseTenant(F.TenantId)
+        assert.deepEqual(forgotten, [F.TenantId])
+        await BearerKit.SessionOf(gate, await kit.Access())
+        assert.equal(built, 2, 'the verifier is built again')
+    })
+
+    it('a realm whose address changes (a rotated CA) gets a new verifier', async () =>
+    {
+        const idp = await FakeOidcIdp.Create(F.Issuer)
+        let trust = 'ca-1'
+        const tenantRealm = { Realm: async () => new DesktopRealm(F.Issuer, idp.DiscoveryUrl, new FakeOidcHttpClient(idp), trust), Advert: async () => undefined }
+        let built = 0
+        const bearer = new RealmDesktopBearer({ For: () => tenantRealm, Forget: () => undefined }, F.TenantId, { VerifierFor: realm => { built++; return RealmDesktopBearer.VerifierOf(realm) } })
+        const token = await idp.MintIdToken({ sub: 'acct-1', aud: 'pragmatic-tenant-admin', azp: 'plexus', sid: 'fam-1' }, { typ: 'at+jwt' })
+        await bearer.SessionOf(token)
+        await bearer.SessionOf(token)
+        trust = 'ca-2'
+        await bearer.SessionOf(token)
+        assert.equal(built, 2)
+    })
+
+    it('an IdP connection that cannot be read is TokenVerifierUnavailableError, and so is an unusable realm address', async () =>
+    {
+        const F2 = SignInFixture
+        const directory = new BearerDirectory()
+        const sessions = new TenantSessions(TenantSessions.InMemory(), false)
+        const broken = new DesktopRealms({ ConnectForTenant: async () => { throw new Error('unreadable') } }, directory, true)
+        const gate = new DesktopAuthGate(sessions.Store, directory, new RealmDesktopBearer(broken, F2.TenantId))
+        const kit = await BearerKit.Create()
+        await assert.rejects(gate.Principal(BearerKit.Request(await kit.Access())), TokenVerifierUnavailableError)
+        const plain = new DesktopRealms({ ConnectForTenant: async () => ({ ...F2.Connection, browserBaseUrl: 'http://idp.acme.example' }) }, directory, true)
+        const insecure = new DesktopAuthGate(sessions.Store, directory, new RealmDesktopBearer(plain, F2.TenantId))
+        await assert.rejects(insecure.Principal(BearerKit.Request(await kit.Access())), TokenVerifierUnavailableError)
     })
 })

@@ -29,6 +29,7 @@ import type { IRolloutClient } from './tenant-api/rollout-client.js'
 import type { ITenantEmailDomains } from './tenant-api/tenant-email-domains.js'
 import { TenantConfigurationEndpoint } from './tenant-api/tenant-configuration-endpoint.js'
 import type { ConfigurationService } from './configuration/configuration-service.js'
+import { TenantAdminEnv } from './tenant-admin-env.js'
 
 /** What the desktop relay needs beyond the tenant plane: how environments are reached, and where relays are audited. */
 export type DesktopRelayWiring = { endpoints: IEnvironmentReach; audit: AuditRegistry }
@@ -110,7 +111,7 @@ export class TenantPlaneComposer
     private static readonly NoFlag = ''
     private static readonly OnTokens: readonly string[] = ['on', 'true', '1']
     private static readonly OffTokens: readonly string[] = ['off', 'false', '0']
-    private static readonly BadRealmSignInPrefix = 'Invalid PRAGMATIC_TENANT_ADMIN_DESKTOP_REALM_SIGN_IN (on or off): '
+    private static readonly BadRealmSignInPrefix = 'Invalid ' + TenantAdminEnv.DesktopRealmSignIn + ' (on or off): '
 
     /**
      * Pure: the desktop realm sign-in setting (`PRAGMATIC_TENANT_ADMIN_DESKTOP_REALM_SIGN_IN`): `on`, `true` or `1` turn it

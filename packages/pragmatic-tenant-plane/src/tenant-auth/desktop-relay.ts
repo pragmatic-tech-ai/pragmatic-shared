@@ -516,7 +516,7 @@ export class DesktopRelay implements IPrincipalConnections, IDesktopSessionConne
 
     /**
      * Whether the request's bearer still resolves to the same live desktop session: 200 when it does, 401 when it does
-     * not (signed out, expired, revoked), 503 when its realm cannot be reached now.
+     * not (signed out, expired, revoked), 503 when its realm cannot be reached now, 500 when the check itself failed.
      */
     private async StillLive(req: IncomingMessage, session: TenantSession): Promise<number>
     {
@@ -526,7 +526,7 @@ export class DesktopRelay implements IPrincipalConnections, IDesktopSessionConne
         }
         catch (err)
         {
-            return err instanceof TokenVerifierUnavailableError ? DesktopRelay.StatusUnavailable : DesktopRelay.StatusUnauthorized
+            return err instanceof TokenVerifierUnavailableError ? DesktopRelay.StatusUnavailable : DesktopRelay.StatusInternal
         }
     }
 
