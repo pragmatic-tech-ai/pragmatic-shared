@@ -8,7 +8,8 @@ The OIDC base every upstream identity source builds on (discovery, PKCE, JWKS, f
 relying party that receives tokens rather than running a sign-in: the issuer's keys found through its discovery
 document (which must name the issuer exactly and an https `jwks_uri`; cached 300 s), the key set cached an hour and
 refetched on an unknown key id at most once a minute (rotation), RS256/ES256 only, issuer exact, audience one of the
-configured, `azp` one of `AuthorizedParties` when set, `exp` / `nbf` / `iat` (required, not future) within a 60 s
+configured, `azp` one of `AuthorizedParties` when set, the header `typ` when `Type` is set (`at+jwt`: an RFC 9068
+access token, never an ID token), `exp` / `nbf` / `iat` (required, not future) within a 60 s
 skew, a non-empty `sub`, `RequiredClaims`, and optionally `RequireEmail` / `RequireVerifiedEmail`. It answers a
 `RealmTokenPrincipal` (issuer, subject, email, email verified, `RealmRoleClaims` from `roles` / `app_roles`, the
 claims) or undefined; it throws `TokenVerifierUnavailableError` only when it cannot decide. The central preset is

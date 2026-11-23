@@ -12,8 +12,8 @@ import type { IRealmTokenVerifier } from "./token-verifier.js";
  * Verifies tokens issued by one realm issuer (the central realm or any other), for relying parties that receive a
  * bearer token rather than running a sign-in: the signature on the issuer's keys (found through its OIDC discovery
  * document, cached, refetched on an unknown key id for rotation), the issuer exactly, the audience (one of the
- * configured), the authorized party when configured, exp / nbf / iat within the clock skew, a non-empty subject, the
- * required claims and, when asked, an email (verified). Asymmetric algorithms only. Answers a RealmTokenPrincipal, or
+ * configured), the authorized party when configured, the header's `typ` when configured (an RFC 9068 access token), exp /
+ * nbf / iat within the clock skew, a non-empty subject, the required claims and, when asked, an email (verified). Asymmetric algorithms only. Answers a RealmTokenPrincipal, or
  * undefined for any token that is not valid; throws TokenVerifierUnavailableError only when it cannot decide.
  */
 export class RealmTokenVerifier implements IRealmTokenVerifier
@@ -37,6 +37,7 @@ export class RealmTokenVerifier implements IRealmTokenVerifier
     private readonly issuer: string;
     private readonly audience: readonly string[];
     private readonly authorizedParties: readonly string[] | undefined;
+    private readonly type: string | undefined;
     private readonly algorithms: readonly string[];
     private readonly skewSeconds: number;
     private readonly requiredClaims: readonly string[];
@@ -73,6 +74,7 @@ export class RealmTokenVerifier implements IRealmTokenVerifier
         this.issuer = options.Issuer;
         this.audience = audience;
         this.authorizedParties = options.AuthorizedParties === undefined ? undefined : [...options.AuthorizedParties];
+        this.type = options.Type;
         this.algorithms = [...algorithms];
         this.skewSeconds = options.ClockSkewSeconds ?? V.DefaultClockSkewSeconds;
         this.requiredClaims = [...V.BaseRequiredClaims, ...(options.RequiredClaims ?? [])];
@@ -136,6 +138,7 @@ export class RealmTokenVerifier implements IRealmTokenVerifier
             clockTolerance: this.skewSeconds,
             requiredClaims: [...this.requiredClaims],
             currentDate: now,
+            ...(this.type === undefined ? {} : { typ: this.type }),
         });
         return this.Accept(payload, now);
     }

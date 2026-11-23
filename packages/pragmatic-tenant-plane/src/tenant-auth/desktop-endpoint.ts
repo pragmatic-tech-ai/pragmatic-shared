@@ -6,6 +6,7 @@ import { PlaneHttp } from '@pragmatic-tech-ai/pragmatic-platform-link'
 import type { ITenantDirectory } from '../tenant-api/tenant-directory.js'
 import type { TenantProfileDto } from '../tenant-api/tenant-profile-dto.js'
 import { DesktopAuthGate } from './desktop-auth-gate.js'
+import type { DesktopSignInAdvert } from './desktop-realm-sign-in.js'
 import type { DesktopSignInFlows } from './desktop-sign-in-flows.js'
 import type { DesktopTargets } from './desktop-targets.js'
 import { TenantOidcClientKind, type ITenantOidcClients } from './tenant-oidc-clients.js'
@@ -16,6 +17,13 @@ export interface IDesktopSessionConnections
 {
     /** Closes the connections opened under session `sessionId`; returns how many. */
     CloseSession(sessionId: string): number
+}
+
+/** What names the console's realm sign-in in `/desktop/console` (DesktopRealmSignIn). */
+export interface IDesktopSignInAdvert
+{
+    /** `{ issuer, clientId }` when a desktop may sign in at the realm itself; undefined otherwise. */
+    Advert(): Promise<DesktopSignInAdvert | undefined>
 }
 
 /** A /desktop/* route: the method it answers and what runs it. */
@@ -43,7 +51,10 @@ export interface DesktopSignIn
  * an Origin header is refused (a browser page cannot drive it). Its routes are public in the host's terms (each one
  * authenticates the bearer itself) and never audited by the host.
  *
- * Sign-in brokers the IdP code exchange for a system-browser RFC 8252 loopback redirect. Plexus begins with a SHA-256
+ * The in-hive console names its realm's own desktop sign-in in `/desktop/console` (`signIn: { issuer, clientId }`, E
+ * spec S4); Plexus then signs in at the realm as the public client `plexus` and presents the realm access token as the
+ * bearer of every other route (DesktopAuthGate, RealmDesktopBearer). The transitional path below keeps working:
+ * sign-in brokers the IdP code exchange for a system-browser RFC 8252 loopback redirect. Plexus begins with a SHA-256
  * binding challenge and completes with its preimage, so only the Plexus instance that began a sign-in can finish it (the
  * IdP's own PKCE verifier stays inside the relying party). A completed sign-in issues a desktop session (sliding, see
  * TenantSessions), the bearer the other routes accept through `DesktopAuthGate`. Secrets (the bearer, the binding
@@ -99,6 +110,7 @@ export class DesktopEndpoint
     private static readonly CodeField = 'code'
     private static readonly VerifierField = 'bindingVerifier'
     private static readonly EmailField = 'email'
+    private static readonly SignInField = 'signIn'
     private static readonly AllowHeader = 'Allow'
     private static readonly CacheControlHeader = 'Cache-Control'
     private static readonly ConnectionHeader = 'Connection'
@@ -140,7 +152,9 @@ export class DesktopEndpoint
         /** Connections a sign-out ends (the relay); absent, sign-out only revokes the session. */
         private readonly connections?: IDesktopSessionConnections,
         /** The one tenant this listener serves (the in-hive console); absent on the control plane, where /desktop/console is not a route. */
-        private readonly consoleTenantId?: string)
+        private readonly consoleTenantId?: string,
+        /** Names the realm's desktop sign-in in /desktop/console (the in-hive console); absent, it names none. */
+        private readonly realmSignIn?: IDesktopSignInAdvert)
     {
         const consoleRoutes: [string, DesktopRoute][] = consoleTenantId === undefined ? []
             : [[DesktopEndpoint.ConsolePath, { method: HttpMethod.Get, run: (req, res, ip) => this.Console(req, res, ip, consoleTenantId) }]]
@@ -208,8 +222,9 @@ export class DesktopEndpoint
     }
 
     /**
-     * No body -> `{ tenantId, tenantName }` of the one tenant this console serves. Unauthenticated and email-free, so it
-     * reveals nothing about accounts; it counts against the begin rate limit (it is the same kind of unauthenticated probe).
+     * No body -> `{ tenantId, tenantName }` of the one tenant this console serves, and `signIn: { issuer, clientId }` when
+     * a desktop may sign in at its realm. Unauthenticated and email-free, so it reveals nothing about accounts; it counts
+     * against the begin rate limit (it is the same kind of unauthenticated probe).
      */
     private async Console(req: IncomingMessage, res: ServerResponse, ip: string, tenantId: string): Promise<void>
     {
@@ -226,7 +241,13 @@ export class DesktopEndpoint
             this.Reply(res, DesktopEndpoint.StatusNotFound, DesktopEndpoint.UnknownTenantBody)
             return
         }
-        this.Reply(res, PlaneHttp.StatusOk, { tenantId, tenantName: tenant.displayName ?? tenantId })
+        const signIn = await this.realmSignIn?.Advert()
+        const lookup: Record<string, unknown> = { tenantId, tenantName: tenant.displayName ?? tenantId }
+        if (signIn !== undefined)
+        {
+            lookup[DesktopEndpoint.SignInField] = signIn
+        }
+        this.Reply(res, PlaneHttp.StatusOk, lookup)
     }
 
     /** `{ tenantId, redirectUri, bindingChallenge }` -> `{ authorizeUrl }`; the flow is kept under the RP's state. */
@@ -340,12 +361,14 @@ export class DesktopEndpoint
 
     /**
      * Ends only the presenting session and the connections (relays) opened under it. A revocation fails closed (refused in
-     * this process even if the write failed), so it is still 204, and the connections close either way.
+     * this process even if the write failed), so it is still 204, and the connections close either way. Under a realm
+     * access token there is nothing stored to end here (Plexus revokes its refresh token at the realm): the relays of
+     * that desktop sign-in close (its `sub` + `sid`: every token of the refresh family, none of another sign-in).
      */
     private async SignOut(req: IncomingMessage, res: ServerResponse, session: TenantSession): Promise<void>
     {
         const token = DesktopAuthGate.Token(req)
-        if (token !== null)
+        if (token !== null && !this.gate.IsRealmBearer(req))
         {
             try
             {

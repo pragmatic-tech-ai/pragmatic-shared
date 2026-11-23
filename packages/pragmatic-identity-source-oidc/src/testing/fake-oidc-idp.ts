@@ -9,6 +9,8 @@ export interface MintOptions
     expSecondsFromNow?: number;
     /** `iat` relative to now (default 0); `null` leaves `iat` out. */
     iatSecondsFromNow?: number | null;
+    /** The header's `typ` (e.g. `at+jwt` for an access token); default none. */
+    typ?: string;
 }
 
 export class FakeOidcIdp
@@ -40,6 +42,8 @@ export class FakeOidcIdp
     public PromptValues: readonly unknown[] | null = null;
     /** Advertised as `end_session_endpoint` (RP-Initiated Logout) when set; default not advertised. */
     public EndSessionEndpoint: string | null = null;
+    /** Advertised as `token_endpoint_auth_methods_supported` when set (`none`: a public client can use it). */
+    public TokenAuthMethods: readonly string[] | null = null;
 
     private constructor(
         private readonly privateKey: CryptoKey,
@@ -73,6 +77,7 @@ export class FakeOidcIdp
             jwks_uri: this.JwksUri,
             ...(this.PromptValues === null ? {} : { prompt_values_supported: this.PromptValues }),
             ...(this.EndSessionEndpoint === null ? {} : { end_session_endpoint: this.EndSessionEndpoint }),
+            ...(this.TokenAuthMethods === null ? {} : { token_endpoint_auth_methods_supported: this.TokenAuthMethods }),
         };
     }
 
@@ -86,7 +91,7 @@ export class FakeOidcIdp
         const exp = Math.floor(Date.now() / 1000) + (opts?.expSecondsFromNow ?? FakeOidcIdp.DefaultExpSeconds);
         const claims = typeof payload[FakeOidcIdp.SubClaim] === "string" ? { [FakeOidcIdp.OidClaim]: payload[FakeOidcIdp.SubClaim], ...payload } : payload;
         const jwt = new SignJWT(claims)
-            .setProtectedHeader({ alg: opts?.alg ?? FakeOidcIdp.SigAlg, kid: opts?.kid ?? this.kid })
+            .setProtectedHeader(opts?.typ === undefined ? { alg: opts?.alg ?? FakeOidcIdp.SigAlg, kid: opts?.kid ?? this.kid } : { alg: opts?.alg ?? FakeOidcIdp.SigAlg, kid: opts?.kid ?? this.kid, typ: opts.typ })
             .setIssuer(opts?.issuer ?? this.Issuer)
             .setExpirationTime(exp);
         const iat = opts?.iatSecondsFromNow;

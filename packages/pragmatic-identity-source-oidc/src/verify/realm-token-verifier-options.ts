@@ -9,6 +9,9 @@ export interface RealmTokenVerifierOptions
     Audience: string | readonly string[];
     /** When set, `azp` must be present and one of these. Absent: `azp` is not checked. */
     AuthorizedParties?: readonly string[];
+    /** When set, the header's `typ` must be this media type (e.g. `at+jwt`, RFC 9068 section 4: an access token, so an ID
+     *  token is never taken for one). Absent: `typ` is not checked. */
+    Type?: string;
     /** Default `<issuer without trailing slashes>/.well-known/openid-configuration`; https only. */
     DiscoveryUrl?: string;
     /** The HTTP client for discovery and keys; default from CaBundleFile (fetch when absent). */

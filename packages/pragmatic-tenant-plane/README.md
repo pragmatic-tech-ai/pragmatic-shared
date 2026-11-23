@@ -6,7 +6,9 @@ retires the co-hosted plane and folds this package back into `pragmatic-tenant-a
 
 - tenant API and tenant sign-in: `tenant-api/` (endpoint, configuration, email domains, events, graph access, log
   socket, rollout client and status), `tenant-auth/` (sessions, session gate, OIDC clients, roles, host resolver,
-  desktop sign-in flows, endpoint, targets and relay), the console host, admission and problems, the plane composer;
+  desktop sign-in flows, endpoint, targets and relay; the in-hive console's realm sign-in advert `DesktopRealmSignIn`
+  and the realm access token as the desktop bearer `RealmDesktopBearer`, E spec S4-S6), the console host, admission and
+  problems, the plane composer;
 - environments: records, registry, DTOs, placement, runtimes (in-cluster, no-host, the Docker seam's contract), the
   environment and graph services and the contracts the platform console implements for them
   (`IEnvironmentService`, `IGraphService`, `IIdpService`, `IOwnerSessionRevoker`, `IUiDeployActuator`, `IDockerEnv`,

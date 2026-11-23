@@ -15,9 +15,11 @@ import type { TenantSessions } from './tenant-auth/tenant-sessions.js'
 import type { TenantHostResolver } from './tenant-auth/tenant-host-resolver.js'
 import { DesktopAuthGate } from './tenant-auth/desktop-auth-gate.js'
 import { DesktopEndpoint } from './tenant-auth/desktop-endpoint.js'
+import { DesktopRealmSignIn } from './tenant-auth/desktop-realm-sign-in.js'
 import { DesktopRelay, WsUpstreamDialer } from './tenant-auth/desktop-relay.js'
 import { DesktopSignInFlows } from './tenant-auth/desktop-sign-in-flows.js'
 import { DesktopTargets } from './tenant-auth/desktop-targets.js'
+import { RealmDesktopBearer } from './tenant-auth/realm-desktop-bearer.js'
 import type { TenantPlane } from './tenant-auth/tenant-plane.js'
 import { TenantApiEndpoint } from './tenant-api/tenant-api-endpoint.js'
 import type { TenantGraphAccess } from './tenant-api/tenant-graph-access.js'
@@ -56,8 +58,12 @@ export interface TenantPlaneParts
     readonly Relay?: DesktopRelayWiring
     /** Mounts `/tenant-api/settings/email-domains`. */
     readonly EmailDomains?: ITenantEmailDomains
-    /** The one tenant an in-hive console serves: mounts `GET /desktop/console`. */
+    /** The one tenant an in-hive console serves: mounts `GET /desktop/console` and takes its realm's access tokens as
+     *  desktop bearers. */
     readonly ConsoleTenantId?: string
+    /** Whether `/desktop/console` names the realm's desktop sign-in (the console setting `desktopRealmSignIn`, default
+     *  on; off is the live loop's transitional mode). */
+    readonly DesktopRealmSignIn?: boolean
     /** Mounts the graph routes of the tenant's Development environments. */
     readonly Graphs?: TenantGraphAccess
     /** Mounts the configuration repository's routes (the in-hive console). */
@@ -132,8 +138,11 @@ export class TenantPlaneComposer
         }
         if (parts.Desktop === true)
         {
+            // The in-hive console's realm: its sign-in is named in /desktop/console, its access tokens are desktop bearers.
+            const realmSignIn = parts.ConsoleTenantId === undefined ? undefined : new DesktopRealmSignIn(parts.Idp, parts.ConsoleTenantId, parts.DesktopRealmSignIn ?? true)
+            const realmBearer = realmSignIn === undefined || parts.ConsoleTenantId === undefined ? undefined : new RealmDesktopBearer(realmSignIn, parts.ConsoleTenantId)
             // Given the tenant records, a bearer of a deleted (or deleted and re-created) tenant is refused.
-            const desktopGate = new DesktopAuthGate(sessions.Store, parts.Directory)
+            const desktopGate = new DesktopAuthGate(sessions.Store, parts.Directory, realmBearer)
             const targets = new DesktopTargets(parts.Service)
             if (parts.Relay !== undefined)
             {
@@ -141,7 +150,7 @@ export class TenantPlaneComposer
             }
             // A desktop sign-out also closes the relays opened under that session.
             plane.desktop = new DesktopEndpoint({ RelyingParty: relyingParty, Clients: clients }, sessions, desktopGate, new DesktopSignInFlows(), targets, parts.Directory,
-                session => api.Profile(session), plane.relay, parts.ConsoleTenantId)
+                session => api.Profile(session), plane.relay, parts.ConsoleTenantId, realmSignIn)
         }
         return plane
     }

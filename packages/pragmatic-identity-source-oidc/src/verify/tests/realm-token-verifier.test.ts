@@ -285,3 +285,14 @@ test("a realm on a private CA: verified through its CA bundle file, unavailable 
         await realm.Stop();
     }
 });
+
+test("type: when configured the header's typ must match (an ID token is not an access token); absent it is not checked", async () =>
+{
+    const f = await Fixture.Create();
+    const verifier = f.Verifier({ Type: "at+jwt" });
+    assert.equal((await verifier.Verify(await f.Token({}, { typ: "at+jwt" })))?.Subject, "u1");
+    assert.equal((await verifier.Verify(await f.Token({}, { typ: "application/at+jwt" })))?.Subject, "u1", "RFC 8725 3.11: the application/ prefix may be left out");
+    assert.equal(await verifier.Verify(await f.Token()), undefined);
+    assert.equal(await verifier.Verify(await f.Token({}, { typ: "JWT" })), undefined);
+    assert.equal((await f.Verifier().Verify(await f.Token({}, { typ: "JWT" })))?.Subject, "u1");
+});
