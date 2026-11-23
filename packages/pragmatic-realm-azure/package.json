@@ -1,6 +1,6 @@
 {
   "name": "@pragmatic-tech-ai/pragmatic-realm-azure",
-  "version": "0.18.0",
+  "version": "0.18.1",
   "license": "Apache-2.0",
   "description": "Adapters for the Azure realm option.",
   "repository": {
@@ -37,8 +37,8 @@
     "@azure/identity": "4.14.0",
     "@azure/keyvault-secrets": "4.11.2",
     "@azure/storage-blob": "12.34.0",
-    "@pragmatic-tech-ai/pragmatic-identity": "0.18.0",
-    "@pragmatic-tech-ai/pragmatic-realm-adapters": "0.18.0",
+    "@pragmatic-tech-ai/pragmatic-identity": "0.18.1",
+    "@pragmatic-tech-ai/pragmatic-realm-adapters": "0.18.1",
     "pg": "8.23.1"
   },
   "peerDependencies": {
