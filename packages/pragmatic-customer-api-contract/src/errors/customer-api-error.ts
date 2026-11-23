@@ -15,6 +15,10 @@ export enum CustomerErrorCode
     TenantTaken = 'tenant-taken',
     DomainTaken = 'domain-taken',
     Unavailable = 'unavailable',
+    /** The platform edge's own refusals: not an operation it carries, a body over the limit, too many calls. */
+    NotFound = 'not-found',
+    TooLarge = 'too-large',
+    RateLimited = 'rate-limited',
 }
 
 /** Why a client is not entitled (the entitlement decisions other than allowed). */
@@ -42,6 +46,9 @@ export class CustomerErrorCodes
         [CustomerErrorCode.TenantTaken, [409, 'That tenant id is taken']],
         [CustomerErrorCode.DomainTaken, [409, 'That domain is verified by another tenant']],
         [CustomerErrorCode.Unavailable, [503, 'The platform is unavailable']],
+        [CustomerErrorCode.NotFound, [404, 'No such operation']],
+        [CustomerErrorCode.TooLarge, [413, 'The request is too large']],
+        [CustomerErrorCode.RateLimited, [429, 'Too many requests']],
     ])
     private static readonly ReasonOfDecision: ReadonlyMap<EntitlementDecision, NotEntitledReason> = new Map([
         [EntitlementDecision.Suspended, NotEntitledReason.Suspended],
@@ -76,14 +83,15 @@ export class CustomerErrorCodes
     }
 }
 
-/** A failed customer API call; `not-entitled` carries its reason. Thrown by the platform admin console's service
- *  (answered with its status, code and reason) and by the client (from the answer). */
+/** A failed customer API call; `not-entitled` carries its reason, `rate-limited` (from the client) the seconds the
+ *  answer's `Retry-After` asked for. Thrown by the platform admin console's service (answered with its status, code
+ *  and reason) and by the client (from the answer). */
 export class CustomerApiError extends HttpProblem
 {
     public static readonly ReasonField = 'reason'
     private static readonly CustomerErrorName = 'CustomerApiError'
 
-    public constructor(public readonly CustomerCode: CustomerErrorCode, public readonly Reason: NotEntitledReason | undefined = undefined)
+    public constructor(public readonly CustomerCode: CustomerErrorCode, public readonly Reason: NotEntitledReason | undefined = undefined, public readonly RetryAfterSeconds: number | undefined = undefined)
     {
         super(CustomerErrorCodes.StatusOf(CustomerCode), CustomerErrorCodes.MessageOf(CustomerCode), CustomerCode)
         this.name = CustomerApiError.CustomerErrorName

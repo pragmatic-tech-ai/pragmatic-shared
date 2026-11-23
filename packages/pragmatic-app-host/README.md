@@ -41,7 +41,7 @@ else is a generic 500).
 - Internal links between the platform's servers: `InternalApiCredential` (re-exported from pragmatic-component:
   HMAC-SHA256 bearer from a shared secret and a per-link label; constant-time match; the default label interoperates
   with the edge to platform admin console internal API), `InternalApiGuard` (route-side 401 `unauthorized`), `JsonPostClient` (JSON POST with a deadline and a
-  reply cap, any status returned as a `JsonReply`; a transport failure is `JsonPostUnavailableError`).
+  reply cap, any status returned as a `JsonReply` with its body and headers; a transport failure is `JsonPostUnavailableError`).
 - `HostAllowList`, `OriginGuard` (trusted-proxy scheme), `ClientAddress` (trusted-proxy last hop, IP only).
 - `RateLimiter`, `LoginThrottle` over `IThrottleRepository` (in memory, or `SqlThrottleRepository`, shared by
   replicas).

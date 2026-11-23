@@ -18,6 +18,8 @@ export class CustomerApiClient
     private static readonly AuthorizationHeader = 'authorization'
     private static readonly BearerPrefix = 'Bearer '
     private static readonly CodeField = 'code'
+    private static readonly RetryAfterHeader = 'retry-after'
+    private static readonly SecondsPattern = /^\d{1,9}$/
 
     private readonly client: JsonPostClient
 
@@ -77,7 +79,8 @@ export class CustomerApiClient
             const answer = JsonFields.IsObject(reply.Body) ? reply.Body : {}
             const code = CustomerErrorCodes.Parse(answer[CustomerApiClient.CodeField]) ?? CustomerErrorCode.Unavailable
             const reason = code === CustomerErrorCode.NotEntitled ? CustomerErrorCodes.ParseReason(answer[CustomerApiError.ReasonField]) : undefined
-            throw new CustomerApiError(code, reason)
+            const retryAfter = code === CustomerErrorCode.RateLimited ? CustomerApiClient.RetryAfterOf(reply.Headers[CustomerApiClient.RetryAfterHeader]) : undefined
+            throw new CustomerApiError(code, reason, retryAfter)
         }
         try
         {
@@ -87,5 +90,11 @@ export class CustomerApiClient
         {
             throw new CustomerApiError(CustomerErrorCode.Unavailable)
         }
+    }
+
+    /** The whole seconds of a `Retry-After` header, or undefined for none or an HTTP date. */
+    private static RetryAfterOf(header: string | string[] | undefined): number | undefined
+    {
+        return typeof header === 'string' && CustomerApiClient.SecondsPattern.test(header.trim()) ? Number(header.trim()) : undefined
     }
 }

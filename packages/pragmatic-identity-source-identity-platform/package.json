@@ -1,6 +1,6 @@
 {
   "name": "@pragmatic-tech-ai/pragmatic-identity-source-identity-platform",
-  "version": "0.17.7",
+  "version": "0.17.8",
   "license": "Apache-2.0",
   "description": "Google Identity Platform as an identity source: ID-token verification, realm-account mapping, the login page's client config and a browser-safe REST client; builds on pragmatic-identity-source-oidc.",
   "repository": {
@@ -37,8 +37,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@pragmatic-tech-ai/pragmatic-identity": "0.17.7",
-    "@pragmatic-tech-ai/pragmatic-identity-source-oidc": "0.17.7",
+    "@pragmatic-tech-ai/pragmatic-identity": "0.17.8",
+    "@pragmatic-tech-ai/pragmatic-identity-source-oidc": "0.17.8",
     "jose": "^6.0.0"
   },
   "devDependencies": {

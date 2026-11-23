@@ -1,4 +1,5 @@
 import { request as httpRequest } from 'node:http'
+import type { IncomingHttpHeaders } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 
 /** The JSON POST could not be completed: unreachable, timed out, an oversized reply or one that is not JSON. Carries
@@ -15,12 +16,12 @@ export class JsonPostUnavailableError extends Error
     }
 }
 
-/** One reply: its status and its parsed JSON body (undefined when empty). */
+/** One reply: its status, its parsed JSON body (undefined when empty) and its response headers. */
 export class JsonReply
 {
     private static readonly OkStatus = 200
 
-    public constructor(public readonly Status: number, public readonly Body: unknown)
+    public constructor(public readonly Status: number, public readonly Body: unknown, public readonly Headers: Readonly<IncomingHttpHeaders> = {})
     {
     }
 
@@ -122,7 +123,7 @@ export class JsonPostClient
                         }
                     }
                     settled = true
-                    resolve(new JsonReply(res.statusCode ?? 0, parsed))
+                    resolve(new JsonReply(res.statusCode ?? 0, parsed, res.headers))
                 })
             })
             const deadline = setTimeout(() =>
