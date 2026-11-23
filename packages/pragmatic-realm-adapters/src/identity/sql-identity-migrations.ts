@@ -87,12 +87,16 @@ export class SqlRealmConfigMigrations extends SqlMigrationModule
     private static readonly V1 = new SqlMigration(1, [
         'CREATE TABLE IF NOT EXISTS identity_realm_config (realm_id text PRIMARY KEY, pack_id text NOT NULL, delegation_depth integer NOT NULL, provider_settings text NOT NULL, group_role_map text NOT NULL, claims_mapping text NOT NULL)',
     ])
+    /** The realm's security model (IdentityConfig.SecurityModel, JSON); null when the realm has none. */
+    private static readonly V2 = new SqlMigration(2, [
+        'ALTER TABLE identity_realm_config ADD COLUMN security_model text',
+    ])
 
     public readonly Name = 'identity.realm_config'
 
     public Migrations(): readonly SqlMigration[]
     {
-        return [SqlRealmConfigMigrations.V1]
+        return [SqlRealmConfigMigrations.V1, SqlRealmConfigMigrations.V2]
     }
 }
 

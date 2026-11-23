@@ -38,10 +38,10 @@ test('auditSink=file requires auditFile, else fails closed', () =>
     assert.equal(ok.auditFile, '/var/log/audit.log')
 })
 
-test('auditSink=sql is only valid in cloud mode', () =>
+test('auditSink=sql is valid in every mode (the env server stores its access audit in its own database, A5)', () =>
 {
     const env = { ...LoaderFixture.Minimal(), PRAGMATIC_AUDIT_SINK: 'sql' }
-    assert.throws(() => ServerConfigLoader.Load(env, LoaderFixture.NoRead), /cloud/)
+    assert.equal(ServerConfigLoader.Load(env, LoaderFixture.NoRead).auditSink, AuditSinkKind.Sql)
     const gcp = {
         PRAGMATIC_CLOUD_PROVIDER: 'gcp',
         PRAGMATIC_GCS_BUCKET: 'bkt',

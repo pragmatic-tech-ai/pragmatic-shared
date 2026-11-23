@@ -100,7 +100,7 @@ test('AuditSink=sql with a cloud store builds a SqlAuditAccessSink; without one 
     assert.ok(sink instanceof SqlAuditAccessSink)
     await sink.Record({ Timestamp: new Date(), EnvironmentId: 't1', Surface: AuditSurface.Rpc, MethodOrPath: 'm', Outcome: AuditOutcome.Allow })
     assert.equal(store.Events.length, 1)
-    assert.throws(() => HostBootstrap.AuditSink(config, new NullLogger()), /cloud audit store/)
+    assert.throws(() => HostBootstrap.AuditSink(config, new NullLogger()), /SQL audit store/)
 })
 
 test('RateLimit returns a pass-through guard when unconfigured and an enforcing guard when configured', () =>

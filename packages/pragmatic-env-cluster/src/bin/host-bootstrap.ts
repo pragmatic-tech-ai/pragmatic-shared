@@ -37,7 +37,7 @@ export class HostBootstrap
     private static readonly OtelLabel = ' otel='
     private static readonly AuditFailuresMetric = 'audit_write_failures_total'
     private static readonly AuditFileRequired = 'audit file path required when audit sink is file'
-    private static readonly SqlNeedsStore = 'audit sink sql requires a cloud audit store'
+    private static readonly SqlNeedsStore = 'audit sink sql requires an SQL audit store'
     private static readonly AuditLabel = ' audit='
     private static readonly RateLimitLabel = ' ratelimit='
     private static readonly DrainLabel = ' drain='

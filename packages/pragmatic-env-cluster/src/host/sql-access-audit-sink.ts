@@ -3,8 +3,8 @@ import { AuditSurface, type IAccessAuditSink, type AccessAuditEvent } from './ac
 import { NullLogger, type ILogger } from '@pragmatic-tech-ai/pragmatic-observability'
 import { DrainController } from '../observability/drain-controller.js'
 
-/** Bridges a server AccessAuditEvent onto the cloud identity SqlAuditStore (IAuditSink). Present only in cloud
- *  mode; a store failure logs and is swallowed so it never alters a decision. */
+/** Bridges a server AccessAuditEvent onto the identity SqlAuditStore (IAuditSink) of the env server database. A
+ *  store failure logs and is swallowed so it never alters a decision. */
 export class SqlAuditAccessSink implements IAccessAuditSink
 {
     /** How long a shutdown waits for the inserts in flight before it gives up on them. */

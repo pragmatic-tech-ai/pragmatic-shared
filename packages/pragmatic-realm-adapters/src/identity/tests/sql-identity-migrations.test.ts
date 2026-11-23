@@ -76,7 +76,7 @@ SqlTestSessions.Describe('SQL identity store migrations', (makeSession, backend)
             ['identity.audit', 1],
             ['identity.audit_checkpoints', 1],
             ['identity.idp_directory', 1],
-            ['identity.realm_config', 1],
+            ['identity.realm_config', 2],
             ['identity.role_grants', 1],
             ['identity.service_tokens', 1],
             ['identity.sessions', 1],

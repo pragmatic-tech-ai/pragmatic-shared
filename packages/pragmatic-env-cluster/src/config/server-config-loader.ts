@@ -59,7 +59,6 @@ export class ServerConfigLoader
 
     private static readonly BadAuditSink = 'PRAGMATIC_AUDIT_SINK must be none, file or sql'
     private static readonly AuditFileRequired = 'PRAGMATIC_AUDIT_FILE is required when PRAGMATIC_AUDIT_SINK=file'
-    private static readonly AuditSqlNeedsCloud = 'PRAGMATIC_AUDIT_SINK=sql requires PRAGMATIC_DEPLOYMENT_MODE=cloud'
     private static readonly BadRateLimit = 'PRAGMATIC_RATELIMIT_* values must be set in Rps+Burst pairs, with Rps a number greater than 0 and Burst an integer of at least 1'
     private static readonly EnvGcsBucket = 'PRAGMATIC_GCS_BUCKET'
     private static readonly EnvGcsPrefix = 'PRAGMATIC_GCS_PREFIX'
@@ -270,17 +269,13 @@ export class ServerConfigLoader
         return security
     }
 
-    private static Security(env: Record<string, string | undefined>, deploymentMode?: DeploymentMode): { auditSink?: AuditSinkKind; auditFile?: string; rateLimit?: RateLimitConfig }
+    private static Security(env: Record<string, string | undefined>): { auditSink?: AuditSinkKind; auditFile?: string; rateLimit?: RateLimitConfig }
     {
         const auditSink = ServerConfigLoader.AuditSinkOf(env[ServerConfigLoader.EnvAuditSink])
         const auditFile = ServerConfigLoader.NonEmpty(env[ServerConfigLoader.EnvAuditFile])
         if (auditSink === AuditSinkKind.File && auditFile === undefined)
         {
             throw new Error(ServerConfigLoader.AuditFileRequired)
-        }
-        if (auditSink === AuditSinkKind.Sql && deploymentMode !== undefined && deploymentMode !== DeploymentMode.Cloud)
-        {
-            throw new Error(ServerConfigLoader.AuditSqlNeedsCloud)
         }
         return { auditSink, auditFile, rateLimit: ServerConfigLoader.RateLimitOf(env) }
     }
@@ -597,7 +592,7 @@ export class ServerConfigLoader
             workerServerName: env.PRAGMATIC_WORKER_SERVERNAME,
             healthPort: ServerConfigLoader.Int(env.PRAGMATIC_HEALTH_PORT),
             ...ServerConfigLoader.Observability(env),
-            ...ServerConfigLoader.Security(env, deploymentMode),
+            ...ServerConfigLoader.Security(env),
             ...ServerConfigLoader.Cloud(env, deploymentMode),
             drainTimeoutMs: ServerConfigLoader.DrainTimeout(env[ServerConfigLoader.EnvDrainTimeout]),
             adapterPacks: ServerConfigLoader.AdapterPacks(env),
