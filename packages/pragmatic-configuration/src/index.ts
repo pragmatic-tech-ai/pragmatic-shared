@@ -23,6 +23,7 @@ export {
     AppliedConfigurationError,
     AppliedConfigurationKeys,
     CarriedDocument,
+    DeclaredSourceSecrets,
     ComponentStartConfiguration,
     ComponentStartReport,
     ConfigurationEnvironmentOverlay,
@@ -39,4 +40,4 @@ export {
     SecretVariable,
     SettingValueEncoding,
 } from '@pragmatic-tech-ai/pragmatic-configuration-runtime';
-export type { ComponentStartOptions, IAppliedConfigMap, IAppliedVersionSource, ISecretSource, IStartProcess } from '@pragmatic-tech-ai/pragmatic-configuration-runtime';
+export type { ComponentStartOptions, ISecretSelection, IAppliedConfigMap, IAppliedVersionSource, ISecretSource, IStartProcess } from '@pragmatic-tech-ai/pragmatic-configuration-runtime';

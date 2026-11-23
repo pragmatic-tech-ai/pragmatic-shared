@@ -11,6 +11,7 @@ import { ConfigurationStartError, ConfigurationStartReason } from './configurati
 import { RuntimeConfiguration } from './runtime-configuration.js';
 import type { SecretStoreDirectory } from './secret-store-directory.js';
 import type { SecretValue } from './secret-value.js';
+import type { ISecretSelection } from './declared-source-secrets.js';
 
 /**
  * What a component calls at start: reads its applied configuration from the mounted file (the `pragmatic-config-
@@ -49,6 +50,8 @@ export class ConfigurationRuntimeReader
         public readonly Descriptor: ComponentDescriptor,
         private readonly secrets: SecretStoreDirectory,
         private readonly revalidate: boolean = false,
+        /** Which secret settings to resolve; every one when absent. The start step resolves only those it overlays. */
+        private readonly selection?: ISecretSelection,
     )
     {
     }
@@ -86,6 +89,7 @@ export class ConfigurationRuntimeReader
         const secrets = new Map<string, SecretValue>();
         for (const secret of validation.Configuration.SecretReferences())
         {
+            if (this.selection !== undefined && !this.selection.Resolves(secret.Option, secret.Setting)) continue;
             const where = `${secret.Option}.${secret.Setting}`;
             secrets.set(RuntimeConfiguration.SecretKey(secret.Option, secret.Setting), await this.secrets.Resolve(secret.Reference, where));
         }

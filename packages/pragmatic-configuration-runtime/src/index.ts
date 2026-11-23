@@ -16,6 +16,8 @@ export { SecretStoreDirectory } from './runtime/secret-store-directory.js';
 export type { ISecretSource } from './runtime/secret-store-directory.js';
 export { SecretValue } from './runtime/secret-value.js';
 export { SettingValueEncoding } from './runtime/setting-value-encoding.js';
+export { DeclaredSourceSecrets } from './runtime/declared-source-secrets.js';
+export type { ISecretSelection } from './runtime/declared-source-secrets.js';
 export { SecretVariable } from './runtime/secret-variable.js';
 export { MountedSecretStore } from './runtime/mounted-secret-store.js';
 export { ConfigurationEnvironmentOverlay } from './runtime/configuration-environment-overlay.js';

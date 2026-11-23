@@ -1,6 +1,6 @@
 {
   "name": "@pragmatic-tech-ai/pragmatic-identity-source-pragmatic",
-  "version": "0.18.6",
+  "version": "0.18.7",
   "license": "Apache-2.0",
   "description": "Sign in with Pragmatic: a generic-OIDC profile preconfigured for the central realm's issuer; builds on pragmatic-identity-source-oidc.",
   "repository": {
@@ -29,8 +29,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@pragmatic-tech-ai/pragmatic-identity": "0.18.6",
-    "@pragmatic-tech-ai/pragmatic-identity-source-oidc": "0.18.6"
+    "@pragmatic-tech-ai/pragmatic-identity": "0.18.7",
+    "@pragmatic-tech-ai/pragmatic-identity-source-oidc": "0.18.7"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",

@@ -2,6 +2,7 @@ import { join } from 'node:path';
 import { ComponentDeclarations } from '@pragmatic-tech-ai/pragmatic-component';
 import type { ComponentDeclaration } from '@pragmatic-tech-ai/pragmatic-component';
 import { ConfigurationEnvironmentOverlay } from './configuration-environment-overlay.js';
+import { DeclaredSourceSecrets } from './declared-source-secrets.js';
 import { ConfigurationRuntimeReader } from './configuration-runtime-reader.js';
 import { ConfigurationStartError, ConfigurationStartReason } from './configuration-start-error.js';
 import { MountedSecretStore } from './mounted-secret-store.js';
@@ -70,7 +71,8 @@ export interface IStartProcess
 /**
  * The first thing every hive component's `Main` does: reads its applied configuration (the mounted
  * `pragmatic-config-<component>` file, `PRAGMATIC_CONFIGURATION_FILE` overriding the path), validates it against the
- * component's own descriptor, resolves its secret references and overlays the result onto the process environment
+ * component's own descriptor, resolves the secret references of the settings it overlays (DeclaredSourceSecrets: those
+ * with a `source`; the others are the component's to read, possibly through stores only it has) and overlays the result onto the process environment
  * (`ConfigurationEnvironmentOverlay`), so the component's settings readers then read the configured values.
  *
  * No file means no configuration: the environment is left exactly as it was. A file that does not read, validate or
@@ -100,7 +102,7 @@ export class ComponentStartConfiguration
         const C = ComponentStartConfiguration;
         const declaration = options.Declaration;
         const stores = options.Stores ?? C.Stores(declaration.name);
-        const reader = new ConfigurationRuntimeReader(ComponentDeclarations.Build(declaration), stores, options.Revalidate === true);
+        const reader = new ConfigurationRuntimeReader(ComponentDeclarations.Build(declaration), stores, options.Revalidate === true, new DeclaredSourceSecrets(declaration));
         let configuration: RuntimeConfiguration | undefined;
         try
         {
