@@ -1,7 +1,7 @@
 import type { IncomingMessage } from 'node:http'
 import type { SessionStore } from '@pragmatic-tech-ai/pragmatic-app-host'
 import type { ITenantDirectory } from '../tenant-api/tenant-directory.js'
-import { RealmDesktopBearer } from './realm-desktop-bearer.js'
+import { RealmDesktopBearer, type IDesktopRealmBearer } from './realm-desktop-bearer.js'
 import { TenantSessionRules } from './tenant-session-gate.js'
 import { TenantSessionClaims, TenantSessionKind, type TenantSession } from './tenant-sessions.js'
 
@@ -11,8 +11,9 @@ import { TenantSessionClaims, TenantSessionKind, type TenantSession } from './te
  * when the console has its realm: `RealmDesktopBearer`, E spec S5) and a desktop session of the console's own store (the
  * transitional console-brokered sign-in). Either is returned only when it is a live desktop session (TenantSessionRules:
  * its tenant exists and was not re-created after the session was issued, so a deleted tenant's bearer never reaches a
- * later tenant of the same id; roles refreshed); an expired or invalid one is no session, without detail. The token is a
- * secret: it is never logged, echoed, or placed in an error.
+ * later tenant of the same id; roles refreshed); an expired or invalid one is no session, without detail. A realm the
+ * console cannot reach makes Principal throw TokenVerifierUnavailableError (the caller answers 503, not a sign-out).
+ * The token is a secret: it is never logged, echoed, or placed in an error.
  */
 export class DesktopAuthGate
 {
@@ -23,8 +24,8 @@ export class DesktopAuthGate
     public constructor(
         private readonly sessions: SessionStore,
         tenants: Pick<ITenantDirectory, 'GetTenant'>,
-        /** The console's realm bearers (the in-hive console); absent, only stored desktop sessions are bearers. */
-        private readonly realm?: RealmDesktopBearer)
+        /** The tenants' realm bearers (RealmDesktopBearer); absent, only stored desktop sessions are bearers. */
+        private readonly realm?: IDesktopRealmBearer)
     {
         this.rules = new TenantSessionRules(tenants)
     }
@@ -34,6 +35,15 @@ export class DesktopAuthGate
     {
         const token = DesktopAuthGate.Token(req)
         return this.realm !== undefined && token !== null && RealmDesktopBearer.IsJwt(token)
+    }
+
+    /** Ends the realm session a sign-out presented (its tokens are refused from now on); a stored session is the store's. */
+    public EndRealmSession(req: IncomingMessage, session: TenantSession): void
+    {
+        if (this.IsRealmBearer(req))
+        {
+            this.realm?.EndSession(session)
+        }
     }
 
     /** The bearer token the request carries, or null. */

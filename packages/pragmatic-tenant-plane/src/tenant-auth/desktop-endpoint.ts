@@ -1,12 +1,13 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { TokenVerifierUnavailableError } from '@pragmatic-tech-ai/pragmatic-identity-source-oidc'
 import { HttpMethod, OidcLoginError, RouteAuth, type OidcRelyingParty, type RequestContext, type RouteTable, type SignedInIdentity } from '@pragmatic-tech-ai/pragmatic-app-host'
 import { ConsoleRegistration } from '../console-registration.js'
 import { PlaneHttp } from '@pragmatic-tech-ai/pragmatic-platform-link'
 import type { ITenantDirectory } from '../tenant-api/tenant-directory.js'
 import type { TenantProfileDto } from '../tenant-api/tenant-profile-dto.js'
 import { DesktopAuthGate } from './desktop-auth-gate.js'
-import type { DesktopSignInAdvert } from './desktop-realm-sign-in.js'
+import type { IDesktopRealmDirectory } from './desktop-realm-sign-in.js'
 import type { DesktopSignInFlows } from './desktop-sign-in-flows.js'
 import type { DesktopTargets } from './desktop-targets.js'
 import { TenantOidcClientKind, type ITenantOidcClients } from './tenant-oidc-clients.js'
@@ -19,11 +20,10 @@ export interface IDesktopSessionConnections
     CloseSession(sessionId: string): number
 }
 
-/** What names the console's realm sign-in in `/desktop/console` (DesktopRealmSignIn). */
-export interface IDesktopSignInAdvert
+/** Which tenant a request's host answers for (the co-hosted tenant plane's TenantHostResolver). */
+export interface IDesktopConsoleHosts
 {
-    /** `{ issuer, clientId }` when a desktop may sign in at the realm itself; undefined otherwise. */
-    Advert(): Promise<DesktopSignInAdvert | undefined>
+    TenantFor(hostHeader: string | undefined): string | undefined
 }
 
 /** A /desktop/* route: the method it answers and what runs it. */
@@ -51,7 +51,8 @@ export interface DesktopSignIn
  * an Origin header is refused (a browser page cannot drive it). Its routes are public in the host's terms (each one
  * authenticates the bearer itself) and never audited by the host.
  *
- * The in-hive console names its realm's own desktop sign-in in `/desktop/console` (`signIn: { issuer, clientId }`, E
+ * The in-hive console (and the co-hosted tenant plane when its realm sign-in is on) names the realm's own desktop
+ * sign-in in `/desktop/console` (`signIn: { issuer, clientId }`, E
  * spec S4); Plexus then signs in at the realm as the public client `plexus` and presents the realm access token as the
  * bearer of every other route (DesktopAuthGate, RealmDesktopBearer). The transitional path below keeps working:
  * sign-in brokers the IdP code exchange for a system-browser RFC 8252 loopback redirect. Plexus begins with a SHA-256
@@ -111,6 +112,7 @@ export class DesktopEndpoint
     private static readonly VerifierField = 'bindingVerifier'
     private static readonly EmailField = 'email'
     private static readonly SignInField = 'signIn'
+    private static readonly HostHeader = 'host'
     private static readonly AllowHeader = 'Allow'
     private static readonly CacheControlHeader = 'Cache-Control'
     private static readonly ConnectionHeader = 'Connection'
@@ -151,13 +153,17 @@ export class DesktopEndpoint
         private readonly profile: (session: TenantSession) => TenantProfileDto,
         /** Connections a sign-out ends (the relay); absent, sign-out only revokes the session. */
         private readonly connections?: IDesktopSessionConnections,
-        /** The one tenant this listener serves (the in-hive console); absent on the control plane, where /desktop/console is not a route. */
+        /** The one tenant this listener serves (the in-hive console); absent on the control plane. */
         private readonly consoleTenantId?: string,
-        /** Names the realm's desktop sign-in in /desktop/console (the in-hive console); absent, it names none. */
-        private readonly realmSignIn?: IDesktopSignInAdvert)
+        /** The realms whose desktop sign-in /desktop/console names; absent, it names none. */
+        private readonly realms?: IDesktopRealmDirectory,
+        /** The control plane's tenant hosts: with them /desktop/console answers for the request host's tenant (realm
+         *  sign-in on the co-hosted tenant plane); absent there, /desktop/console is not a route. */
+        private readonly consoleHosts?: IDesktopConsoleHosts)
     {
-        const consoleRoutes: [string, DesktopRoute][] = consoleTenantId === undefined ? []
-            : [[DesktopEndpoint.ConsolePath, { method: HttpMethod.Get, run: (req, res, ip) => this.Console(req, res, ip, consoleTenantId) }]]
+        const lookup = consoleTenantId !== undefined || consoleHosts !== undefined
+        const consoleRoutes: [string, DesktopRoute][] = !lookup ? []
+            : [[DesktopEndpoint.ConsolePath, { method: HttpMethod.Get, run: (req, res, ip) => this.Console(req, res, ip) }]]
         this.routes = new Map<string, DesktopRoute>([
             ...consoleRoutes,
             [DesktopEndpoint.BeginPath, { method: HttpMethod.Post, run: (req, res, ip) => this.Begin(req, res, ip) }],
@@ -222,11 +228,12 @@ export class DesktopEndpoint
     }
 
     /**
-     * No body -> `{ tenantId, tenantName }` of the one tenant this console serves, and `signIn: { issuer, clientId }` when
-     * a desktop may sign in at its realm. Unauthenticated and email-free, so it reveals nothing about accounts; it counts
-     * against the begin rate limit (it is the same kind of unauthenticated probe).
+     * No body -> `{ tenantId, tenantName }` of the one tenant this console serves (or, on the control plane, the tenant
+     * of the request's host), and `signIn: { issuer, clientId }` when a desktop may sign in at its realm. Unauthenticated
+     * and email-free, so it reveals nothing about accounts; it counts against the begin rate limit (it is the same kind of
+     * unauthenticated probe).
      */
-    private async Console(req: IncomingMessage, res: ServerResponse, ip: string, tenantId: string): Promise<void>
+    private async Console(req: IncomingMessage, res: ServerResponse, ip: string): Promise<void>
     {
         req.resume()
         const decision = await this.sessions.Begins.Hit(ip)
@@ -235,13 +242,14 @@ export class DesktopEndpoint
             this.ReplyTooMany(res, decision.RetryAfterSeconds())
             return
         }
-        const tenant = this.directory.GetTenant(tenantId)
-        if (tenant === undefined)
+        const tenantId = this.consoleTenantId ?? this.consoleHosts?.TenantFor(req.headers[DesktopEndpoint.HostHeader] as string | undefined)
+        const tenant = tenantId === undefined ? undefined : this.directory.GetTenant(tenantId)
+        if (tenantId === undefined || tenant === undefined)
         {
             this.Reply(res, DesktopEndpoint.StatusNotFound, DesktopEndpoint.UnknownTenantBody)
             return
         }
-        const signIn = await this.realmSignIn?.Advert()
+        const signIn = await this.realms?.For(tenantId)?.Advert()
         const lookup: Record<string, unknown> = { tenantId, tenantName: tenant.displayName ?? tenantId }
         if (signIn !== undefined)
         {
@@ -368,6 +376,8 @@ export class DesktopEndpoint
     private async SignOut(req: IncomingMessage, res: ServerResponse, session: TenantSession): Promise<void>
     {
         const token = DesktopAuthGate.Token(req)
+        // A realm session ends here first, so a relay still connecting fails its re-check and none opens afterwards.
+        this.gate.EndRealmSession(req, session)
         if (token !== null && !this.gate.IsRealmBearer(req))
         {
             try
@@ -384,11 +394,27 @@ export class DesktopEndpoint
         res.end()
     }
 
-    /** Runs `run` with the request's desktop session, or answers 401 signed-out (missing, unknown, expired or console bearer). */
+    /**
+     * Runs `run` with the request's desktop session, or answers 401 signed-out (missing, unknown, expired or console bearer),
+     * or 503 when the bearer's realm cannot be reached (a realm token is neither good nor bad yet: no sign-out).
+     */
     private async Authenticated(req: IncomingMessage, res: ServerResponse, run: (session: TenantSession) => Promise<void>): Promise<void>
     {
         req.resume()
-        const session = await this.gate.Principal(req)
+        let session: TenantSession | null
+        try
+        {
+            session = await this.gate.Principal(req)
+        }
+        catch (err)
+        {
+            if (!(err instanceof TokenVerifierUnavailableError))
+            {
+                throw err
+            }
+            this.Reply(res, DesktopEndpoint.StatusUnavailable, DesktopEndpoint.SignInUnavailableBody)
+            return
+        }
         if (session === null)
         {
             this.Reply(res, DesktopEndpoint.StatusUnauthorized, DesktopEndpoint.SignedOutBody)

@@ -1,25 +1,51 @@
+import { createHash } from 'node:crypto'
 import { CaTrustingHttpClient, type IHttpClient } from '@pragmatic-tech-ai/pragmatic-identity-source-oidc'
 import type { IdpConnection } from '../idp-workload-driver.js'
 import type { IIdpService } from '../idp-service-contract.js'
+import type { ITenantDirectory } from '../tenant-api/tenant-directory.js'
 import { TenantOidcClients } from './tenant-oidc-clients.js'
 
 /** What `/desktop/console` names for a desktop to sign in at the realm itself (E spec S4): the issuer and the client id. */
 export type DesktopSignInAdvert = { issuer: string; clientId: string }
 
-/** The console's own realm as a desktop bearer is checked against it: the issuer, and how its discovery is reached. */
+/**
+ * A tenant's realm as a desktop bearer is checked against it: the issuer, how its discovery is reached, and `Trust`, a
+ * digest of the CA the discovery client trusts (a rotated IdP CA is a different realm address, so a verifier holding
+ * the old client is replaced).
+ */
 export class DesktopRealm
 {
-    public constructor(public readonly Issuer: string, public readonly DiscoveryUrl: string, public readonly Http: IHttpClient)
+    private static readonly NoTrust = ''
+
+    public constructor(public readonly Issuer: string, public readonly DiscoveryUrl: string, public readonly Http: IHttpClient, public readonly Trust: string = DesktopRealm.NoTrust)
     {
         Object.freeze(this)
     }
+
+    /** The key a verifier of this realm is kept under: issuer, discovery and trust. */
+    public get Key(): string
+    {
+        return JSON.stringify([this.Issuer, this.DiscoveryUrl, this.Trust])
+    }
 }
 
-/** Where the console's realm is found: its IdP connection (`IIdpService.ConnectForTenant`). */
+/** Where a tenant's realm is found: its IdP connection (`IIdpService.ConnectForTenant`). */
 export interface IDesktopRealmSource
 {
-    /** The console's realm, or undefined while its IdP is not known. */
+    /** The tenant's realm, or undefined while its IdP is not known (no connection, kept 30 s). */
     Realm(): Promise<DesktopRealm | undefined>
+}
+
+/** What names a tenant's realm sign-in in `/desktop/console`. */
+export interface IDesktopSignInAdvert
+{
+    /** `{ issuer, clientId }` when a desktop may sign in at the realm itself; undefined otherwise. */
+    Advert(): Promise<DesktopSignInAdvert | undefined>
+}
+
+/** One tenant's realm, as the desktop bearer and the console lookup use it. */
+export interface IDesktopTenantRealm extends IDesktopRealmSource, IDesktopSignInAdvert
+{
 }
 
 /** Overrides of the sign-in advert's defaults (tests: a clock, an HTTP client). */
@@ -31,15 +57,16 @@ export interface DesktopRealmSignInOptions
 }
 
 /**
- * The in-hive console's desktop sign-in at its realm (E spec S4): the realm the console trusts (its own OIDC client's
- * issuer, from its IdP connection: discovery over the internal origin, the issuer the browser-facing one) and whether to
- * name it in `/desktop/console`. It is named when the setting is on (`DesktopRealmSignIn`, default on; off withholds it,
- * the live loop's transitional mode) and the realm can serve the seeded public client `plexus`: its discovery lists
- * `none` among `token_endpoint_auth_methods_supported` (a realm sign-in service from before S1 does not). The probe's
- * answer is kept 5 minutes, a failed probe 30 seconds; the realm's address (read from the IdP connection, which may read
- * mounted files) is kept 5 minutes too.
+ * A tenant's desktop sign-in at its realm (E spec S4): the realm the console trusts (its own OIDC client's issuer for
+ * the tenant, from the tenant's IdP connection: discovery over the internal origin, the issuer the browser-facing one)
+ * and whether to name it in `/desktop/console`. It is named when the setting is on (`desktopRealmSignIn`; off withholds
+ * it, the live loop's transitional mode) and the realm can serve the seeded public client `plexus`: its discovery names
+ * the same issuer and lists `none` among `token_endpoint_auth_methods_supported` (a realm sign-in service from before
+ * S1 does not). The probe's answer is kept 5 minutes, a failed probe 30 seconds (its error's name is logged, nothing
+ * more); the realm's address (read from the IdP connection, which may read mounted files) is kept 5 minutes, a missing
+ * connection 30 seconds. Concurrent askers share one probe and one connection read.
  */
-export class DesktopRealmSignIn implements IDesktopRealmSource
+export class DesktopRealmSignIn implements IDesktopTenantRealm
 {
     /** The seeded public client every realm serves (pragmatic-tenant-idp `SeededClients`). */
     public static readonly PlexusClientId = 'plexus'
@@ -48,12 +75,16 @@ export class DesktopRealmSignIn implements IDesktopRealmSource
     private static readonly AuthMethodsField = 'token_endpoint_auth_methods_supported'
     private static readonly IssuerField = 'issuer'
     private static readonly NoneMethod = 'none'
-    private static readonly NoIdpMessage = 'the console has no IdP connection yet'
+    private static readonly HashAlgorithm = 'sha256'
+    private static readonly HexEncoding = 'hex'
+    private static readonly LogPrefix = '[desktop-realm-sign-in] the realm discovery probe failed:'
 
     private readonly nowMs: () => number
     private readonly httpFor: (conn: IdpConnection) => IHttpClient
     private probed: { advert: DesktopSignInAdvert | undefined; untilMs: number } | undefined
-    private known: { realm: DesktopRealm; untilMs: number } | undefined
+    private probing: Promise<DesktopSignInAdvert | undefined> | undefined
+    private known: { realm: DesktopRealm | undefined; untilMs: number } | undefined
+    private connecting: Promise<DesktopRealm | undefined> | undefined
 
     public constructor(
         private readonly idp: Pick<IIdpService, 'ConnectForTenant'>,
@@ -65,27 +96,14 @@ export class DesktopRealmSignIn implements IDesktopRealmSource
         this.httpFor = options.HttpFor ?? (conn => new CaTrustingHttpClient(conn.ca))
     }
 
-    /** Whether the console names its realm's sign-in at all (the setting). */
-    public get Enabled(): boolean
-    {
-        return this.enabled
-    }
-
     public async Realm(): Promise<DesktopRealm | undefined>
     {
-        const now = this.nowMs()
-        if (this.known !== undefined && now < this.known.untilMs)
+        if (this.known !== undefined && this.nowMs() < this.known.untilMs)
         {
             return this.known.realm
         }
-        const conn = await this.idp.ConnectForTenant(this.tenantId)
-        if (conn === undefined)
-        {
-            return undefined
-        }
-        const realm = new DesktopRealm(TenantOidcClients.IssuerFor(conn, this.tenantId), TenantOidcClients.DiscoveryUrlFor(conn, this.tenantId), this.httpFor(conn))
-        this.known = { realm, untilMs: now + DesktopRealmSignIn.ProbeTtlMs }
-        return realm
+        this.connecting ??= this.Connect().finally(() => { this.connecting = undefined })
+        return await this.connecting
     }
 
     /** `{ issuer, clientId }` when a desktop may sign in at the realm; undefined when the setting is off or the realm cannot. */
@@ -95,36 +113,51 @@ export class DesktopRealmSignIn implements IDesktopRealmSource
         {
             return undefined
         }
-        const now = this.nowMs()
-        if (this.probed !== undefined && now < this.probed.untilMs)
+        if (this.probed !== undefined && this.nowMs() < this.probed.untilMs)
         {
             return this.probed.advert
         }
-        let advert: DesktopSignInAdvert | undefined
-        let ttl = DesktopRealmSignIn.ProbeTtlMs
-        try
-        {
-            advert = await this.Probe()
-        }
-        catch
-        {
-            // The IdP is unreachable or answered no document: no advert, asked again soon. No detail is kept.
-            advert = undefined
-            ttl = DesktopRealmSignIn.FailedProbeTtlMs
-        }
-        this.probed = { advert, untilMs: now + ttl }
-        return advert
+        this.probing ??= this.Probe().finally(() => { this.probing = undefined })
+        return await this.probing
+    }
+
+    private async Connect(): Promise<DesktopRealm | undefined>
+    {
+        const D = DesktopRealmSignIn
+        const now = this.nowMs()
+        const conn = await this.idp.ConnectForTenant(this.tenantId)
+        const realm = conn === undefined ? undefined : new DesktopRealm(TenantOidcClients.IssuerFor(conn, this.tenantId), TenantOidcClients.DiscoveryUrlFor(conn, this.tenantId), this.httpFor(conn),
+            createHash(D.HashAlgorithm).update(conn.ca).digest(D.HexEncoding))
+        this.known = { realm, untilMs: now + (realm === undefined ? D.FailedProbeTtlMs : D.ProbeTtlMs) }
+        return realm
     }
 
     private async Probe(): Promise<DesktopSignInAdvert | undefined>
     {
         const D = DesktopRealmSignIn
-        const realm = await this.Realm()
-        if (realm === undefined)
+        const now = this.nowMs()
+        let advert: DesktopSignInAdvert | undefined
+        let failed = false
+        try
         {
-            throw new Error(D.NoIdpMessage)
+            const realm = await this.Realm()
+            failed = realm === undefined
+            advert = realm === undefined ? undefined : D.AdvertOf(realm, await realm.Http.GetJson(realm.DiscoveryUrl))
         }
-        const doc = await realm.Http.GetJson(realm.DiscoveryUrl)
+        catch (err)
+        {
+            // Unreachable, or not a document: no advert, asked again soon. Only the error's name is logged.
+            console.error(D.LogPrefix, err instanceof Error ? err.name : typeof err)
+            failed = true
+        }
+        this.probed = { advert, untilMs: now + (failed ? D.FailedProbeTtlMs : D.ProbeTtlMs) }
+        return advert
+    }
+
+    /** The advert a discovery document allows: the same issuer and `none` among the token endpoint's methods. */
+    private static AdvertOf(realm: DesktopRealm, doc: unknown): DesktopSignInAdvert | undefined
+    {
+        const D = DesktopRealmSignIn
         if (typeof doc !== 'object' || doc === null)
         {
             return undefined
@@ -133,5 +166,46 @@ export class DesktopRealmSignIn implements IDesktopRealmSource
         const methods = fields[D.AuthMethodsField]
         const servesPublic = Array.isArray(methods) && methods.includes(D.NoneMethod)
         return servesPublic && fields[D.IssuerField] === realm.Issuer ? { issuer: realm.Issuer, clientId: D.PlexusClientId } : undefined
+    }
+}
+
+/** The realms desktop bearers and sign-in adverts are checked against, by tenant (DesktopRealms). */
+export interface IDesktopRealmDirectory
+{
+    /** The tenant's realm, or undefined for a tenant this console does not know. */
+    For(tenantId: string): IDesktopTenantRealm | undefined
+}
+
+/**
+ * The desktop realm sign-ins of the tenants a console serves: one tenant for the in-hive console, any tenant of its
+ * directory for the platform's co-hosted tenant plane. A tenant's entry is made on first use and kept (its probe and
+ * address caches); a tenant the directory does not know gets none, so an unknown id never grows the map.
+ */
+export class DesktopRealms implements IDesktopRealmDirectory
+{
+    private readonly realms = new Map<string, DesktopRealmSignIn>()
+
+    public constructor(
+        private readonly idp: Pick<IIdpService, 'ConnectForTenant'>,
+        private readonly tenants: Pick<ITenantDirectory, 'GetTenant'>,
+        private readonly enabled: boolean,
+        private readonly options: DesktopRealmSignInOptions = {})
+    {
+    }
+
+    public For(tenantId: string): DesktopRealmSignIn | undefined
+    {
+        const known = this.realms.get(tenantId)
+        if (known !== undefined)
+        {
+            return known
+        }
+        if (this.tenants.GetTenant(tenantId) === undefined)
+        {
+            return undefined
+        }
+        const signIn = new DesktopRealmSignIn(this.idp, tenantId, this.enabled, this.options)
+        this.realms.set(tenantId, signIn)
+        return signIn
     }
 }

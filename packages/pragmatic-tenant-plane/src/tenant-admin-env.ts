@@ -15,6 +15,9 @@ export class TenantAdminEnv
     public static readonly SecureCookie = 'PRAGMATIC_TENANT_ADMIN_SECURE_COOKIE'
     /** Whether the TENANT listener sits behind a trusted proxy (x-forwarded-for is then the user's address); default off. */
     public static readonly TrustedProxy = 'PRAGMATIC_TENANT_ADMIN_TRUSTED_PROXY'
+    /** Whether /desktop/console names the realm's desktop sign-in (`on` / `off`; E spec S4). The in-hive console defaults
+     *  on; the platform's co-hosted tenant plane defaults off (TenantPlaneComposer.DesktopRealmSignInOf). */
+    public static readonly DesktopRealmSignIn = 'PRAGMATIC_TENANT_ADMIN_DESKTOP_REALM_SIGN_IN'
     public static readonly SecretTtl = 'PRAGMATIC_TENANT_ADMIN_SECRET_TTL_HOURS'
     public static readonly HealthProbeMs = 'PRAGMATIC_TENANT_ADMIN_HEALTH_PROBE_MS'
     public static readonly HealthProbeTimeoutMs = 'PRAGMATIC_TENANT_ADMIN_HEALTH_PROBE_TIMEOUT_MS'

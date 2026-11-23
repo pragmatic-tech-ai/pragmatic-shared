@@ -91,7 +91,7 @@ export class FakeOidcIdp
         const exp = Math.floor(Date.now() / 1000) + (opts?.expSecondsFromNow ?? FakeOidcIdp.DefaultExpSeconds);
         const claims = typeof payload[FakeOidcIdp.SubClaim] === "string" ? { [FakeOidcIdp.OidClaim]: payload[FakeOidcIdp.SubClaim], ...payload } : payload;
         const jwt = new SignJWT(claims)
-            .setProtectedHeader(opts?.typ === undefined ? { alg: opts?.alg ?? FakeOidcIdp.SigAlg, kid: opts?.kid ?? this.kid } : { alg: opts?.alg ?? FakeOidcIdp.SigAlg, kid: opts?.kid ?? this.kid, typ: opts.typ })
+            .setProtectedHeader(FakeOidcIdp.HeaderOf(opts?.alg ?? FakeOidcIdp.SigAlg, opts?.kid ?? this.kid, opts?.typ))
             .setIssuer(opts?.issuer ?? this.Issuer)
             .setExpirationTime(exp);
         const iat = opts?.iatSecondsFromNow;
@@ -100,6 +100,17 @@ export class FakeOidcIdp
             jwt.setIssuedAt(Math.floor(Date.now() / 1000) + (iat ?? 0));
         }
         return await jwt.sign(this.privateKey);
+    }
+
+    /** A protected header: the algorithm and key id, and the `typ` when one is given. */
+    private static HeaderOf(alg: string, kid: string, typ: string | undefined): { alg: string; kid: string; typ?: string }
+    {
+        const header: { alg: string; kid: string; typ?: string } = { alg, kid };
+        if (typ !== undefined)
+        {
+            header.typ = typ;
+        }
+        return header;
     }
 
     /** A token-endpoint response: the id token plus a fake upstream access and refresh token. */

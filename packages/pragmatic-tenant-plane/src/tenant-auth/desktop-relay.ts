@@ -9,6 +9,7 @@ import type { IEnvironmentReach, EnvironmentUrlsLease } from '../environment-end
 import type { EnvironmentRecord } from '../environment-record.js'
 import { TransportFailure } from '../transport-failure.js'
 import { DevelopMethods, RunTestMethods } from '@pragmatic-tech-ai/pragmatic-identity'
+import { TokenVerifierUnavailableError } from '@pragmatic-tech-ai/pragmatic-identity-source-oidc'
 import { DesktopAction, DesktopTargetVerdict, type DesktopTargets } from './desktop-targets.js'
 import type { DesktopAuthGate } from './desktop-auth-gate.js'
 import type { IDesktopSessionConnections } from './desktop-endpoint.js'
@@ -191,6 +192,8 @@ export class DesktopRelay implements IPrincipalConnections, IDesktopSessionConne
     private static readonly StatusConflict = 409
     private static readonly StatusInternal = 500
     private static readonly StatusBadGateway = 502
+    private static readonly StatusUnavailable = 503
+    private static readonly StatusOk = 200
     private static readonly LogPrefix = '[desktop-relay] upstream failed:'
     private static readonly RevokeLogPrefix = '[desktop-relay] revoking the relay credential failed:'
     private static readonly ErrorEvent = 'error'
@@ -210,6 +213,7 @@ export class DesktopRelay implements IPrincipalConnections, IDesktopSessionConne
         [DesktopRelay.StatusConflict, 'The environment is not running.'],
         [DesktopRelay.StatusInternal, 'Internal server error'],
         [DesktopRelay.StatusBadGateway, 'The environment server could not be reached.'],
+        [DesktopRelay.StatusUnavailable, 'The sign-in service could not be reached. Try again shortly.'],
     ])
 
     private readonly pipes = new Set<RelayPipe>()
@@ -261,9 +265,11 @@ export class DesktopRelay implements IPrincipalConnections, IDesktopSessionConne
         {
             session = await this.gate.Principal(req)
         }
-        catch
+        catch (err)
         {
-            return this.Refuse(req, DesktopRelay.StatusInternal, AuditRegistry.AnonymousActor, rawAction, rawEnv)
+            // A realm that cannot be reached is 503 (try again), never 401 (sign in again).
+            const status = err instanceof TokenVerifierUnavailableError ? DesktopRelay.StatusUnavailable : DesktopRelay.StatusInternal
+            return this.Refuse(req, status, AuditRegistry.AnonymousActor, rawAction, rawEnv)
         }
         if (session === null)
         {
@@ -465,10 +471,11 @@ export class DesktopRelay implements IPrincipalConnections, IDesktopSessionConne
         // whose CloseSession / ClosePrincipal ran before this pipe existed): check again. From here to the pipe's tracking
         // there is no await, so a later CloseSession / ClosePrincipal sees the pipe (Attach then closes the client with its
         // code) and a socket closing later hits the guard below.
-        if (!await this.StillLive(req, context.session))
+        const live = await this.StillLive(req, context.session)
+        if (live !== DesktopRelay.StatusOk)
         {
             pipe.Close(RelayPipe.NormalClosure)
-            return this.Refuse(req, DesktopRelay.StatusUnauthorized, context.actor, context.action, context.envName)
+            return this.Refuse(req, live, context.actor, context.action, context.envName)
         }
         const socket = req.socket
         if (socket.destroyed)
@@ -507,16 +514,19 @@ export class DesktopRelay implements IPrincipalConnections, IDesktopSessionConne
         return null
     }
 
-    /** Whether the request's bearer still resolves to the same live desktop session. */
-    private async StillLive(req: IncomingMessage, session: TenantSession): Promise<boolean>
+    /**
+     * Whether the request's bearer still resolves to the same live desktop session: 200 when it does, 401 when it does
+     * not (signed out, expired, revoked), 503 when its realm cannot be reached now.
+     */
+    private async StillLive(req: IncomingMessage, session: TenantSession): Promise<number>
     {
         try
         {
-            return (await this.gate.Principal(req))?.id === session.id
+            return (await this.gate.Principal(req))?.id === session.id ? DesktopRelay.StatusOk : DesktopRelay.StatusUnauthorized
         }
-        catch
+        catch (err)
         {
-            return false
+            return err instanceof TokenVerifierUnavailableError ? DesktopRelay.StatusUnavailable : DesktopRelay.StatusUnauthorized
         }
     }
 

@@ -12,9 +12,10 @@ import type { IRealmTokenVerifier } from "./token-verifier.js";
  * Verifies tokens issued by one realm issuer (the central realm or any other), for relying parties that receive a
  * bearer token rather than running a sign-in: the signature on the issuer's keys (found through its OIDC discovery
  * document, cached, refetched on an unknown key id for rotation), the issuer exactly, the audience (one of the
- * configured), the authorized party when configured, the header's `typ` when configured (an RFC 9068 access token), exp /
- * nbf / iat within the clock skew, a non-empty subject, the required claims and, when asked, an email (verified). Asymmetric algorithms only. Answers a RealmTokenPrincipal, or
- * undefined for any token that is not valid; throws TokenVerifierUnavailableError only when it cannot decide.
+ * configured), the authorized party when configured, the header's `typ` when configured (an RFC 9068 access token), exp
+ * / nbf / iat within the clock skew, a non-empty subject, the required claims and, when asked, an email (verified).
+ * Asymmetric algorithms only. Answers a RealmTokenPrincipal, or undefined for any token that is not valid; throws
+ * TokenVerifierUnavailableError only when it cannot decide.
  */
 export class RealmTokenVerifier implements IRealmTokenVerifier
 {

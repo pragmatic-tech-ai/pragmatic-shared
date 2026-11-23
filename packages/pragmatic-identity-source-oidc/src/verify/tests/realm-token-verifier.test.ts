@@ -295,4 +295,5 @@ test("type: when configured the header's typ must match (an ID token is not an a
     assert.equal(await verifier.Verify(await f.Token()), undefined);
     assert.equal(await verifier.Verify(await f.Token({}, { typ: "JWT" })), undefined);
     assert.equal((await f.Verifier().Verify(await f.Token({}, { typ: "JWT" })))?.Subject, "u1");
+    assert.equal(await verifier.Verify(await f.Token({ aud: "someone-else" }, { typ: "at+jwt" })), undefined, "the type does not stand in for the audience");
 });
