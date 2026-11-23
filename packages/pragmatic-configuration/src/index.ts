@@ -26,3 +26,8 @@ export { ConfigurationStartError, ConfigurationStartReason } from './runtime/con
 export { RuntimeConfiguration } from './runtime/runtime-configuration.js';
 export { SecretStoreDirectory } from './runtime/secret-store-directory.js';
 export { SecretValue } from './runtime/secret-value.js';
+export { SettingValueEncoding } from './runtime/setting-value-encoding.js';
+export { MountedSecretStore } from './runtime/mounted-secret-store.js';
+export { ConfigurationEnvironmentOverlay } from './runtime/configuration-environment-overlay.js';
+export { ComponentStartConfiguration, ComponentStartReport } from './runtime/component-start-configuration.js';
+export type { ComponentStartOptions, IStartProcess } from './runtime/component-start-configuration.js';

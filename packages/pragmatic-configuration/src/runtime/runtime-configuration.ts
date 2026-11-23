@@ -17,6 +17,8 @@ export class RuntimeConfiguration
         public readonly DescriptorDigest: string,
         public readonly Settings: ResolvedConfiguration,
         secrets: ReadonlyMap<string, SecretValue>,
+        /** The tenant realm the applied version belongs to. */
+        public readonly Realm: string = '',
     )
     {
         this.secrets = new Map(secrets);

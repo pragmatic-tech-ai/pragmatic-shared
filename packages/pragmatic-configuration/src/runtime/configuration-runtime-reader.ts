@@ -56,7 +56,7 @@ export class ConfigurationRuntimeReader
             const where = `${secret.Option}.${secret.Setting}`;
             secrets.set(RuntimeConfiguration.SecretKey(secret.Option, secret.Setting), await this.secrets.Resolve(secret.Reference, where));
         }
-        return new RuntimeConfiguration(applied.Version, applied.ComponentVersion, applied.DescriptorDigest, validation.Configuration, secrets);
+        return new RuntimeConfiguration(applied.Version, applied.ComponentVersion, applied.DescriptorDigest, validation.Configuration, secrets, applied.Realm);
     }
 
     private CheckDescriptor(applied: AppliedConfiguration): void

@@ -9,6 +9,8 @@ export enum ConfigurationStartReason
     Invalid = 'invalid',
     UnknownSecretStore = 'unknown-secret-store',
     SecretMissing = 'secret-missing',
+    /** The resolved secrets could not be written to the component's secrets directory. */
+    SecretsUnwritable = 'secrets-unwritable',
 }
 
 /** The component cannot start on its applied configuration. The message says what to do; it names settings and secret
