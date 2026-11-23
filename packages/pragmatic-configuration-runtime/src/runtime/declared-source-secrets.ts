@@ -1,4 +1,5 @@
 import type { ComponentDeclaration } from '@pragmatic-tech-ai/pragmatic-component';
+import { RuntimeConfiguration } from './runtime-configuration.js';
 
 /** Which secret settings a reader resolves (the others stay references). */
 export interface ISecretSelection
@@ -14,8 +15,6 @@ export interface ISecretSelection
  */
 export class DeclaredSourceSecrets implements ISecretSelection
 {
-    private static readonly KeySeparator = '/';
-
     private readonly sourced = new Set<string>();
 
     public constructor(declaration: ComponentDeclaration)
@@ -24,13 +23,13 @@ export class DeclaredSourceSecrets implements ISecretSelection
         {
             for (const setting of option.settings)
             {
-                if (setting.source !== undefined) this.sourced.add(option.name + DeclaredSourceSecrets.KeySeparator + setting.name);
+                if (setting.source !== undefined) this.sourced.add(RuntimeConfiguration.SecretKey(option.name, setting.name));
             }
         }
     }
 
     public Resolves(option: string, setting: string): boolean
     {
-        return this.sourced.has(option + DeclaredSourceSecrets.KeySeparator + setting);
+        return this.sourced.has(RuntimeConfiguration.SecretKey(option, setting));
     }
 }
