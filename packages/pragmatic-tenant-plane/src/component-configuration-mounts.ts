@@ -53,7 +53,8 @@ export class ComponentConfigurationMounts
     private static readonly BadContainer = 'ComponentConfigurationMounts: a container name must be a Kubernetes label value:'
     /** Read-only for the owner and group: the pod's fsGroup reads the mounted secrets. */
     private static readonly SecretFileMode = 0o440
-    private static readonly RuntimeSecretsSizeLimit = '1Mi'
+    /** Above the largest Secret (1 MiB of values) the console can write, with room for the file system. */
+    private static readonly RuntimeSecretsSizeLimit = '4Mi'
 
     private static readonly NameKey = 'name'
     private static readonly ConfigMapKey = 'configMap'
@@ -80,6 +81,11 @@ export class ComponentConfigurationMounts
     private static readonly VolumesKey = 'volumes'
     private static readonly VolumeMountsKey = 'volumeMounts'
     private static readonly NoContainer = 'ComponentConfigurationMounts: the pod runs no container named'
+    private static readonly NoComponents = 'ComponentConfigurationMounts: a workload runs at least one component'
+    /** Where the console reads the descriptors of the release it runs (ReleaseDescriptorCatalogue). */
+    public static readonly ReleaseDescriptorsMount = '/etc/pragmatic/descriptors'
+    /** The optional ConfigMap holding them (`digests.json` and one `<app>.json` each), written by whoever delivers the release. */
+    public static readonly ReleaseDescriptorsConfigMap = 'pragmatic-release-descriptors'
     private static readonly ApiVersionKey = 'apiVersion'
     private static readonly KindKey = 'kind'
     private static readonly NamespaceKey = 'namespace'
@@ -123,6 +129,7 @@ export class ComponentConfigurationMounts
     public static Labels(components: ReadonlyArray<{ Container: string; Component: string }>): Record<string, string>
     {
         const M = ComponentConfigurationMounts
+        if (components.length === 0) throw new Error(M.NoComponents)
         const labels: Record<string, string> = { [M.ComponentLabel]: components[0].Component, [M.ManagedByLabel]: M.ManagedBy }
         for (const entry of components)
         {

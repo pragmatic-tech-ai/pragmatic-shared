@@ -52,8 +52,12 @@ export class TenantConsoleAdmission
     public static readonly ConfigurationHashAnnotation = 'pragmatic-tech.ai/configuration-hash'
     /** The Deployment fields a hash roll leaves as they are (has-safe: an absent field must stay absent). */
     private static readonly FrozenDeploymentFields: readonly string[] = [
-        'metadata.labels', 'metadata.annotations', 'spec.replicas', 'spec.selector', 'spec.strategy', 'spec.minReadySeconds',
-        'spec.revisionHistoryLimit', 'spec.progressDeadlineSeconds', 'spec.paused', 'spec.template.metadata.labels', 'spec.template.spec',
+        'metadata.labels', 'metadata.annotations', 'metadata.ownerReferences', 'metadata.finalizers',
+        'spec.template.metadata.labels', 'spec.template.metadata.name', 'spec.template.metadata.namespace', 'spec.template.metadata.generateName',
+        'spec.template.metadata.ownerReferences', 'spec.template.metadata.finalizers', 'spec.template.spec',
+        // Every top-level field of apps/v1 DeploymentSpec but the template (a typed object: CEL cannot iterate its keys).
+        'spec.replicas', 'spec.selector', 'spec.strategy', 'spec.minReadySeconds', 'spec.revisionHistoryLimit',
+        'spec.progressDeadlineSeconds', 'spec.paused',
     ]
     private static readonly TemplateAnnotations = 'spec.template.metadata.annotations'
     private static readonly NewObject = 'object.'

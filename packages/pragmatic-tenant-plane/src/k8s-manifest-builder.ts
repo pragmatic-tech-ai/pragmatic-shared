@@ -341,6 +341,7 @@ export class K8sManifestBuilder
     private static readonly TenantConsoleEnvRoleSuffix = '-env'
     private static readonly TenantConsoleTlsRoleSuffix = '-tls'
     private static readonly TenantConsoleConfigurationRoleSuffix = '-configuration'
+    private static readonly ReleaseDescriptorsVolume = 'release-descriptors'
     private static readonly ConfigMapsResource = 'configmaps'
     private static readonly TenantConsoleFingerprintSuffix = '-fingerprint'
     private static readonly TenantConsoleIdpCaSuffix = '-idp-ca'
@@ -1278,6 +1279,9 @@ export class K8sManifestBuilder
             this.Identity(B.ApiVersionRbac, B.RoleBindingKind, tlsRole, system),
             this.Identity(B.ApiVersionRbac, B.RoleKind, B.TenantConsoleConfigurationRoleNameOf(tenantId), system),
             this.Identity(B.ApiVersionRbac, B.RoleBindingKind, B.TenantConsoleConfigurationRoleNameOf(tenantId), system),
+            // The console's own configuration object and secrets go with it (a reinstall configures it again).
+            this.Identity(B.ApiVersionCore, B.ConfigMapKindName, ComponentConfigurationMounts.ConfigMapNameOf(ReleaseApp.TenantAdmin), system),
+            B.SystemSecretIdentity(ComponentConfigurationMounts.SecretNameOf(ReleaseApp.TenantAdmin)),
             this.Identity(B.ApiVersionApps, B.DeploymentKind, name, system),
             this.Identity(B.ApiVersionCore, B.ServiceKind, name, system),
             this.Identity(B.ApiVersionNetworking, B.IngressKind, name, system),
@@ -1442,7 +1446,8 @@ export class K8sManifestBuilder
      * How the console configures the hive's own components in `namespace` (C3.1): their ConfigMaps
      * `pragmatic-config-<component>` and Secrets `pragmatic-secrets-<component>` by name only (get and patch; the manifests
      * render both empty, so the console never needs `create` or `delete` there, which RBAC could not fence by name), their
-     * Deployments (get and patch by name; list, to find targets by label). Patch on those Deployments is fenced further
+     * Deployments (get and patch by name: the console reads its targets there by name, never lists the namespace). Patch
+     * on those Deployments is fenced further
      * by the console's admission policy (TenantConsoleAdmission): outside its environment namespaces it may change the
      * pod template's configuration-hash annotation and nothing else, so it can never swap an image, a command, a volume or
      * a service account there.
@@ -1463,7 +1468,6 @@ export class K8sManifestBuilder
                     this.Rule(B.CoreApiGroup, [B.ConfigMapsResource], byName, targets.map(t => M.ConfigMapNameOf(t.Component))),
                     this.Rule(B.CoreApiGroup, [B.SecretsResource], byName, targets.map(t => M.SecretNameOf(t.Component))),
                     this.Rule(B.AppsApiGroup, [B.DeploymentsResource], [B.GetVerb, B.PatchVerb], targets.map(t => t.Deployment)),
-                    this.Rule(B.AppsApiGroup, [B.DeploymentsResource], [B.ListVerb]),
                 ],
             },
             {
@@ -1492,7 +1496,8 @@ export class K8sManifestBuilder
         const meta = this.HiveAgentNamespacedMeta(spec.hiveId, name)
         const ingress = this.TerminatingIngress(meta, host, name, spec.port, ingressTls, this.TenantConsoleTlsSecretNameOf(spec, ingressTls))
         // A configuration apply answers once its roll is watched (up to 120 s): nginx's 60 s default would cut it off.
-        meta[K8sManifestBuilder.AnnotationsKey] = { ...(meta[K8sManifestBuilder.AnnotationsKey] as Record<string, string> | undefined), [K8sManifestBuilder.ProxyReadTimeoutAnnotation]: K8sManifestBuilder.ConsoleProxyReadTimeoutSeconds }
+        const metadata = ingress[K8sManifestBuilder.MetadataKey] as K8sObject
+        metadata[K8sManifestBuilder.AnnotationsKey] = { ...(metadata[K8sManifestBuilder.AnnotationsKey] as Record<string, string> | undefined), [K8sManifestBuilder.ProxyReadTimeoutAnnotation]: K8sManifestBuilder.ConsoleProxyReadTimeoutSeconds }
         return [ingress, this.TenantConsoleNetworkPolicy(spec)]
     }
 
@@ -1654,6 +1659,9 @@ export class K8sManifestBuilder
                 ...this.TenantAdminIdpVolumes(spec),
                 ...this.TenantConsoleFingerprintVolumes(spec),
                 ...this.ConsolePostgresVolumes(spec),
+                // The descriptors of the release the console runs, written by whoever delivers the release (optional: without
+                // it the console configures itself only).
+                { [K8sManifestBuilder.NameKey]: K8sManifestBuilder.ReleaseDescriptorsVolume, [K8sManifestBuilder.ConfigMapVolumeKey]: { [K8sManifestBuilder.NameKey]: ComponentConfigurationMounts.ReleaseDescriptorsConfigMap, [K8sManifestBuilder.OptionalKey]: true } },
             ],
         }
         if (spec.imagePullSecretName !== undefined)
@@ -1787,6 +1795,7 @@ export class K8sManifestBuilder
                 this.EnvLiteral(TenantAdminEnv.SecureCookie, secure ? K8sManifestBuilder.TrueText : K8sManifestBuilder.FalseText),
                 this.EnvLiteral(TenantAdminEnv.RolloutUrl, spec.rolloutUrl),
                 this.EnvLiteral(TenantAdminEnv.RolloutHiveId, spec.hiveId),
+                this.EnvLiteral(TenantAdminEnv.Deployment, K8sManifestBuilder.TenantAdminNameOf(spec.tenantId)),
                 {
                     [K8sManifestBuilder.NameKey]: TenantAdminEnv.RolloutToken,
                     [K8sManifestBuilder.ValueFromKey]: {
@@ -1806,6 +1815,7 @@ export class K8sManifestBuilder
                 ...this.TenantAdminIdpMounts(spec),
                 ...this.TenantConsoleFingerprintMounts(spec),
                 ...this.ConsoleDatabaseMounts(spec),
+                { [K8sManifestBuilder.NameKey]: K8sManifestBuilder.ReleaseDescriptorsVolume, [K8sManifestBuilder.MountPathKey]: ComponentConfigurationMounts.ReleaseDescriptorsMount, [K8sManifestBuilder.ReadOnlyKey]: true },
             ],
             // The plane answers 403 to any Host that is not a known tenant subdomain, so the probe presents the tenant's own host.
             [K8sManifestBuilder.ReadinessProbeKey]: {

@@ -40,4 +40,6 @@ export class TenantAdminEnv
     public static readonly ConsoleHost = 'PRAGMATIC_TENANT_ADMIN_CONSOLE_HOST'
     /** Path of the Secret-mounted account-email fingerprint key file (never an inline value). */
     public static readonly FingerprintKeyFile = 'PRAGMATIC_TENANT_ADMIN_FINGERPRINT_KEY_FILE'
+    /** The console's own Deployment (in pragmatic-system), so a start its own configuration refuses can put back what ran before. */
+    public static readonly Deployment = 'PRAGMATIC_TENANT_ADMIN_DEPLOYMENT'
 }

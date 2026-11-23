@@ -1,6 +1,6 @@
 {
   "name": "@pragmatic-tech-ai/pragmatic-identity",
-  "version": "0.17.9",
+  "version": "0.18.0",
   "license": "Apache-2.0",
   "description": "Contracts: principal, realm, session, grants, identity-source seams.",
   "repository": {

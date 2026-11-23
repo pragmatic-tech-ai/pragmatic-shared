@@ -25,6 +25,7 @@ class ConfigurationFixture
             serverPort: 8080,
             env: { PRAGMATIC_PORT: '8080' },
             secretRefs: [],
+            serverDatabase: { image: 'pragmatic-postgres:local', secretName: 'dev1-postgres' },
             appDeployment: {
                 appName: 'crm',
                 appVersion: '1.2.3',
@@ -205,17 +206,31 @@ describe('K8sManifestBuilder configuration mounts', () =>
         assert.ok(policy.spec.matchConstraints.resourceRules.some((r: Obj) => r.resources.includes('deployments') && r.apiGroups.includes('apps') && r.operations.includes('UPDATE')))
         const rule = policy.spec.validations.find((v: Obj) => v.expression.includes(TenantConsoleAdmission.HashRollOnly())) as Obj
         assert.ok(rule.expression.startsWith("request.resource.resource != 'deployments' || request.namespace.startsWith('pragmatic-env-')"))
-        for (const field of ['spec.template.spec', 'spec.replicas', 'spec.selector', 'spec.strategy', 'metadata.labels', 'spec.template.metadata.labels'])
+        for (const field of ['spec.template.spec', 'spec.replicas', 'spec.selector', 'spec.strategy', 'metadata.labels', 'spec.template.metadata.labels', 'metadata.ownerReferences', 'metadata.finalizers', 'spec.paused'])
         {
             assert.ok(TenantConsoleAdmission.HashRollOnly().includes(`object.${field} == oldObject.${field}`), field)
         }
         assert.ok(TenantConsoleAdmission.HashRollOnly().includes("k == 'pragmatic-tech.ai/configuration-hash'"))
     })
 
+    it('the console waits 180 s at its Ingress, knows its own Deployment and mounts its release descriptors optionally', () =>
+    {
+        const F = ConfigurationFixture
+        const items = F.Items(new K8sManifestBuilder().RenderTenantAdmin({ ...F.TenantAdmin(), console: { host: 'console-acme.tenants.test', ingressTls: { source: 'development' } } } as never))
+        const ingress = items.find(i => i.kind === 'Ingress') as Obj
+        assert.equal(ingress.metadata.annotations['nginx.ingress.kubernetes.io/proxy-read-timeout'], '180')
+        const deployment = items.find(i => i.kind === 'Deployment') as Obj
+        const container = F.Container(deployment, 'tenant-admin')
+        assert.equal(container.env.find((e: Obj) => e.name === 'PRAGMATIC_TENANT_ADMIN_DEPLOYMENT').value, K8sManifestBuilder.TenantAdminNameOf(F.TenantId))
+        const mount = container.volumeMounts.find((m: Obj) => m.mountPath === '/etc/pragmatic/descriptors')
+        assert.deepEqual(F.VolumeOf(deployment, mount).configMap, { name: 'pragmatic-release-descriptors', optional: true })
+    })
+
     it('refuses a component or container name outside the Kubernetes label grammar', () =>
     {
         assert.throws(() => ComponentConfigurationMounts.ConfiguresLabel('Bad/Name'))
         assert.throws(() => ComponentConfigurationMounts.Labels([{ Container: 'x'.repeat(64), Component: 'pragmatic-a' }]))
+        assert.throws(() => ComponentConfigurationMounts.Labels([]))
     })
 
     it('the console may configure the hive components in pragmatic-system and the IdP namespace by name only, never create or delete there', () =>
@@ -229,7 +244,7 @@ describe('K8sManifestBuilder configuration mounts', () =>
         assert.deepEqual(named(system, 'configmaps', 'patch'), ['pragmatic-config-pragmatic-hive-agent', 'pragmatic-config-pragmatic-tenant-admin'])
         assert.deepEqual(named(system, 'secrets', 'get'), ['pragmatic-secrets-pragmatic-hive-agent', 'pragmatic-secrets-pragmatic-tenant-admin'])
         assert.deepEqual(named(system, 'deployments', 'patch'), [K8sManifestBuilder.HiveAgentNameOf(F.HiveId), K8sManifestBuilder.TenantAdminNameOf(F.TenantId)])
-        for (const verb of ['create', 'delete', 'update', '*'])
+        for (const verb of ['create', 'delete', 'update', 'list', 'watch', '*'])
         {
             assert.deepEqual(system.rules.filter((rule: Obj) => rule.verbs.includes(verb)), [], verb)
         }
@@ -242,6 +257,8 @@ describe('K8sManifestBuilder configuration mounts', () =>
         const removal = F.Items(builder.TenantConsoleRemovalManifest(F.TenantId, F.HiveId))
         const roles = removal.filter(i => i.metadata.name === K8sManifestBuilder.TenantConsoleConfigurationRoleNameOf(F.TenantId)).map(i => `${i.kind}/${i.metadata.namespace}`)
         assert.deepEqual(roles.sort(), ['Role/pragmatic-idp-acme', 'Role/pragmatic-system', 'RoleBinding/pragmatic-idp-acme', 'RoleBinding/pragmatic-system'].sort())
+        const own = removal.filter(i => i.metadata.name === 'pragmatic-config-pragmatic-tenant-admin' || i.metadata.name === 'pragmatic-secrets-pragmatic-tenant-admin').map(i => i.kind)
+        assert.deepEqual(own.sort(), ['ConfigMap', 'Secret'], 'the console\'s own configuration and secrets go with it')
     })
 
     it('the selector of a component finds it by its component label and the console as manager', () =>

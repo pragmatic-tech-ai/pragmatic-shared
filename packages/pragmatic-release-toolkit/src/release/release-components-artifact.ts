@@ -40,7 +40,6 @@ export class ReleaseComponentsArtifact
         return title.endsWith(S.JsonExtension) && title.length > S.JsonExtension.length ? title.slice(0, -S.JsonExtension.length) : undefined
     }
 
-    /** The layers of a release's descriptors, in the given app order. */
     /** One layer per app, in `apps` order; every app must have its asset (a release never carries a partial set). */
     public static Layers(assets: ReadonlyMap<ReleaseApp, Uint8Array>, apps: readonly ReleaseApp[]): OciArtifactLayer[]
     {

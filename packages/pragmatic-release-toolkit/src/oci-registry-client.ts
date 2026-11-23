@@ -310,6 +310,7 @@ export class OciRegistryClient
     /** The most layers, and the largest layer, PullArtifactLayers accepts (a release carries nine small descriptors). */
     public static readonly MaxArtifactLayers = 64
     public static readonly MaxArtifactLayerBytes = 1024 * 1024
+    private static readonly ContentLengthHeader = 'content-length'
     private static readonly MethodHead = 'HEAD'
     private static readonly MethodPost = 'POST'
     private static readonly MethodPut = 'PUT'
@@ -430,14 +431,16 @@ export class OciRegistryClient
         return this.ReadBytes(await this.Send(repo, OciHttp.MethodGet, this.RepoUrl(repo) + S.ManifestsPath + reference, OciHttp.StatusOk, { [S.AcceptHeader]: S.ManifestAccept }))
     }
 
-    public async PullBlob(repo: string, digest: string): Promise<Uint8Array>
+    /** The blob `digest`; with `maxBytes`, a body larger than that is refused while it is read, never held whole. */
+    public async PullBlob(repo: string, digest: string, maxBytes?: number): Promise<Uint8Array>
     {
         const S = OciRegistryClient
         if (!S.DigestShape.test(digest))
         {
             throw new OciArgumentError(S.BadDigestMessage)
         }
-        return this.ReadBytes(await this.Send(repo, OciHttp.MethodGet, this.RepoUrl(repo) + S.BlobsPath + digest, OciHttp.StatusOk))
+        const response = await this.Send(repo, OciHttp.MethodGet, this.RepoUrl(repo) + S.BlobsPath + digest, OciHttp.StatusOk)
+        return maxBytes === undefined ? this.ReadBytes(response) : this.ReadBoundedBytes(response, maxBytes)
     }
 
     /** All tags of a repository, following `Link: rel="next"` pagination; empty when the repository does not exist. */
@@ -592,8 +595,8 @@ export class OciRegistryClient
         const layers: OciPulledLayer[] = []
         for (const entry of listed)
         {
-            const bytes = await this.PullBlob(repo, entry.digest)
-            if (bytes.length > S.MaxArtifactLayerBytes || S.DigestOf(bytes) !== entry.digest)
+            const bytes = await this.PullBlob(repo, entry.digest, S.MaxArtifactLayerBytes)
+            if (S.DigestOf(bytes) !== entry.digest)
             {
                 throw new OciProtocolError(S.LayerMismatchMessage, OciProtocolFault.LayerMismatch)
             }
@@ -686,6 +689,50 @@ export class OciRegistryClient
         {
             throw new OciUnavailableError(OciHttp.UnreachableMessage)
         }
+    }
+
+    // Reads at most `maxBytes`: a declared or streamed body above it is cancelled and refused as a bad layer.
+    private async ReadBoundedBytes(response: Response, maxBytes: number): Promise<Uint8Array>
+    {
+        const S = OciRegistryClient
+        const declared = Number(response.headers.get(S.ContentLengthHeader))
+        if (Number.isFinite(declared) && declared > maxBytes)
+        {
+            await response.body?.cancel().catch(() => undefined)
+            throw new OciProtocolError(S.LayerMismatchMessage, OciProtocolFault.LayerMismatch)
+        }
+        const reader = response.body?.getReader()
+        if (reader === undefined) return new Uint8Array()
+        const chunks: Uint8Array[] = []
+        let total = 0
+        try
+        {
+            for (;;)
+            {
+                const { done, value } = await reader.read()
+                if (done) break
+                total += value.length
+                if (total > maxBytes)
+                {
+                    await reader.cancel().catch(() => undefined)
+                    throw new OciProtocolError(S.LayerMismatchMessage, OciProtocolFault.LayerMismatch)
+                }
+                chunks.push(value)
+            }
+        }
+        catch (error)
+        {
+            if (error instanceof OciProtocolError) throw error
+            throw new OciUnavailableError(OciHttp.UnreachableMessage)
+        }
+        const bytes = new Uint8Array(total)
+        let offset = 0
+        for (const chunk of chunks)
+        {
+            bytes.set(chunk, offset)
+            offset += chunk.length
+        }
+        return bytes
     }
 
     private async ReadTags(response: Response): Promise<string[]>

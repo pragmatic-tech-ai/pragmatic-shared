@@ -6,7 +6,7 @@ class ListEnv
 {
     public static Base(allowlist: string): Record<string, string | undefined>
     {
-        return { PRAGMATIC_BASE_DIR: '/data', PRAGMATIC_MASTER_KEY_B64_ENV: 'PRAGMATIC_MASTER_KEY', PRAGMATIC_ENVIRONMENT_ID: 'acme', PRAGMATIC_ADAPTER_PACKS_SCRIPT_ALLOWLIST: allowlist }
+        return { PRAGMATIC_BASE_DIR: '/data', PRAGMATIC_MASTER_KEY_B64_ENV: 'PRAGMATIC_MASTER_KEY', PRAGMATIC_ENVIRONMENT_ID: 'acme', PRAGMATIC_ADAPTER_PACKS_DIR: '/packs', PRAGMATIC_ADAPTER_PACKS_SCRIPT_ALLOWLIST: allowlist }
     }
 
     public static NoFile(_p: string): string

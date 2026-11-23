@@ -28,6 +28,7 @@ export class TenantConfigurationEndpoint
     private static readonly ValueField = 'value'
     private static readonly ComponentVersionField = 'componentVersion'
     private static readonly CodeField = 'code'
+    private static readonly AuditSeparator = '/'
     private static readonly SavedField = 'saved'
     private static readonly RunningField = 'running'
     /** A secret value is a token, a key or a certificate: 32 KiB holds any of them. */
@@ -135,7 +136,7 @@ export class TenantConfigurationEndpoint
         }
         const name = ctx.Param(C.NameParam)
         // The audit names the component and the secret, never the value.
-        ctx.NoteAudit(`${ctx.Param(C.ComponentParam)}/${name}`)
+        ctx.NoteAudit(ctx.Param(C.ComponentParam) + C.AuditSeparator + name)
         ctx.WriteJson(C.StatusOk, await this.service.PutSecret(session.tenantId, ctx.Param(C.ComponentParam), target, name, value))
     }
 
