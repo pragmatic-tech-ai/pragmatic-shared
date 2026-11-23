@@ -56,6 +56,23 @@ test('Apply runs kubectl apply -f - with manifest on stdin', async () =>
     assert.equal(f.Last.stdin, '{"kind":"List"}')
 })
 
+test('Create runs kubectl create -f - (never apply) and answers true', async () =>
+{
+    const f = new KubectlFixture()
+    assert.equal(await f.Cli.Create('{"kind":"Secret"}'), true)
+    assert.deepEqual(f.Last.args, ['--context', 'kind-hive', 'create', '-f', '-'])
+    assert.equal(f.Last.stdin, '{"kind":"Secret"}')
+})
+
+test('Create answers false on AlreadyExists and throws on any other failure', async () =>
+{
+    const f = new KubectlFixture()
+    f.Fake.FailStderr = 'Error from server (AlreadyExists): error when creating "STDIN": secrets "e-postgres" already exists'
+    assert.equal(await f.Cli.Create('{"kind":"Secret"}'), false)
+    f.Fake.FailStderr = 'Error from server (Forbidden): secrets is forbidden'
+    await assert.rejects(f.Cli.Create('{"kind":"Secret"}'), KubectlError)
+})
+
 test('RolloutStatus args', async () =>
 {
     const f = new KubectlFixture()

@@ -80,6 +80,20 @@ export class ApiKubectl implements IKubectl
         return this.Apply(manifestJson)
     }
 
+    /** POST to each object's collection; a 409 Conflict (AlreadyExists) leaves that object as it is and answers false. */
+    public async Create(manifestJson: string): Promise<boolean>
+    {
+        let created = true
+        for (const item of ApiKubectl.ItemsOf(manifestJson))
+        {
+            if (!await this.client.Create(ApiKubectl.CollectionPathOf(item), item))
+            {
+                created = false
+            }
+        }
+        return created
+    }
+
     public async Get(namespace: string, resource: string): Promise<string>
     {
         const path = ApiKubectl.PathOfResource(namespace, resource)
@@ -252,11 +266,23 @@ export class ApiKubectl implements IKubectl
 
     private static PathOfObject(item: ManifestObject): string
     {
+        ApiKubectl.AssertNamespaced(item)
+        return KubeResourceCatalog.PathOf(item, item.metadata.namespace, item.metadata.name)
+    }
+
+    /** The collection an object is created in (POST): its path without the name. */
+    private static CollectionPathOf(item: ManifestObject): string
+    {
+        ApiKubectl.AssertNamespaced(item)
+        return KubeResourceCatalog.PathOf(item, item.metadata.namespace)
+    }
+
+    private static AssertNamespaced(item: ManifestObject): void
+    {
         if (item.metadata.namespace === undefined && KubeResourceCatalog.IsNamespaced(item))
         {
             throw new KubectlError(ApiKubectl.MissingNamespacePrefix + item.kind + ApiKubectl.Slash + item.metadata.name, '', false)
         }
-        return KubeResourceCatalog.PathOf(item, item.metadata.namespace, item.metadata.name)
     }
 
     private static NameOf(item: unknown): string

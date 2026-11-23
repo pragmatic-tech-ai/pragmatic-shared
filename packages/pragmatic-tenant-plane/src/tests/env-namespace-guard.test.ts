@@ -21,6 +21,7 @@ class RecordingKubectl implements IKubectl
     public RolloutRestart(n: string, d: string) { return this.Record('RolloutRestart', [n, d]) }
     public RolloutRestartSelector(n: string, s: string) { return this.Record('RolloutRestartSelector', [n, s]) }
     public ApplyServerSide(m: string) { return this.Record('ApplyServerSide', [m]) }
+    public async Create(m: string): Promise<boolean> { await this.Record('Create', [m]); return true }
     public DeleteManifest(m: string) { return this.Record('DeleteManifest', [m]) }
     public DeleteBySelector(n: string, r: string, s: string) { return this.Record('DeleteBySelector', [n, r, s]) }
     public async DeleteNamespacesBySelector(s: string, p: string): Promise<string[]> { await this.Record('DeleteNamespacesBySelector', [s, p]); return [] }
@@ -103,6 +104,8 @@ test('refuses a cluster-scoped object in a manifest', async () =>
     await assert.rejects(guard.Apply(manifest), GuardFixture.IsRefusal)
     await assert.rejects(guard.ApplyServerSide(manifest), GuardFixture.IsRefusal)
     await assert.rejects(guard.DeleteManifest(manifest), GuardFixture.IsRefusal)
+    await assert.rejects(guard.Create(manifest), GuardFixture.IsRefusal)
+    await assert.rejects(guard.Create(JSON.stringify(GuardFixture.Secret('kube-system'))), GuardFixture.IsRefusal)
     assert.deepEqual(inner.Calls, [])
 })
 
@@ -156,7 +159,8 @@ test('passes env namespaces through', async () =>
     await guard.Find(GuardFixture.Env, `namespace/${GuardFixture.Env}`)
     await guard.DeleteNamespace(GuardFixture.Env)
     await guard.DeleteBySelector(GuardFixture.Env, 'deployment,secret', 'a=b')
-    assert.deepEqual(inner.Calls.map(c => c[0]), ['Apply', 'ApplyServerSide', 'Get', 'Find', 'DeleteNamespace', 'DeleteBySelector'])
+    assert.equal(await guard.Create(JSON.stringify(GuardFixture.Secret(GuardFixture.Env))), true)
+    assert.deepEqual(inner.Calls.map(c => c[0]), ['Apply', 'ApplyServerSide', 'Get', 'Find', 'DeleteNamespace', 'DeleteBySelector', 'Create'])
     assert.equal(inner.Calls[0][1], manifest)
 })
 

@@ -85,6 +85,25 @@ test('ApplyServerSide applies a single object', async () =>
     assert.ok(fake.Calls[0]![1].startsWith('/api/v1/namespaces/x?'))
 })
 
+test('Create POSTs each object to its collection: created is true, a 409 AlreadyExists is false and changes nothing', async () =>
+{
+    const secret = { apiVersion: 'v1', kind: 'Secret', metadata: { name: 'e-postgres', namespace: 'pragmatic-env-e' }, data: { pw: 'aHVudGVyMg==' } }
+    const { fake, kubectl } = Fixture.Make([{ status: 201, body: '{}' }, { status: 409, body: '{"reason":"AlreadyExists"}' }])
+    assert.equal(await kubectl.Create(JSON.stringify(secret)), true)
+    assert.equal(await kubectl.Create(JSON.stringify(secret)), false)
+    assert.equal(fake.Calls.length, 2)
+    assert.equal(fake.Calls[0]![0], KubeMethod.Post)
+    assert.equal(fake.Calls[0]![1], '/api/v1/namespaces/pragmatic-env-e/secrets')
+    assert.deepEqual(JSON.parse(fake.Calls[0]![3]!), secret)
+})
+
+test('Create propagates any other failure and refuses a namespaced object without a namespace', async () =>
+{
+    const { kubectl } = Fixture.Make([{ status: 403, body: '{}' }])
+    await assert.rejects(() => kubectl.Create(JSON.stringify({ apiVersion: 'v1', kind: 'Secret', metadata: { name: 's', namespace: 'ns' } })), (e: unknown) => e instanceof KubeApiError && e.Status === 403)
+    await assert.rejects(() => kubectl.Create(JSON.stringify({ apiVersion: 'v1', kind: 'Secret', metadata: { name: 's' } })), /Secret\/s/)
+})
+
 test('Apply reports bad JSON without echoing the manifest', async () =>
 {
     const { kubectl } = Fixture.Make([])

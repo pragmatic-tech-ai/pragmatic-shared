@@ -167,9 +167,11 @@ export class EnvServerSeedSource
     }
 
     /**
-     * Mints the env server's database Secret (`<env>-postgres`, EnvironmentDatabaseSecret) once: when it already exists it is
-     * left exactly as it is (never overwritten, never rotated: its Postgres was initialised with those passwords). Applied
-     * server-side, so no last-applied annotation copies the values; they go only to kubectl. Answers whether it minted.
+     * Mints the env server's database Secret (`<env>-postgres`, EnvironmentDatabaseSecret) at most once: when it already exists
+     * it is left exactly as it is (never overwritten, never rotated: its Postgres was initialised with those passwords). The
+     * write is a create-only IKubectl.Create, atomic on the API server, so of two concurrent bring-ups exactly one mints and the
+     * other's AlreadyExists counts as kept (the Find first only spares the usual case a mint and a refused write). A create
+     * writes no last-applied annotation, so the values go only to kubectl. Answers whether this call minted.
      */
     public static async EnsureServerDatabase(kubectl: IKubectl, environmentName: string): Promise<boolean>
     {
@@ -182,8 +184,7 @@ export class EnvServerSeedSource
         const set = new EnvServerSecretSet(namespace)
         set.Add(name, EnvironmentDatabaseSecret.Mint())
         const [secret] = set.RenderManifest()
-        await kubectl.ApplyServerSide(JSON.stringify(secret))
-        return true
+        return kubectl.Create(JSON.stringify(secret))
     }
 
     /** Name of the environment ConfigMap: `<env>-environment`. */

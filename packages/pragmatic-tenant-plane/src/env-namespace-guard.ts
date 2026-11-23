@@ -107,6 +107,12 @@ export class EnvNamespaceGuard implements IKubectl
         await this.inner.ApplyServerSide(manifestJson)
     }
 
+    public async Create(manifestJson: string): Promise<boolean>
+    {
+        EnvNamespaceGuard.AssertManifest(manifestJson)
+        return this.inner.Create(manifestJson)
+    }
+
     public async DeleteManifest(manifestJson: string): Promise<void>
     {
         EnvNamespaceGuard.AssertManifest(manifestJson)

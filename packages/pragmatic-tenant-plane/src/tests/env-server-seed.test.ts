@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { EnvServerSeedSource, EnvServerSecretSet, SeedTooLargeError } from '../env-server-seed.js'
 import { K8sManifestBuilder } from '../k8s-manifest-builder.js'
+import { EnvironmentDatabaseSecret } from '../environment-workload.js'
 import type { IKubectl } from '@pragmatic-tech-ai/pragmatic-kube'
 
 class Fixture
@@ -316,4 +317,62 @@ it('ApplyUiTrust applies a Secret with exactly one <ref>.pub key (never a privat
     assert.deepEqual(Object.keys(secret.data), ['hive-root.pub'])
     assert.equal(secret.data['hive-root.pub'], Buffer.from('PEMDATA').toString('base64'))
     assert.ok(!Object.keys(secret.data).some(k => k.endsWith('.key')))
+})
+
+/** A cluster's Secrets in memory with the API server's semantics: Find yields first (so concurrent callers interleave), a
+ *  create adds only an absent object (atomic), an apply replaces. */
+class RacingSecretKubectl
+{
+    public readonly Secrets = new Map<string, string>()
+    public Writes = 0
+
+    public async Find(namespace: string, resource: string): Promise<string | undefined>
+    {
+        await new Promise<void>(resolve => setImmediate(resolve))
+        return this.Secrets.get(namespace + ' ' + resource)
+    }
+
+    public async Create(manifestJson: string): Promise<boolean>
+    {
+        const key = RacingSecretKubectl.KeyOf(manifestJson)
+        if (this.Secrets.has(key))
+        {
+            return false
+        }
+        this.Writes++
+        this.Secrets.set(key, manifestJson)
+        return true
+    }
+
+    public async ApplyServerSide(manifestJson: string): Promise<void>
+    {
+        this.Writes++
+        this.Secrets.set(RacingSecretKubectl.KeyOf(manifestJson), manifestJson)
+    }
+
+    private static KeyOf(manifestJson: string): string
+    {
+        const item = JSON.parse(manifestJson) as { metadata: { name: string; namespace: string } }
+        return item.metadata.namespace + ' secret/' + item.metadata.name
+    }
+}
+
+describe('EnvServerSeedSource.EnsureServerDatabase', () =>
+{
+    it('two concurrent bring-ups mint the database Secret once and both see the same Secret', async () =>
+    {
+        const kubectl = new RacingSecretKubectl()
+        const results = await Promise.all([
+            EnvServerSeedSource.EnsureServerDatabase(kubectl as unknown as IKubectl, Fixture.Env),
+            EnvServerSeedSource.EnsureServerDatabase(kubectl as unknown as IKubectl, Fixture.Env),
+        ])
+        assert.deepEqual([...results].sort(), [false, true], 'exactly one call mints')
+        assert.equal(kubectl.Writes, 1, 'the loser never overwrites the winner')
+        const namespace = K8sManifestBuilder.NamespaceOf(Fixture.Env)
+        const resource = 'secret/' + EnvironmentDatabaseSecret.NameOf(Fixture.Env)
+        const first = await kubectl.Find(namespace, resource)
+        assert.ok(first !== undefined)
+        assert.equal(await EnvServerSeedSource.EnsureServerDatabase(kubectl as unknown as IKubectl, Fixture.Env), false)
+        assert.equal(await kubectl.Find(namespace, resource), first)
+    })
 })

@@ -20,6 +20,12 @@ export interface IKubectl
      * apply it writes no last-applied-configuration annotation, so a Secret's value is not copied into one.
      */
     ApplyServerSide(manifestJson: string): Promise<void>
+    /**
+     * Creates the manifest's objects ONLY when absent (stdin; create, never update): an object that already exists is left
+     * exactly as it is. Atomic per object on the API server, so concurrent callers mint a value at most once. Answers true
+     * when every object was created, false when any already existed. Writes no last-applied annotation.
+     */
+    Create(manifestJson: string): Promise<boolean>
     Get(namespace: string, resource: string): Promise<string>
     DeleteNamespace(namespace: string): Promise<void>
     /** One resource ('kind/name') as JSON, or undefined when it does not exist. */
@@ -270,6 +276,8 @@ export class KubectlCli implements IPortForwardingKubectl
     private static readonly Kubectl = 'kubectl'
     private static readonly ContextFlag = '--context'
     private static readonly ApplyVerb = 'apply'
+    private static readonly CreateVerb = 'create'
+    private static readonly AlreadyExistsMarker = '(AlreadyExists)'
     private static readonly FileFlag = '-f'
     private static readonly Stdin = '-'
     private static readonly ServerSideFlag = '--server-side'
@@ -328,6 +336,24 @@ export class KubectlCli implements IPortForwardingKubectl
     {
         const K = KubectlCli
         await this.Invoke([K.ApplyVerb, K.ServerSideFlag, K.FieldManagerFlag, K.ForceConflictsFlag, K.FileFlag, K.Stdin], manifestJson)
+    }
+
+    /** `kubectl create -f -`; an AlreadyExists failure (and only that) answers false. */
+    public async Create(manifestJson: string): Promise<boolean>
+    {
+        try
+        {
+            await this.Invoke([KubectlCli.CreateVerb, KubectlCli.FileFlag, KubectlCli.Stdin], manifestJson)
+            return true
+        }
+        catch (err)
+        {
+            if (err instanceof KubectlError && err.message.includes(KubectlCli.AlreadyExistsMarker))
+            {
+                return false
+            }
+            throw err
+        }
     }
 
     public async RolloutStatus(namespace: string, deployment: string): Promise<void>

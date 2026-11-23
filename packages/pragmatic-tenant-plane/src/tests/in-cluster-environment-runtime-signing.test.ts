@@ -112,11 +112,25 @@ describe('InClusterEnvironmentRuntime signing', () =>
     })
 })
 
-/** A cluster's Secrets in memory: Find answers what was applied (by namespace + `secret/<name>`); every apply replaces. */
+/** A cluster's Secrets in memory: Find answers what was applied (by namespace + `secret/<name>`); every apply replaces, a
+ *  create only adds an absent Secret. */
 class SecretStoreKubectl
 {
     public readonly Secrets = new Map<string, Record<string, string>>()
     public ServerSideApplies = 0
+    public Creates = 0
+
+    public async Create(manifestJson: string): Promise<boolean>
+    {
+        const item = JSON.parse(manifestJson)
+        if (this.Secrets.has(item.metadata.namespace + ' secret/' + item.metadata.name))
+        {
+            return false
+        }
+        this.Creates++
+        this.Store(item)
+        return true
+    }
 
     public async Find(namespace: string, resource: string): Promise<string | undefined>
     {
@@ -177,7 +191,8 @@ describe('InClusterEnvironmentRuntime server database', () =>
 
             await runtime.BringUp(ctx)
             assert.deepEqual(kubectl.Secrets.get(key), first, 'a second bring-up keeps the first Secret\'s values')
-            assert.equal(kubectl.ServerSideApplies, 1, 'never re-applied, never rotated')
+            assert.equal(kubectl.Creates, 1, 'created once, never re-applied, never rotated')
+            assert.equal(kubectl.ServerSideApplies, 0, 'a create-only write, never an apply that could overwrite')
         }
         finally
         {

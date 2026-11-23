@@ -83,6 +83,7 @@ class PlainKubectl implements IKubectl
     public async RolloutRestart(): Promise<void> { }
     public async RolloutRestartSelector(): Promise<void> { }
     public async ApplyServerSide(): Promise<void> { }
+    public async Create(): Promise<boolean> { return true }
     public async DeleteNamespace(): Promise<void> { }
     public async Find(): Promise<string | undefined> { return undefined }
     public async DeleteManifest(): Promise<void> { }
