@@ -1,6 +1,6 @@
 {
   "name": "@pragmatic-tech-ai/pragmatic-identity-source-google",
-  "version": "0.18.13",
+  "version": "0.18.14",
   "license": "Apache-2.0",
   "description": "Google identity source: its profile; builds on pragmatic-identity-source-oidc.",
   "repository": {
@@ -29,11 +29,11 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@pragmatic-tech-ai/pragmatic-identity": "0.18.13",
-    "@pragmatic-tech-ai/pragmatic-identity-source-oidc": "0.18.13"
+    "@pragmatic-tech-ai/pragmatic-identity": "0.18.14",
+    "@pragmatic-tech-ai/pragmatic-identity-source-oidc": "0.18.14"
   },
   "devDependencies": {
-    "@pragmatic-tech-ai/pragmatic-identity-source-entra": "0.18.13",
+    "@pragmatic-tech-ai/pragmatic-identity-source-entra": "0.18.14",
     "@types/node": "^22.20.1",
     "tsx": "^4.0.0",
     "typescript": "^5.5.0"

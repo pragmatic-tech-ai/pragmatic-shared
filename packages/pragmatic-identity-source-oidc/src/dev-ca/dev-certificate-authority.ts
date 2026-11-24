@@ -75,13 +75,16 @@ export class DevCa
     private static readonly SanPrefix = 'subjectAltName='
     private static readonly DnsPrefix = 'DNS:'
     private static readonly SanSeparator = ','
-    private static readonly SanSuffix = ',IP:127.0.0.1'
+    /** Every server cert also names `localhost` (loopback clients: a port-forward, a container health check), never an IP. */
+    public static readonly LoopbackHost = 'localhost'
     private static readonly BasicConstraints = 'basicConstraints=CA:FALSE'
     private static readonly FlagAddext = '-addext'
     private static readonly CaBasicConstraints = 'basicConstraints=critical,CA:TRUE,pathlen:0'
     private static readonly CaKeyUsage = 'keyUsage=critical,keyCertSign,cRLSign'
     private static readonly NameConstraintsPrefix = 'nameConstraints=critical,'
     private static readonly PermittedDnsPrefix = 'permitted;DNS:'
+    /** Every IPv4 and IPv6 address excluded: the CA can vouch for no IP literal. */
+    private static readonly ExcludedIps = ['excluded;IP:0.0.0.0/0.0.0.0', 'excluded;IP:0:0:0:0:0:0:0:0/0:0:0:0:0:0:0:0']
     private static readonly Eol = '\n'
     private static readonly KeyMode = 0o600
     private static readonly OpensslFailed = 'DevCa: failed to run openssl (is the openssl CLI installed and on PATH?): '
@@ -164,7 +167,7 @@ export class DevCa
             DevCa.FlagAddext, DevCa.CaBasicConstraints, DevCa.FlagAddext, DevCa.CaKeyUsage, DevCa.FlagAddext, DevCa.NameConstraintsOf(hosts)])
         DevCa.Run(openssl, [DevCa.ReqCmd, DevCa.FlagNewkey, DevCa.KeySpec, DevCa.FlagNodes, DevCa.FlagKeyout, p(DevCa.ServerKeyFile),
             DevCa.FlagOut, p(DevCa.ServerCsrFile), DevCa.FlagSubj, DevCa.SubjectPrefix + DevCa.CommonNameOf(hosts)])
-        writeFileSync(p(DevCa.ExtFile), DevCa.SanPrefix + hosts.map(h => DevCa.DnsPrefix + h).join(DevCa.SanSeparator) + DevCa.SanSuffix + DevCa.Eol + DevCa.BasicConstraints + DevCa.Eol)
+        writeFileSync(p(DevCa.ExtFile), DevCa.SanPrefix + DevCa.NamesOf(hosts).map(h => DevCa.DnsPrefix + h).join(DevCa.SanSeparator) + DevCa.Eol + DevCa.BasicConstraints + DevCa.Eol)
         DevCa.Run(openssl, [DevCa.X509Cmd, DevCa.FlagReq, DevCa.FlagIn, p(DevCa.ServerCsrFile), DevCa.FlagCa, p(DevCa.CaCertFile),
             DevCa.FlagCaKey, p(DevCa.CaKeyFile), DevCa.FlagCaCreateSerial, DevCa.FlagOut, p(DevCa.ServerCertFile),
             DevCa.FlagDays, DevCa.ValidDays, DevCa.FlagExtfile, p(DevCa.ExtFile)])
@@ -173,16 +176,23 @@ export class DevCa
         rmSync(p(DevCa.CaSerialFile), { force: true })
     }
 
+    /** The DNS names a server cert carries and its CA permits: the hosts, then `localhost` (once). */
+    private static NamesOf(hosts: readonly string[]): readonly string[]
+    {
+        return hosts.includes(DevCa.LoopbackHost) ? hosts : [...hosts, DevCa.LoopbackHost]
+    }
+
     /**
-     * The CA may sign only for the DNS hosts it was minted for, so trusting it in an OS store (dev-ca-trust.ps1 refuses any CA
-     * without a critical name constraint) can never vouch for another site, even if its key leaked during the mint. It names no
-     * IP subtree: BoringSSL (Electron's Node, so Plexus's main process) refuses every chain whose CA constrains IP names while
-     * the leaf carries an IP SAN ("unsupported name constraint type"), and every server cert carries the loopback IP
-     * (SanSuffix). The key is never persisted, so an IP name it could sign is bounded by the mint itself.
+     * The CA may sign only for the DNS names it was minted for (its hosts and `localhost`) and for no IP address, so trusting
+     * it in an OS store (dev-ca-trust.ps1 refuses any CA without a critical name constraint) can never vouch for another site
+     * or an IP literal, even if its key leaked during the mint (the key is never persisted). Server certs carry no IP SAN:
+     * BoringSSL (Electron's Node, so Plexus's main process) refuses a chain whose CA has any IP subtree while the leaf names an
+     * IP ("unsupported name constraint type"), but checks IP subtrees only against IP names, so excluded ones with DNS-only
+     * leaves pass. Loopback clients reach a server as `localhost`.
      */
     private static NameConstraintsOf(hosts: readonly string[]): string
     {
-        return DevCa.NameConstraintsPrefix + hosts.map(h => DevCa.PermittedDnsPrefix + h).join(DevCa.SanSeparator)
+        return DevCa.NameConstraintsPrefix + [...DevCa.NamesOf(hosts).map(h => DevCa.PermittedDnsPrefix + h), ...DevCa.ExcludedIps].join(DevCa.SanSeparator)
     }
 
     /**

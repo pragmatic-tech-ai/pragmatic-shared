@@ -99,7 +99,8 @@ test('the server cert carries the host SAN and chains to the minted CA', () =>
         const server = new X509Certificate(readFileSync(r.certFile))
         const ca = new X509Certificate(readFileSync(r.caFile))
         assert.ok(server.subjectAltName?.includes('idp.local'))
-        assert.ok(server.subjectAltName?.includes('127.0.0.1'))
+        assert.ok(server.subjectAltName?.includes('DNS:localhost'), 'loopback clients reach it as localhost')
+        assert.ok(!server.subjectAltName?.includes('IP Address'), 'no IP SAN')
         assert.equal(server.verify(ca.publicKey), true)
         assert.equal(server.ca, false)
     }
@@ -141,7 +142,8 @@ test('a host list mints a multi-SAN cert (CN = first host) and still never persi
         const cert = new X509Certificate(readFileSync(f.certFile))
         assert.ok(cert.subjectAltName?.includes('DNS:a.example'))
         assert.ok(cert.subjectAltName?.includes('DNS:b.example'))
-        assert.ok(cert.subjectAltName?.includes('IP Address:127.0.0.1'))
+        assert.ok(cert.subjectAltName?.includes('DNS:localhost'))
+        assert.ok(!cert.subjectAltName?.includes('IP Address'))
         assert.ok(cert.subject.includes('CN=a.example'))
     }
     finally
@@ -226,7 +228,7 @@ class OpensslProbe
     }
 }
 
-test('the CA is a critical name-constrained CA limited to its DNS hosts, with no IP subtree (BoringSSL refuses the chain over one)', () =>
+test('the CA is a critical name-constrained CA limited to its DNS hosts and localhost, excluding every IP address', () =>
 {
     const dir = mkdtempSync(join(tmpdir(), 'devca-'))
     try
@@ -238,11 +240,12 @@ test('the CA is a critical name-constrained CA limited to its DNS hosts, with no
         assert.match(constraints, /Name Constraints: critical/)
         assert.match(constraints, /DNS:a\.example/)
         assert.match(constraints, /DNS:b\.example/)
-        // Electron's BoringSSL (Plexus's main process) rejects a chain whose CA constrains IP names ("unsupported name
-        // constraint type") whenever the leaf carries an IP SAN, so the CA constrains DNS names only.
-        assert.doesNotMatch(constraints, /IP:/)
-        assert.ok(new X509Certificate(readFileSync(f.certFile)).subjectAltName?.includes('IP Address:127.0.0.1'), 'the leaf keeps its loopback IP')
-        assert.doesNotMatch(constraints, /Excluded/)
+        assert.match(constraints, /DNS:localhost/)
+        // Every IP excluded; Electron's BoringSSL accepts that only because the leaf names no IP (it refuses any IP subtree
+        // over an IP SAN: "unsupported name constraint type").
+        assert.match(constraints, /Excluded:\s+IP:0\.0\.0\.0\/0\.0\.0\.0\s+IP:0:0:0:0:0:0:0:0\/0:0:0:0:0:0:0:0/)
+        assert.doesNotMatch(constraints.split('Excluded')[0] as string, /IP:/, 'no permitted IP subtree')
+        assert.ok(!new X509Certificate(readFileSync(f.certFile)).subjectAltName?.includes('IP Address'), 'the leaf names no IP')
         assert.match(OpensslProbe.Extension(f.caFile, 'basicConstraints'), /critical[\s\S]*CA:TRUE, pathlen:0/)
         assert.match(OpensslProbe.Extension(f.caFile, 'keyUsage'), /critical[\s\S]*Certificate Sign, CRL Sign/)
         assert.match(OpensslProbe.Verify(f.caFile, f.certFile), /OK/)
