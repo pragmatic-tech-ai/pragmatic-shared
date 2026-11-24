@@ -4,14 +4,14 @@ import { Readable } from 'node:stream'
 import { describe, it } from 'node:test'
 import type { IEnvironmentService } from '../environment-service-contract.js'
 import { EnvironmentPlacement } from '../environment-placement.js'
-import { EnvironmentDatabaseSecret } from '../environment-workload.js'
+import { EnvironmentDatabaseSecret, type WorkloadSidecarDatabase } from '../environment-workload.js'
 import { HivePlacementError } from '../hive-placement-error.js'
 import type { ManifestRecord } from '../manifest-record.js'
 import type { HiveRolloutStatus } from '../tenant-api/rollout-status.js'
 import { HiveBackend, InfraMode, type HiveRecord, type TenantRecord } from '../platform-records.js'
 import { EnvStatus, EnvType, Template, type EnvironmentRecord } from '../environment-record.js'
 import { HiveOrchestratorFactory } from '../hive-orchestrator-factory.js'
-import { RolloutAdoptionRefusedError, type AdoptionLedgerDto, type IRolloutClient } from '../tenant-api/rollout-client.js'
+import { RolloutAdoptionRefusedError, RolloutStandaloneError, RolloutUnavailableCode, RolloutUnavailableError, type AdoptionLedgerDto, type IRolloutClient } from '../tenant-api/rollout-client.js'
 import type { ITenantDirectory } from '../tenant-api/tenant-directory.js'
 import { TenantApiEndpoint } from '../tenant-api/tenant-api-endpoint.js'
 import { TenantHostResolver } from '../tenant-auth/tenant-host-resolver.js'
@@ -76,6 +76,20 @@ class RefusingRolloutClient extends FakeRolloutClient
     }
 }
 
+/** Answers every status read with the given error (a standalone engine, an unenrolled hive). */
+class UnavailableRolloutClient extends FakeRolloutClient
+{
+    public constructor(private readonly error: Error)
+    {
+        super()
+    }
+
+    public override async StatusFor(_hiveId: string): Promise<HiveRolloutStatus>
+    {
+        throw this.error
+    }
+}
+
 /** Records the status the endpoint wrote; no socket involved. */
 class FakeResponse
 {
@@ -93,8 +107,11 @@ class FakeResponse
         return this
     }
 
-    public end(_body?: string): void
+    public body: string | undefined = undefined
+
+    public end(body?: string): void
     {
+        this.body = body
     }
 }
 
@@ -135,6 +152,8 @@ class Kit
     public static readonly Scheme = 'https'
     public static readonly HostSuffix = '.' + Kit.BaseDomain
     public static readonly TargetPath = '/tenant-api/hives/' + Kit.Hive + '/target'
+    public static readonly RolloutPath = '/tenant-api/hives/' + Kit.Hive + '/rollout'
+    public static readonly MethodGet = 'GET'
     public static readonly SessionId = 's'
 
     public static TenantRec(): TenantRecord
@@ -175,6 +194,13 @@ class Kit
         return stream
     }
 
+    public static Get(): IncomingMessage
+    {
+        const stream = Readable.from([]) as unknown as IncomingMessage & { method?: string }
+        stream.method = Kit.MethodGet
+        return stream
+    }
+
     public static Res(): FakeResponse
     {
         return new FakeResponse()
@@ -202,6 +228,22 @@ describe('tenant plane depends on narrow seams', () =>
         assert.deepEqual(rollout.Adopted, [{ hiveId: Kit.Hive, version: Kit.Version }])
     })
 
+    it('a standalone engine answers the rollout routes 404 with its code; an unenrolled hive 503 with its code', async () =>
+    {
+        const service = new FakeEnvironmentService([Kit.Env()]) as unknown as IEnvironmentService
+        for (const [error, status, code] of [
+            [new RolloutStandaloneError('This hive runs standalone'), 404, RolloutUnavailableCode.Standalone],
+            [new RolloutUnavailableError('Not connected yet', RolloutUnavailableCode.NotEnrolled), 503, RolloutUnavailableCode.NotEnrolled],
+        ] as const)
+        {
+            const endpoint = new TenantApiEndpoint(service, Kit.Directory(), new UnavailableRolloutClient(error), new HiveOrchestratorFactory(), new EnvironmentPlacement(Kit.Directory()))
+            const res = Kit.Res()
+            assert.equal(await TenantApiDispatch.Handle(endpoint, Kit.Get(), res as unknown as ServerResponse, Kit.RolloutPath, Kit.Session(), Kit.Directory()), true)
+            assert.equal(res.status, status)
+            assert.deepEqual(JSON.parse(res.body ?? '{}'), { error: error.message, code })
+        }
+    })
+
     it('TenantApiEndpoint maps a refused adoption from the rollout client to 409, not 500', async () =>
     {
         const service = new FakeEnvironmentService([Kit.Env()]) as unknown as IEnvironmentService
@@ -222,7 +264,7 @@ describe('tenant plane depends on narrow seams', () =>
     it('EnvironmentPlacement gives every workload the server database image it was built with (default: the dev image)', () =>
     {
         const release = 'ghcr.io/pragmatic-tech-ai/pragmatic-postgres@sha256:' + 'c'.repeat(64)
-        assert.equal(new EnvironmentPlacement(Kit.Directory()).WorkloadFor(Kit.Env()).serverDatabase.image, EnvironmentDatabaseSecret.DevImage)
-        assert.equal(new EnvironmentPlacement(Kit.Directory(), undefined, release).WorkloadFor(Kit.Env()).serverDatabase.image, release)
+        assert.equal((new EnvironmentPlacement(Kit.Directory()).WorkloadFor(Kit.Env()).serverDatabase as WorkloadSidecarDatabase).image, EnvironmentDatabaseSecret.DevImage)
+        assert.equal((new EnvironmentPlacement(Kit.Directory(), undefined, release).WorkloadFor(Kit.Env()).serverDatabase as WorkloadSidecarDatabase).image, release)
     })
 })

@@ -1,11 +1,11 @@
 export { Channel } from './channel.js';
 export { ReleaseApp, ReleaseApps, ReleaseTagInvalidError, ReleaseTag } from './release/release-tag.js';
 export { ReleaseDescriptorInvalidError, ReleaseDescriptorCodec } from './release/release-descriptor.js';
-export type { ReleaseImage, ReleaseImages, ReleaseDescriptorSchema, ReleaseDescriptor } from './release/release-descriptor.js';
+export type { ReleaseImage, ReleaseImages, ReleaseDescriptorSchema, ReleaseDescriptor, ReleaseChart } from './release/release-descriptor.js';
 export { ReleaseSignature } from './release/release-signature.js';
 export { ReleaseRegistry } from './release/release-registry.js';
 export { ReleaseTrustKeyInvalidError, ReleaseTrustKeys } from './release/release-trust-keys.js';
-export { ReleaseManifestProblemsError, ReleaseCommitInvalidError, ReleaseSigningKeyMismatchError, ReleaseVersionExistsError, ReleaseImageMissingError, ReleaseComponentMissingError, ReleasePublisher } from './release/release-publisher.js';
+export { ReleaseManifestProblemsError, ReleaseCommitInvalidError, ReleaseSigningKeyMismatchError, ReleaseVersionExistsError, ReleaseImageMissingError, ReleaseComponentMissingError, ReleasePublisher, ReleaseChartMismatchError } from './release/release-publisher.js';
 export type { ReleasePublishResult, ReleasePublishInput, ReleaseManifestPublishInput } from './release/release-publisher.js';
 export { ReleaseManifestInvalidError, ReleaseManifestMissingAppError, ReleaseManifestUnknownAppError, ReleaseManifestDigestError, ReleaseManifestProblemKind, ReleaseManifest } from './release/release-manifest.js';
 export type { ReleaseManifestComponent, ReleaseManifestDocument, ReleaseManifestProblem, ReleaseManifestInspection } from './release/release-manifest.js';

@@ -1,7 +1,7 @@
 import { OciRegistryClient } from '../oci-registry-client.js'
 import type { IComponentAssetSource } from './component-asset-source.js'
 import { ComponentImageLabel, ComponentLabelError } from './component-image-label.js'
-import { ReleaseDescriptorCodec, type ReleaseDescriptor, type ReleaseImage } from './release-descriptor.js'
+import { ReleaseDescriptorCodec, type ReleaseChart, type ReleaseDescriptor, type ReleaseImage } from './release-descriptor.js'
 import { ReleaseManifest, ReleaseManifestProblemKind, type ReleaseManifestDocument, type ReleaseManifestInspection, type ReleaseManifestProblem } from './release-manifest.js'
 import { ReleaseRegistry } from './release-registry.js'
 import { ReleaseSignature } from './release-signature.js'
@@ -34,6 +34,26 @@ export type ReleaseManifestPublishInput = {
     SigningKeyId: string
     PrivateKeyPem: string
     TrustedPublicKeyPem: string
+    /**
+     * The engine chart pushed for this release (`oci://ReleaseDescriptorCodec.ChartReference:<version>`) and its manifest digest:
+     * the publisher checks the registry holds that chart at that digest, then writes a schema-3 descriptor binding it.
+     * Omitted: a schema-2 release without a chart.
+     */
+    ChartDigest?: string
+}
+
+/** The engine chart is not in the registry at the release version, or another digest is there. Nothing was published. */
+export class ReleaseChartMismatchError extends Error
+{
+    private static readonly ErrorName = 'ReleaseChartMismatchError'
+    private static readonly MessagePrefix = 'The engine chart is not in the registry at the given digest for version '
+    private static readonly MessageSuffix = '; nothing was published'
+
+    public constructor(public readonly Version: string)
+    {
+        super(ReleaseChartMismatchError.MessagePrefix + Version + ReleaseChartMismatchError.MessageSuffix)
+        this.name = ReleaseChartMismatchError.ErrorName
+    }
 }
 
 /** The manifest cannot be assembled: ReleaseManifest.Check found problems; nothing was pushed. */
@@ -151,6 +171,8 @@ export class ReleasePublisher
     public static readonly LayerMediaType = 'application/vnd.pragmatic.release.v1+json'
     public static readonly SignatureAnnotation = 'org.pragmatic.release.signature'
     public static readonly KeyAnnotation = 'org.pragmatic.release.key'
+    /** The engine chart's repository under the release namespace (ghcr.io/<namespace>/charts/pragmatic-engine). */
+    public static readonly ChartRepository = 'charts/pragmatic-engine'
 
     public constructor(
         private readonly registry: OciRegistryClient,
@@ -238,8 +260,9 @@ export class ReleasePublisher
             }
             images[app] = { repository: this.repo(app), digest, signature: ReleaseSignature.Sign(digest, input.PrivateKeyPem), componentDigest }
         }
+        const chart = input.ChartDigest === undefined ? undefined : await this.ChartOf(tag.Version, input.ChartDigest)
         const descriptor: ReleaseDescriptor = {
-            schema: ReleaseDescriptorCodec.CurrentSchema,
+            schema: chart === undefined ? ReleaseDescriptorCodec.CurrentSchema : ReleaseDescriptorCodec.ChartSchema,
             version: tag.Version,
             channel: tag.Channel,
             serverCommit: input.ReleaseCommit,
@@ -247,6 +270,10 @@ export class ReleasePublisher
             builtAt: this.clock().toISOString(),
             signingKeyId: input.SigningKeyId,
             images: images as ReleaseDescriptor['images'],
+        }
+        if (chart !== undefined)
+        {
+            descriptor.chart = chart
         }
         const bytes = ReleaseDescriptorCodec.Encode(descriptor)
         const descriptorDigest = OciRegistryClient.DigestOf(bytes)
@@ -273,6 +300,18 @@ export class ReleasePublisher
             [S.KeyAnnotation]: input.SigningKeyId,
         })
         return { descriptor, descriptorDigest }
+    }
+
+    /** The chart the registry holds at `<chart repository>:<version>`, refused unless its manifest digest is `digest`. */
+    private async ChartOf(version: string, digest: string): Promise<ReleaseChart>
+    {
+        const S = ReleasePublisher
+        const held = await this.registry.HeadManifest(this.repo(S.ChartRepository), version)
+        if (held !== digest)
+        {
+            throw new ReleaseChartMismatchError(version)
+        }
+        return { reference: ReleaseDescriptorCodec.ChartReference, version, digest }
     }
 
     /** Every image's `release-<version>` tag is free or already names the manifest digest (a re-run); else nothing is tagged. */

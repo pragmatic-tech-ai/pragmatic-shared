@@ -1,5 +1,5 @@
 import type { EnvironmentRecord } from './environment-record.js'
-import { EnvironmentWorkloadFactory, type EnvironmentWorkload } from './environment-workload.js'
+import { EnvironmentWorkloadFactory, type EngineEnvironment, type EnvironmentWorkload } from './environment-workload.js'
 import { HivePlacementError } from './hive-placement-error.js'
 import type { IngressTls } from './ingress-tls.js'
 import type { ITenantDirectory } from './tenant-api/tenant-directory.js'
@@ -20,11 +20,12 @@ export class EnvironmentNotPlacedError extends Error
 /**
  * Binds an environment to its hive: validates tenant ownership, then builds the schedulable workload. `serverDatabaseImage` is
  * the pragmatic-postgres image every environment's server database sidecar runs (a released platform's release image;
- * omitted: the development image, EnvironmentDatabaseSecret.DevImage).
+ * omitted: the development image, EnvironmentDatabaseSecret.DevImage). `engine` (a chart-installed management engine) runs every
+ * environment on the release's images and the hive's one Postgres instead (no sidecar).
  */
 export class EnvironmentPlacement
 {
-    public constructor(private readonly directory: ITenantDirectory, private readonly ingressTls?: IngressTls, private readonly serverDatabaseImage?: string)
+    public constructor(private readonly directory: ITenantDirectory, private readonly ingressTls?: IngressTls, private readonly serverDatabaseImage?: string, private readonly engine?: EngineEnvironment)
     {
     }
 
@@ -39,6 +40,6 @@ export class EnvironmentPlacement
         {
             HivePlacementError.Assert(hive, record.tenantId, record.hiveId)
         }
-        return EnvironmentWorkloadFactory.From(record, hive!, this.ingressTls, this.serverDatabaseImage)
+        return EnvironmentWorkloadFactory.From(record, hive!, this.ingressTls, this.serverDatabaseImage, this.engine)
     }
 }

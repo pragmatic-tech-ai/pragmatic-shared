@@ -19,7 +19,8 @@ class ReleaseCliUsageError extends Error
  * `check --tag <ref>`, `publish --tag <ref> --server-commit <sha> --siblings-file <path> --key-id <id> [--trust-dir <dir>]`
  * (the images tagged with the release version), and from a release manifest (pragmatic-platform-release's `release.json`):
  * `assemble --manifest <path>` (checks only: prints each problem, exit 1 on any) and `publish --manifest <path> --key-id <id>
- * [--trust-dir <dir>] [--release-commit <sha>]` (the release commit defaults to GITHUB_SHA). Secrets come from the
+ * [--trust-dir <dir>] [--release-commit <sha>] [--chart-digest <digest>]` (the release commit defaults to GITHUB_SHA; with
+ * `--chart-digest` the engine chart pushed at the release version must hold that digest, and the descriptor is schema 3). Secrets come from the
  * environment (key file path, registry credential, the optional GITHUB_TOKEN the component assets are read with); only
  * the version and digests are printed, failures print the error sentence. Before anything is pushed, publish verifies
  * every signature against the trusted public key `<trust dir>/<key id>.pub.pem` (default: `release-keys` under the
@@ -39,6 +40,7 @@ export class ReleasePublishCli
     private static readonly FlagTrustDir = 'trust-dir'
     private static readonly FlagManifest = 'manifest'
     private static readonly FlagReleaseCommit = 'release-commit'
+    private static readonly FlagChartDigest = 'chart-digest'
     /** The tag-mode options a `publish --manifest` refuses (the manifest names the version, the commits come from GitHub). */
     private static readonly TagModeFlags: readonly string[] = [ReleasePublishCli.FlagTag, ReleasePublishCli.FlagServerCommit, ReleasePublishCli.FlagSiblingsFile]
     /** The options each command accepts: `check` refuses the publish-only ones. */
@@ -52,6 +54,7 @@ export class ReleasePublishCli
             ReleasePublishCli.FlagTrustDir,
             ReleasePublishCli.FlagManifest,
             ReleasePublishCli.FlagReleaseCommit,
+            ReleasePublishCli.FlagChartDigest,
         ]],
         [ReleasePublishCli.CommandAssemble, [ReleasePublishCli.FlagManifest]],
     ])
@@ -82,7 +85,7 @@ export class ReleasePublishCli
     private static readonly Utf8 = 'utf8'
     private static readonly OkExitCode = 0
     private static readonly FailExitCode = 1
-    private static readonly UsageMessage = 'Usage: pragmatic-release-publish check --tag <ref> | publish --tag <ref> --server-commit <sha> --siblings-file <path> --key-id <id> [--trust-dir <dir>] | assemble --manifest <path> | publish --manifest <path> --key-id <id> [--trust-dir <dir>] [--release-commit <sha>]'
+    private static readonly UsageMessage = 'Usage: pragmatic-release-publish check --tag <ref> | publish --tag <ref> --server-commit <sha> --siblings-file <path> --key-id <id> [--trust-dir <dir>] | assemble --manifest <path> | publish --manifest <path> --key-id <id> [--trust-dir <dir>] [--release-commit <sha>] [--chart-digest <sha256:...>]'
     private static readonly MissingFlagPrefix = 'Missing required option: --'
     private static readonly MissingEnvPrefix = 'Missing required environment variable: '
     private static readonly BadSiblingsMessage = 'The siblings file must be a JSON object mapping plain repository names to 40-hex commit shas'
@@ -192,6 +195,7 @@ export class ReleasePublishCli
             SigningKeyId: signingKeyId,
             PrivateKeyPem: privateKeyPem,
             TrustedPublicKeyPem: trustedPublicKeyPem,
+            ChartDigest: flags.get(S.FlagChartDigest),
         }
         const result = await S.NewPublisher(env, fetchFn).PublishManifest(input)
         S.PrintPublished(result.descriptor, result.descriptorDigest, output)

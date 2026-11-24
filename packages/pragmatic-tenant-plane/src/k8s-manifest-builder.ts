@@ -3,7 +3,7 @@ import { ComponentReadyFile, ComponentTermination, ConfigurationEnvironmentOverl
 import { ReleaseApp, UiArtifact } from '@pragmatic-tech-ai/pragmatic-release-toolkit'
 import { ComponentConfigurationMounts, WorkloadRoll } from './component-configuration-mounts.js'
 import { EnvConventions } from './seed/env-conventions.js'
-import { EnvironmentDatabaseSecret, type EnvironmentWorkload, type WorkloadAppDeployment, type WorkloadDatabase } from './environment-workload.js'
+import { EnvironmentDatabaseSecret, EnvironmentHiveDatabase, WorkloadServerDatabases, type EnvironmentWorkload, type WorkloadAppDeployment, type WorkloadDatabase } from './environment-workload.js'
 import { EnvServerSeedSource } from './env-server-seed.js'
 import { InClusterRegistry } from './in-cluster-registry.js'
 import { IdpDatabaseSecret, IdpWorkloadNames, type IdpWorkloadSpec } from './idp-workload-driver.js'
@@ -488,7 +488,11 @@ export class K8sManifestBuilder
             items.push(this.DatabaseService(workload))
         }
         items.push(this.ServerDataClaim(workload))
-        items.push(this.ServerPostgresConfig(workload))
+        // The sidecar's applications file; on the hive's Postgres the console provisions the database instead.
+        if (WorkloadServerDatabases.IsSidecar(workload.serverDatabase))
+        {
+            items.push(this.ServerPostgresConfig(workload))
+        }
         if (workload.federation)
         {
             items.push(this.ServerIngress(workload, workload.federation.baseDomain))
@@ -2114,7 +2118,7 @@ export class K8sManifestBuilder
                                     [K8sManifestBuilder.PortKey]: workload.serverPort,
                                 },
                             },
-                        }, this.ServerPostgresContainer(workload)],
+                        }, ...this.ServerPostgresContainers(workload)],
                         [K8sManifestBuilder.VolumesKey]: volumes,
                     },
                 },
@@ -2140,12 +2144,17 @@ export class K8sManifestBuilder
      * so initdb owns it), the superuser and server role passwords projected from the database Secret as the image expects
      * them, the applications file from the ConfigMap. It listens on the pod's loopback only (no port, no Service).
      */
-    private ServerPostgresContainer(workload: EnvironmentWorkload): K8sObject
+    private ServerPostgresContainers(workload: EnvironmentWorkload): K8sObject[]
+    {
+        return WorkloadServerDatabases.IsSidecar(workload.serverDatabase) ? [this.ServerPostgresContainer(workload, workload.serverDatabase.image)] : []
+    }
+
+    private ServerPostgresContainer(workload: EnvironmentWorkload, image: string): K8sObject
     {
         const B = K8sManifestBuilder
         return {
             [B.NameKey]: B.ConsolePostgresContainerName,
-            [B.ImageKey]: workload.serverDatabase.image,
+            [B.ImageKey]: image,
             [B.ImagePullPolicyKey]: B.IfNotPresent,
             [B.ArgsKey]: [...B.ConsolePostgresArgs],
             [B.SecurityContextKey]: {
@@ -2168,12 +2177,20 @@ export class K8sManifestBuilder
         }
     }
 
-    /** The volumes of the env server's database: the sidecar's password files, applications file and scratch; the server's url-only projection. */
+    /**
+     * The volumes of the env server's database: the sidecar's password files, applications file and scratch and the server's
+     * url-only projection; on the hive's Postgres only the url-only projection of the console's `<env>-database` Secret.
+     */
     private ServerPostgresVolumes(workload: EnvironmentWorkload): K8sObject[]
     {
         const B = K8sManifestBuilder
         const S = EnvironmentDatabaseSecret
-        const secretName = workload.serverDatabase.secretName
+        const database = workload.serverDatabase
+        if (!WorkloadServerDatabases.IsSidecar(database))
+        {
+            return [this.SecretVolume(B.EnvServerDatabaseVolume, database.UrlSecretName, [{ key: EnvironmentHiveDatabase.UrlKey, path: EnvironmentHiveDatabase.UrlKey }])]
+        }
+        const secretName = database.secretName
         return [
             this.SecretVolume(B.ConsolePostgresSecretsVolume, secretName, [
                 { key: S.SuperuserKey, path: S.SuperuserKey },

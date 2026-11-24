@@ -172,8 +172,10 @@ export class ContainerProfiles
             Kind: ContainerKind.Node, MultiArch: false, AptPackages: ContainerProfiles.None, ProvisioningTools: false, Env: [], Ports: [],
             ImageTest: false, StartSmoke: true, HelmChart: ContainerProfiles.NoChart, ClosureCheck: true, VersionManifest: ContainerProfiles.RootManifest,
         }],
+        // openssl: the console image also runs the engine chart's bootstrap Job, which mints the realm sign-in service's TLS
+        // and the self-signed console certificate through DevCa (the openssl CLI).
         [ReleaseApp.TenantAdmin, {
-            Kind: ContainerKind.Node, MultiArch: false, AptPackages: ContainerProfiles.None, ProvisioningTools: false, Env: [], Ports: [],
+            Kind: ContainerKind.Node, MultiArch: false, AptPackages: ContainerProfiles.OpenSsl, ProvisioningTools: false, Env: [], Ports: [],
             Healthcheck: { Scheme: HealthScheme.Http, PortVariable: ContainerProfiles.TenantAdminPortVariable },
             ImageTest: true, StartSmoke: true, HelmChart: ContainerProfiles.NoChart, ClosureCheck: true, VersionManifest: ContainerProfiles.RootManifest,
         }],

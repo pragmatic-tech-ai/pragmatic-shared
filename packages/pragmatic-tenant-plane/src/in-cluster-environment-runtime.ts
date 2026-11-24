@@ -4,7 +4,8 @@ import type { EnvDefinition } from './seed/bundle.js'
 import type { ILogProcess } from './seed/log-process.js'
 import type { EnvEndpoint, EnvRuntimeContext, IEnvironmentRuntime } from './environment-runtime.js'
 import type { EnvironmentPlacement } from './environment-placement.js'
-import { EnvironmentWorkloadFactory, type EnvironmentWorkload } from './environment-workload.js'
+import { EnvironmentWorkloadFactory, WorkloadServerDatabases, type EnvironmentWorkload } from './environment-workload.js'
+import { EnvironmentHiveDatabaseSecret, HiveDatabaseUnavailableError, type IEnvironmentDatabaseProvisioner } from './environment-database-provisioner.js'
 import type { HiveOrchestratorFactory } from './hive-orchestrator-factory.js'
 import type { IHiveOrchestrator } from './hive-orchestrator.js'
 import { EffectiveRegistry } from './effective-registry.js'
@@ -76,7 +77,10 @@ export class InClusterHiveMissingError extends Error
     }
 }
 
-/** The in-cluster backend: drives the hive orchestrator with the placement workload; no host bundle, no host port. */
+/**
+ * The in-cluster backend: drives the hive orchestrator with the placement workload; no host bundle, no host port. `databases`
+ * provisions the environments a chart-installed engine stores on the hive's Postgres (required for those, unused otherwise).
+ */
 export class InClusterEnvironmentRuntime implements IEnvironmentRuntime
 {
     private static readonly BuildCommandText = 'in-cluster environments use the hive registry image; no local build step'
@@ -99,7 +103,8 @@ export class InClusterEnvironmentRuntime implements IEnvironmentRuntime
         private readonly placement: EnvironmentPlacement,
         private readonly directory: ITenantDirectory,
         private readonly bundle: IBundleBuilder,
-        private readonly signer?: IHiveImageSigner)
+        private readonly signer?: IHiveImageSigner,
+        private readonly databases?: IEnvironmentDatabaseProvisioner)
     {
     }
 
@@ -139,8 +144,16 @@ export class InClusterEnvironmentRuntime implements IEnvironmentRuntime
             await this.SignPlatformImages(hive, workload)
             await orchestrator.Apply(workload)
             // The server's database Secret, minted once (an existing one is kept: its Postgres holds those passwords). After Apply
-            // created the namespace; the pod's Secret mounts are retried by kubelet until it exists.
-            await EnvServerSeedSource.EnsureServerDatabase(orchestrator.Kubectl, ctx.record.name)
+            // created the namespace; the pod's Secret mounts are retried by kubelet until it exists. On the hive's Postgres the
+            // console provisions the database and role, then writes the Secret with the URL.
+            if (WorkloadServerDatabases.IsSidecar(workload.serverDatabase))
+            {
+                await EnvServerSeedSource.EnsureServerDatabase(orchestrator.Kubectl, ctx.record.name)
+            }
+            else
+            {
+                await EnvironmentHiveDatabaseSecret.Ensure(orchestrator.Kubectl, ctx.record.name, this.Databases())
+            }
             if (workload.federation !== undefined && ctx.caPem !== undefined)
             {
                 // ca.crt-only trust Secret. Applied after Apply creates the namespace; the pod's CA volume mount
@@ -183,10 +196,24 @@ export class InClusterEnvironmentRuntime implements IEnvironmentRuntime
         }
     }
 
-    public async Teardown(ctx: EnvRuntimeContext, _removeData: boolean): Promise<void>
+    /** Removes the namespace; with `removeData` (the environment's deletion) also its database on the hive's Postgres. */
+    public async Teardown(ctx: EnvRuntimeContext, removeData: boolean): Promise<void>
     {
         const { orchestrator, workload } = this.Resolve(ctx)
         await InClusterEnvironmentRuntime.Guard(ctx, () => orchestrator.Teardown(workload))
+        if (removeData && !WorkloadServerDatabases.IsSidecar(workload.serverDatabase))
+        {
+            await InClusterEnvironmentRuntime.Guard(ctx, () => this.Databases().Drop(ctx.record.name))
+        }
+    }
+
+    private Databases(): IEnvironmentDatabaseProvisioner
+    {
+        if (this.databases === undefined)
+        {
+            throw new HiveDatabaseUnavailableError()
+        }
+        return this.databases
     }
 
     public RemoveVolume(_ctx: EnvRuntimeContext): Promise<void>

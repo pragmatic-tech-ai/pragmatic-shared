@@ -21,10 +21,103 @@ export type WorkloadDatabase = {
  * namespace) holding the superuser password, the server role's password and the server's database URL (keys
  * EnvironmentDatabaseSecret.*). Not the template's data-source database (WorkloadDatabase).
  */
-export type WorkloadServerDatabase = {
+export type WorkloadSidecarDatabase = {
     /** Mapped to the hive's registry, verified and signed exactly like the server `image` (EnvironmentWorkloadFactory.ImagesOf). */
     image: string
     secretName: string
+}
+
+/**
+ * The hive's one `pragmatic-postgres` (a chart-installed management engine, C3.2): the console provisions the environment's
+ * database and role on it (IEnvironmentDatabaseProvisioner) and the server reads its URL from this Secret's `database-url`
+ * in the environment namespace (EnvironmentHiveDatabase). No sidecar runs in the server's pod.
+ */
+export type WorkloadHiveDatabase = {
+    UrlSecretName: string
+}
+
+/** Where the env server stores: its own sidecar (the push path, until C5.3) or the hive's Postgres (the engine chart). */
+export type WorkloadServerDatabase = WorkloadSidecarDatabase | WorkloadHiveDatabase
+
+/** What a chart-installed engine runs every environment with: the release's server and unpacker images, by digest. */
+export type EngineEnvironment = {
+    ServerImage: string
+    UiUnpackImage: string
+}
+
+/** Narrows a WorkloadServerDatabase. */
+export class WorkloadServerDatabases
+{
+    private constructor()
+    {
+    }
+
+    public static IsSidecar(database: WorkloadServerDatabase): database is WorkloadSidecarDatabase
+    {
+        return (database as WorkloadSidecarDatabase).image !== undefined
+    }
+}
+
+/**
+ * An environment's database on the hive's Postgres: database and role `env_<name>` (dashes become underscores), its URL on
+ * the `pragmatic-postgres` Service of the engine's namespace, and the Secret `<env>-database` (keys `password`,
+ * `database-url`) the console writes in the environment namespace. The one home of these names.
+ */
+export class EnvironmentHiveDatabase
+{
+    public static readonly PasswordKey = 'password'
+    public static readonly UrlKey = 'database-url'
+    public static readonly ServiceHost = 'pragmatic-postgres.pragmatic-system.svc'
+    public static readonly Port = 5432
+    /** PostgreSQL identifiers: at most 63 bytes, starting with a letter or underscore. */
+    public static readonly NamePattern = /^[a-z_][a-z0-9_]{0,62}$/
+    private static readonly NamePrefix = 'env_'
+    private static readonly SecretSuffix = '-database'
+    private static readonly Dash = /-/g
+    private static readonly Underscore = '_'
+    private static readonly UrlScheme = 'postgres://'
+    private static readonly UserSeparator = ':'
+    private static readonly HostSeparator = '@'
+    private static readonly PathSeparator = '/'
+    private static readonly PasswordBytes = 24
+    private static readonly PasswordEncoding = 'base64url'
+    private static readonly BadNamePrefix = 'environment name does not make a PostgreSQL identifier: '
+
+    private constructor()
+    {
+    }
+
+    /** `env_<name>` (dashes to underscores), both the database and the role; refused when it is no identifier. */
+    public static NameOf(environmentName: string): string
+    {
+        const E = EnvironmentHiveDatabase
+        const name = E.NamePrefix + environmentName.replace(E.Dash, E.Underscore)
+        if (!E.NamePattern.test(name))
+        {
+            throw new Error(E.BadNamePrefix + environmentName)
+        }
+        return name
+    }
+
+    /** The environment's database Secret in its namespace: `<env>-database`. */
+    public static SecretNameOf(environmentName: string): string
+    {
+        return environmentName + EnvironmentHiveDatabase.SecretSuffix
+    }
+
+    /** The env server's URL for the role password, on the hive Postgres Service. */
+    public static UrlOf(environmentName: string, password: string): string
+    {
+        const E = EnvironmentHiveDatabase
+        const name = E.NameOf(environmentName)
+        return E.UrlScheme + name + E.UserSeparator + encodeURIComponent(password) + E.HostSeparator + E.ServiceHost + E.UserSeparator + String(E.Port) + E.PathSeparator + name
+    }
+
+    /** A random role password (URL-safe). */
+    public static NewPassword(): string
+    {
+        return randomBytes(EnvironmentHiveDatabase.PasswordBytes).toString(EnvironmentHiveDatabase.PasswordEncoding)
+    }
 }
 
 /** The keys of an environment's server database Secret and what its Postgres creates: the one home of their names. */
@@ -150,7 +243,7 @@ export class EnvironmentWorkloadFactory
      * `serverDatabaseImage` is the pragmatic-postgres image of the server's sidecar: a released platform passes its release's
      * image, a development box keeps EnvironmentDatabaseSecret.DevImage (loaded into kind like the server's dev image).
      */
-    public static From(record: EnvironmentRecord, hive: HiveRecord, ingressTls?: IngressTls, serverDatabaseImage: string = EnvironmentDatabaseSecret.DevImage): EnvironmentWorkload
+    public static From(record: EnvironmentRecord, hive: HiveRecord, ingressTls?: IngressTls, serverDatabaseImage: string = EnvironmentDatabaseSecret.DevImage, engine?: EngineEnvironment): EnvironmentWorkload
     {
         const type = record.type ?? TemplateCatalog.DefaultTypeFor(record.template)
         const def = TemplateCatalog.Resolve(record.template, record.name, record.hostPort as number, type, true).def
@@ -159,11 +252,14 @@ export class EnvironmentWorkloadFactory
             environmentName: record.name,
             environmentId: def.environmentId,
             hiveId: hive.id,
-            image: EnvironmentWorkloadFactory.ServerImage,
+            image: engine?.ServerImage ?? EnvironmentWorkloadFactory.ServerImage,
             serverPort: EnvironmentWorkloadFactory.ServerPort,
             env: { [EnvironmentWorkloadFactory.PortEnvKey]: String(EnvironmentWorkloadFactory.ServerPort) },
             secretRefs,
-            serverDatabase: { image: serverDatabaseImage, secretName: EnvironmentDatabaseSecret.NameOf(record.name) },
+            // A chart-installed engine stores every environment on the hive's Postgres; the push path keeps its sidecar.
+            serverDatabase: engine === undefined
+                ? { image: serverDatabaseImage, secretName: EnvironmentDatabaseSecret.NameOf(record.name) }
+                : { UrlSecretName: EnvironmentHiveDatabase.SecretNameOf(record.name) },
         }
         if (def.database)
         {
@@ -195,19 +291,23 @@ export class EnvironmentWorkloadFactory
                 manifestDigest: record.appDeployment.manifestDigest,
                 trustSecretName: EnvServerSeedSource.UiTrustSecretNameOf(record.name),
                 trustKeyRef: hive.trustRootRef ?? EnvironmentWorkloadFactory.NoTrustKeyRef,
-                unpackImage: EnvironmentWorkloadFactory.UiUnpackImage,
+                unpackImage: engine?.UiUnpackImage ?? EnvironmentWorkloadFactory.UiUnpackImage,
             }
         }
         return workload
     }
 
     /**
-     * Every image the workload's pod runs from the platform: the server, its pragmatic-postgres sidecar and, with an app
+     * Every image the workload's pod runs from the platform: the server, its pragmatic-postgres sidecar (when it has one) and, with an app
      * deployment, the UI unpacker. Each is mapped to the hive's registry, verified, signed and (on kind) loaded alike.
      */
     public static ImagesOf(workload: EnvironmentWorkload): string[]
     {
-        const images = [workload.image, workload.serverDatabase.image]
+        const images = [workload.image]
+        if (WorkloadServerDatabases.IsSidecar(workload.serverDatabase))
+        {
+            images.push(workload.serverDatabase.image)
+        }
         if (workload.appDeployment !== undefined)
         {
             images.push(workload.appDeployment.unpackImage)
@@ -219,7 +319,9 @@ export class EnvironmentWorkloadFactory
     public static async WithImages(workload: EnvironmentWorkload, map: (image: string) => Promise<string>): Promise<EnvironmentWorkload>
     {
         const image = await map(workload.image)
-        const serverDatabase = { ...workload.serverDatabase, image: await map(workload.serverDatabase.image) }
+        const serverDatabase: WorkloadServerDatabase = WorkloadServerDatabases.IsSidecar(workload.serverDatabase)
+            ? { ...workload.serverDatabase, image: await map(workload.serverDatabase.image) }
+            : workload.serverDatabase
         const mapped: EnvironmentWorkload = { ...workload, image, serverDatabase }
         if (workload.appDeployment !== undefined)
         {

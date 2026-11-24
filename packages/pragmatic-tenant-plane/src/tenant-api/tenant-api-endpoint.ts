@@ -8,7 +8,7 @@ import { HiveDtoMapper } from './hive-dto.js'
 import { HiveHealthProducer } from '../hive-health-producer.js'
 import type { EnvironmentPlacement } from '../environment-placement.js'
 import type { HiveOrchestratorFactory } from '../hive-orchestrator-factory.js'
-import { RolloutAdoptionRefusedError, RolloutUnavailableError, type IRolloutClient } from './rollout-client.js'
+import { RolloutAdoptionRefusedError, RolloutStandaloneError, RolloutUnavailableError, type IRolloutClient } from './rollout-client.js'
 import type { ITenantDirectory } from './tenant-directory.js'
 import { DomainNotClaimedError, DomainVerificationUnavailableError, DomainVerifyThrottledError, EmailDomainsNotEditableError, TenantEmailDomainsLimits, type ITenantEmailDomains, type TenantEmailDomainsView } from './tenant-email-domains.js'
 import { InvalidEmailDomainError } from '../email-domain-policy.js'
@@ -136,6 +136,7 @@ export class TenantApiEndpoint
     /** The one generic body for a not-gated target: no version id, no engine message, nothing that reveals what was asked for. */
     private static readonly TargetUnavailableMessage = 'Requested version is not available for this hive'
     private static readonly ErrorKey = 'error'
+    private static readonly CodeKey = 'code'
     private static readonly OkKey = 'ok'
     private static readonly CacheControlHeader = 'Cache-Control'
     private static readonly NoStore = 'no-store'
@@ -400,12 +401,19 @@ export class TenantApiEndpoint
         throw err
     }
 
-    /** A rollout client with no operator link answers 503 with its clear message; anything else rethrows to the host's problem mapper. */
+    /**
+     * A rollout client with no operator link answers 503 with its clear message (and its code, when it names why); a standalone
+     * engine, which has no link at all, answers 404. Anything else rethrows to the host's problem mapper.
+     */
     private WriteRolloutError(res: ServerResponse, err: unknown): void
     {
         if (err instanceof RolloutUnavailableError)
         {
-            this.WriteJson(res, TenantApiEndpoint.StatusUnavailable, { [TenantApiEndpoint.ErrorKey]: err.message })
+            const status = err instanceof RolloutStandaloneError ? TenantApiEndpoint.StatusNotFound : TenantApiEndpoint.StatusUnavailable
+            this.WriteJson(res, status, {
+                [TenantApiEndpoint.ErrorKey]: err.message,
+                ...(err.Code === undefined ? {} : { [TenantApiEndpoint.CodeKey]: err.Code }),
+            })
             return
         }
         throw err

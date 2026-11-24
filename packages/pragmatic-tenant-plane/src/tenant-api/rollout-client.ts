@@ -23,15 +23,36 @@ export interface IRolloutClient
     LedgerFor(hiveId: string, limit: number): Promise<readonly AdoptionLedgerDto[]>
 }
 
+/** Why a rollout client cannot answer, as the tenant API names it (`code`) so the portal can say what to do. */
+export enum RolloutUnavailableCode
+{
+    /** A connected engine whose hive is not enrolled yet: no agent channel until it is connected (503). */
+    NotEnrolled = 'hive-not-enrolled',
+    /** A standalone engine: it has no agent channel at all (404). */
+    Standalone = 'engine-standalone',
+}
+
 /** Raised by a rollout client that has no operator link: the tenant API maps it to a clear 503 rather than an opaque 500. */
 export class RolloutUnavailableError extends Error
 {
     private static readonly ErrorName = 'RolloutUnavailableError'
 
-    public constructor(message: string)
+    public constructor(message: string, public readonly Code?: RolloutUnavailableCode)
     {
         super(message)
         this.name = RolloutUnavailableError.ErrorName
+    }
+}
+
+/** Raised by a standalone engine's rollout client: the hive has no connection to Pragmatic, so the routes answer 404. */
+export class RolloutStandaloneError extends RolloutUnavailableError
+{
+    private static readonly StandaloneErrorName = 'RolloutStandaloneError'
+
+    public constructor(message: string)
+    {
+        super(message, RolloutUnavailableCode.Standalone)
+        this.name = RolloutStandaloneError.StandaloneErrorName
     }
 }
 

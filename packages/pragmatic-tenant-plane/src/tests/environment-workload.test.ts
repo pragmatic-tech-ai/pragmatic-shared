@@ -2,7 +2,7 @@ import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { ComponentTermination } from '@pragmatic-tech-ai/pragmatic-configuration'
 import { OciRegistryClient } from '@pragmatic-tech-ai/pragmatic-release-toolkit'
-import { EnvironmentDatabaseSecret, EnvironmentWorkloadFactory } from '../environment-workload.js'
+import { EnvironmentDatabaseSecret, EnvironmentHiveDatabase, EnvironmentWorkloadFactory, type WorkloadSidecarDatabase } from '../environment-workload.js'
 import { K8sManifestBuilder } from '../k8s-manifest-builder.js'
 import { InClusterRegistry } from '../in-cluster-registry.js'
 import { EnvServerSeedSource } from '../env-server-seed.js'
@@ -144,7 +144,7 @@ describe('EnvironmentWorkloadFactory', () =>
     {
         const release = 'ghcr.io/pragmatic-tech-ai/pragmatic-postgres@sha256:' + 'b'.repeat(64)
         const w = EnvironmentWorkloadFactory.From(WorkloadFixture.Env(Template.DevBlank, EnvType.Development), WorkloadFixture.Hive(), undefined, release)
-        assert.equal(w.serverDatabase.image, release)
+        assert.equal((w.serverDatabase as WorkloadSidecarDatabase).image, release)
         assert.deepEqual(EnvironmentWorkloadFactory.ImagesOf(w), [w.image, release])
     })
 

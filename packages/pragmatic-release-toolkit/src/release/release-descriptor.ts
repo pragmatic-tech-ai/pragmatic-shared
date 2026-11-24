@@ -14,9 +14,16 @@ export type ReleaseImages = Omit<Record<ReleaseApp, ReleaseImage>, ReleaseApp.Po
 
 /**
  * Schema 1: the eight Node apps (ReleaseApps.NodeApps). Schema 2: every app (ReleaseApps.All), adding pragmatic-postgres, and
- * per image the component descriptor digest.
+ * per image the component descriptor digest. Schema 3: schema 2 plus the management engine chart (`chart`), whose manifest
+ * digest the descriptor signature then binds with the images.
  */
-export type ReleaseDescriptorSchema = 1 | 2
+export type ReleaseDescriptorSchema = 1 | 2 | 3
+
+/**
+ * The management engine Helm chart of a release (C3.2): `oci://<reference>` at `version` (the release version), whose OCI
+ * manifest digest is `digest`. The chart carries the release's image digests, so pinning it pins what a hive installs.
+ */
+export type ReleaseChart = { reference: string; version: string; digest: string }
 
 export type ReleaseDescriptor = {
     schema: ReleaseDescriptorSchema
@@ -27,6 +34,8 @@ export type ReleaseDescriptor = {
     builtAt: string
     signingKeyId: string
     images: ReleaseImages
+    /** Schema 3 only: the engine chart. */
+    chart?: ReleaseChart
 }
 
 export class ReleaseDescriptorInvalidError extends Error
@@ -45,16 +54,24 @@ export class ReleaseDescriptorInvalidError extends Error
 /** Canonical (sorted-key, whitespace-free) JSON codec so the descriptor's sha256 is stable. */
 export class ReleaseDescriptorCodec
 {
-    /** The schema the publisher writes. */
+    /** The schema the publisher writes for a release without a chart (the tag-mode publish). */
     public static readonly CurrentSchema: ReleaseDescriptorSchema = 2
-    private static readonly SchemaApps = new Map<unknown, readonly ReleaseApp[]>([[1, ReleaseApps.NodeApps], [2, ReleaseApps.All]])
+    /** The schema of a release that carries the engine chart (`publish --manifest --chart-digest`). */
+    public static readonly ChartSchema: ReleaseDescriptorSchema = 3
+    /** Where every release's engine chart lives (`oci://` + this). */
+    public static readonly ChartReference = 'ghcr.io/pragmatic-tech-ai/charts/pragmatic-engine'
+    private static readonly SchemaApps = new Map<unknown, readonly ReleaseApp[]>([[1, ReleaseApps.NodeApps], [2, ReleaseApps.All], [3, ReleaseApps.All]])
     private static readonly DigestPattern = /^sha256:[0-9a-f]{64}$/
     private static readonly CommitPattern = /^[0-9a-f]{40}$/
     /** A plain repository name: no separators, never a dot segment (`.`, `..`) nor `__proto__`. */
     private static readonly RepoNamePattern = /^(?!__proto__$)(?!\.{1,2}$)[A-Za-z0-9._-]+$/
     private static readonly NotObject = 'not an object'
     private static readonly NotJson = 'not valid JSON'
-    private static readonly BadSchema = 'schema must be 1 or 2'
+    private static readonly BadSchema = 'schema must be 1, 2 or 3'
+    private static readonly BadChart = 'chart must name its reference, the release version and a sha256 digest'
+    private static readonly UnexpectedChart = 'only a schema-3 descriptor carries a chart'
+    private static readonly ChartSchemas: ReadonlySet<unknown> = new Set([3])
+    private static readonly FieldChart = 'chart'
     private static readonly BadChannel = 'channel is not a known channel'
     private static readonly BadServerCommit = 'serverCommit is not a 40-hex commit'
     private static readonly BadSiblingCommits = 'siblingCommits must map names to 40-hex commits'
@@ -64,7 +81,7 @@ export class ReleaseDescriptorCodec
     private static readonly BadDigestPrefix = 'bad digest for image: '
     private static readonly BadComponentDigestPrefix = 'bad component digest for image: '
     /** The schemas whose images carry a component descriptor digest. */
-    private static readonly ComponentSchemas: ReadonlySet<unknown> = new Set([2])
+    private static readonly ComponentSchemas: ReadonlySet<unknown> = new Set([2, 3])
     private static readonly FieldVersion = 'version'
     private static readonly FieldBuiltAt = 'builtAt'
     private static readonly FieldSigningKeyId = 'signingKeyId'
@@ -104,12 +121,18 @@ export class ReleaseDescriptorCodec
         return result
     }
 
+    /** The engine chart a schema-3 descriptor binds; undefined for schemas 1 and 2. */
+    public static ChartOf(d: ReleaseDescriptor): ReleaseChart | undefined
+    {
+        return d.chart === undefined ? undefined : { ...d.chart }
+    }
+
     public static Encode(d: ReleaseDescriptor): Uint8Array
     {
         return new TextEncoder().encode(JSON.stringify(ReleaseDescriptorCodec.sortKeys(d)))
     }
 
-    /** Validates in a fixed order: schema, version, channel, serverCommit, siblingCommits, builtAt, signingKeyId, images. */
+    /** Validates in a fixed order: schema, version, channel, serverCommit, siblingCommits, builtAt, signingKeyId, images, chart. */
     public static Decode(bytes: Uint8Array): ReleaseDescriptor
     {
         let raw: unknown
@@ -143,7 +166,7 @@ export class ReleaseDescriptorCodec
         const builtAt = ReleaseDescriptorCodec.requireString(raw, ReleaseDescriptorCodec.FieldBuiltAt)
         const signingKeyId = ReleaseDescriptorCodec.requireString(raw, ReleaseDescriptorCodec.FieldSigningKeyId)
         const images = ReleaseDescriptorCodec.decodeImages(raw.images, apps, ReleaseDescriptorCodec.ComponentSchemas.has(raw.schema))
-        return {
+        const descriptor: ReleaseDescriptor = {
             schema: raw.schema as ReleaseDescriptorSchema,
             version,
             channel: raw.channel as Channel,
@@ -153,6 +176,29 @@ export class ReleaseDescriptorCodec
             signingKeyId,
             images,
         }
+        if (ReleaseDescriptorCodec.ChartSchemas.has(raw.schema))
+        {
+            descriptor.chart = ReleaseDescriptorCodec.decodeChart(raw[ReleaseDescriptorCodec.FieldChart], version)
+        }
+        else if (raw[ReleaseDescriptorCodec.FieldChart] !== undefined)
+        {
+            throw new ReleaseDescriptorInvalidError(ReleaseDescriptorCodec.UnexpectedChart)
+        }
+        return descriptor
+    }
+
+    /** A schema-3 chart: a non-empty reference, the descriptor's own version and a sha256 digest. */
+    private static decodeChart(value: unknown, version: string): ReleaseChart
+    {
+        const C = ReleaseDescriptorCodec
+        if (!C.isRecord(value)
+            || typeof value.reference !== 'string' || value.reference.length === 0
+            || value.version !== version
+            || typeof value.digest !== 'string' || !C.DigestPattern.test(value.digest))
+        {
+            throw new ReleaseDescriptorInvalidError(C.BadChart)
+        }
+        return { reference: value.reference, version: value.version, digest: value.digest }
     }
 
     private static decodeSiblings(value: unknown): Record<string, string>
