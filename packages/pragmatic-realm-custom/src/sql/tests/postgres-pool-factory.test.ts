@@ -66,6 +66,16 @@ test('reads the URL from the secret file (trailing newline trimmed) and sizes th
     })
 })
 
+test('Database opens another database of the server as the URL role', async () =>
+{
+    await UrlFile.With(`postgres://postgres:${UrlFile.Password}@db.internal:5432/postgres`, async path =>
+    {
+        await new PostgresPoolFactory({ UrlFile: path, Database: 'realm_secrets' }, CapturingPool.Create).Create()
+        assert.equal(CapturingPool.Last!.database, 'realm_secrets')
+        assert.equal(CapturingPool.Last!.user, 'postgres')
+    })
+})
+
 test('the pool size defaults to 10', async () =>
 {
     await UrlFile.With('postgresql://app:pw@db/appdb', async path =>

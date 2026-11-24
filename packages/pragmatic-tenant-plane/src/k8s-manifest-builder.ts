@@ -2077,6 +2077,14 @@ export class K8sManifestBuilder
             volumeMounts.push({ [K8sManifestBuilder.NameKey]: K8sManifestBuilder.EnvIdpCaVolume, [K8sManifestBuilder.MountPathKey]: K8sManifestBuilder.EnvIdpCaMount, [K8sManifestBuilder.ReadOnlyKey]: true })
             volumes.push(this.SecretVolume(K8sManifestBuilder.EnvIdpCaVolume, workload.federation.caSecretName, [{ key: K8sManifestBuilder.EnvIdpCaItemKey, path: K8sManifestBuilder.EnvIdpCaItemKey }]))
         }
+        if (workload.realmSecrets !== undefined)
+        {
+            // The realm's secrets home (2.5): its option and identifiers, the realm, and a projected token (cloud) or the
+            // custom home's reader mounts.
+            env.push(...workload.realmSecrets.EnvVars())
+            volumeMounts.push(...workload.realmSecrets.VolumeMounts())
+            volumes.push(...workload.realmSecrets.Volumes())
+        }
         const initContainers: K8sObject[] = [this.ServerSeedContainer(workload)]
         const components = [{ Container: K8sManifestBuilder.ServerContainerName, Component: ReleaseApp.EnvServer }]
         if (workload.appDeployment)

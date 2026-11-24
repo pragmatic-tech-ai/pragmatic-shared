@@ -3,6 +3,7 @@ import { BundleBuilder } from './seed/bundle.js'
 import type { EnvironmentRecord } from './environment-record.js'
 import type { HiveRecord } from './platform-records.js'
 import { EnvServerSeedSource } from './env-server-seed.js'
+import type { EnvironmentRealmSecrets } from './environment-realm-secrets.js'
 import { InClusterRegistry } from './in-cluster-registry.js'
 import type { IngressTls } from './ingress-tls.js'
 import { TemplateCatalog } from './template-catalog.js'
@@ -45,6 +46,8 @@ export type EngineEnvironment = {
     UiUnpackImage: string
     /** The chart's `ingress.className`; undefined: the cluster's default class. */
     IngressClass?: string
+    /** The realm's secrets home the environments' servers read `secret:realm/...` from (2.5); undefined: none (file only). */
+    RealmSecrets?: EnvironmentRealmSecrets
 }
 
 /** Narrows a WorkloadServerDatabase. */
@@ -236,6 +239,8 @@ export type EnvironmentWorkload = {
     database?: WorkloadDatabase
     federation?: WorkloadFederation
     appDeployment?: WorkloadAppDeployment
+    /** The realm's secrets home the server reads through (the option's settings, a projected token or the custom mounts). */
+    realmSecrets?: EnvironmentRealmSecrets
 }
 
 export class EnvironmentWorkloadFactory
@@ -274,6 +279,10 @@ export class EnvironmentWorkloadFactory
             serverDatabase: engine === undefined
                 ? { image: serverDatabaseImage, secretName: EnvironmentDatabaseSecret.NameOf(record.name) }
                 : { UrlSecretName: EnvironmentHiveDatabase.SecretNameOf(record.name) },
+        }
+        if (engine?.RealmSecrets !== undefined)
+        {
+            workload.realmSecrets = engine.RealmSecrets
         }
         if (def.database)
         {

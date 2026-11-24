@@ -10,6 +10,8 @@ export interface PostgresPoolOptions
     readonly MaxConnections?: number
     /** Reported to Postgres as application_name (pg_stat_activity). */
     readonly ApplicationName?: string
+    /** Another database on the same server, as the URL's role (the hive Postgres superuser provisioning a database it made). */
+    readonly Database?: string
     /** Called when an IDLE pooled client fails (Postgres restarted, the connection dropped). pg.Pool emits that as an
      *  'error' event, which would crash the process without a listener; the pool discards the client and reconnects
      *  on the next query. Default: one stderr line with the error's class and code only (never its message or the
@@ -57,6 +59,10 @@ export class PostgresPoolFactory
         if (this.options.ApplicationName !== undefined)
         {
             config.application_name = this.options.ApplicationName
+        }
+        if (this.options.Database !== undefined)
+        {
+            config.database = this.options.Database
         }
         const pool = this.createPool !== undefined ? this.createPool(config) : new (await import('pg')).default.Pool(config)
         const onIdleError = this.options.OnIdleError ?? PostgresPoolFactory.ReportIdleError
