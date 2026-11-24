@@ -4,7 +4,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ISecretStore } from '@pragmatic-tech-ai/pragmatic-identity'
-import { RealmSecretsHome, RealmSecretsOption, RealmSecretsSettings, RealmSecretsSettingsError, SecretsHomeFailure, SecretsHomeUnavailableError, WorkloadContext } from '@pragmatic-tech-ai/pragmatic-realm-adapters'
+import { RealmSecretsHome, RealmSecretsIdentifiers, RealmSecretsOption, RealmSecretsSettings, RealmSecretsSettingsError, SecretsHomeFailure, SecretsHomeUnavailableError, WorkloadContext } from '@pragmatic-tech-ai/pragmatic-realm-adapters'
 import { RecordedEndpoints, RecordedResponse, type RecordedRequest } from '@pragmatic-tech-ai/pragmatic-realm-adapters/testing'
 import { AwsEndpoints, AwsRealmSecretStore, AwsWorkloadIdentity } from '../aws-workload-identity.js'
 
@@ -307,4 +307,10 @@ test('aws: a key-shaped setting is refused by the descriptor', async () =>
         // A 40-character secret access key does not have a session name's form (letter-led, at most 32).
         await assert.rejects(Scene.Open(fake, tokenFile, { sessionName: 'Ab1+'.repeat(10) }), /SESSION_NAME does not have the form/)
     })
+})
+
+test('aws: its settings are exactly the option\'s identifiers (RealmSecretsIdentifiers, what the console passes on)', () =>
+{
+    assert.deepEqual(new AwsWorkloadIdentity().Settings.map(rule => rule.Name), [...RealmSecretsIdentifiers.Aws])
+    assert.deepEqual(RealmSecretsIdentifiers.Of(RealmSecretsOption.Aws), RealmSecretsIdentifiers.Aws)
 })

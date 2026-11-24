@@ -4,6 +4,7 @@ import type { IKubectl } from '@pragmatic-tech-ai/pragmatic-kube'
 import { EnvironmentRealmSecrets, EnvironmentRealmSecretsError, type EnvironmentRealmSecretsMaterial, type IEnvironmentRealmSecretsMaterial } from '../environment-realm-secrets.js'
 import { EnvironmentWorkloadFactory, type EngineEnvironment } from '../environment-workload.js'
 import { K8sManifestBuilder } from '../k8s-manifest-builder.js'
+import { HiveLabels } from '../hive-labels.js'
 import { InClusterEnvironmentRuntime, InClusterOperationFailedError } from '../in-cluster-environment-runtime.js'
 import type { IEnvironmentDatabaseProvisioner } from '../environment-database-provisioner.js'
 import type { EnvironmentPlacement } from '../environment-placement.js'
@@ -148,6 +149,12 @@ describe('EnvironmentRealmSecrets', () =>
             assert.ok(items.indexOf(account) < items.findIndex(i => i.kind === 'Deployment'), 'the account before the Deployment')
         }
         assert.equal(EnvironmentRealmSecrets.TokenDirectory + '/' + EnvironmentRealmSecrets.TokenFileName, EnvironmentRealmSecrets.TokenFile)
+    })
+
+    it('the environment role of the console may manage that account, the pushed console role as the chart role', () =>
+    {
+        assert.ok(K8sManifestBuilder.EnvCoreResources.includes('serviceaccounts'))
+        assert.deepEqual(K8sManifestBuilder.HiveLabelsOf('hive-1'), HiveLabels.Of('hive-1'))
     })
 
     it('carries only the option’s identifiers into an environment', () =>

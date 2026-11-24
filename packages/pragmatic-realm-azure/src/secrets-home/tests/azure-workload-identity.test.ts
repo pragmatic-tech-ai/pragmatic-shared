@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { HttpClient, HttpHeaders, PipelineRequest, PipelineResponse } from '@azure/core-rest-pipeline'
 import type { ISecretStore } from '@pragmatic-tech-ai/pragmatic-identity'
-import { RealmSecretsHome, RealmSecretsOption, RealmSecretsSettings, RealmSecretsSettingsError, SecretsHomeFailure, SecretsHomeUnavailableError, WorkloadContext } from '@pragmatic-tech-ai/pragmatic-realm-adapters'
+import { RealmSecretsHome, RealmSecretsIdentifiers, RealmSecretsOption, RealmSecretsSettings, RealmSecretsSettingsError, SecretsHomeFailure, SecretsHomeUnavailableError, WorkloadContext } from '@pragmatic-tech-ai/pragmatic-realm-adapters'
 import { AzureRealmSecretStore, AzureTransport, AzureWorkloadIdentity } from '../azure-workload-identity.js'
 
 const Tenant = '11111111-2222-3333-4444-555555555555'
@@ -354,4 +354,10 @@ test('azure: a key-shaped setting is refused by the descriptor', async () =>
         }
         await Scene.Open(fake, tokenFile, { vaultUrl: 'https://' + 'v'.repeat(24) + '.vault.azure.net/' })
     })
+})
+
+test('azure: its settings are exactly the option\'s identifiers (RealmSecretsIdentifiers, what the console passes on)', () =>
+{
+    assert.deepEqual(new AzureWorkloadIdentity().Settings.map(rule => rule.Name), [...RealmSecretsIdentifiers.Azure])
+    assert.deepEqual(RealmSecretsIdentifiers.Of(RealmSecretsOption.Azure), RealmSecretsIdentifiers.Azure)
 })

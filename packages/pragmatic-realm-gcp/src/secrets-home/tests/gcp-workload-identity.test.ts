@@ -4,7 +4,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ISecretStore } from '@pragmatic-tech-ai/pragmatic-identity'
-import { RealmSecretsHome, RealmSecretsOption, RealmSecretsSettings, RealmSecretsSettingsError, SecretsHomeFailure, SecretsHomeUnavailableError, WorkloadContext } from '@pragmatic-tech-ai/pragmatic-realm-adapters'
+import { RealmSecretsHome, RealmSecretsIdentifiers, RealmSecretsOption, RealmSecretsSettings, RealmSecretsSettingsError, SecretsHomeFailure, SecretsHomeUnavailableError, WorkloadContext } from '@pragmatic-tech-ai/pragmatic-realm-adapters'
 import { RecordedEndpoints, RecordedResponse } from '@pragmatic-tech-ai/pragmatic-realm-adapters/testing'
 import { GcpEndpoints, GcpRealmSecretStore, GcpWorkloadIdentity } from '../gcp-workload-identity.js'
 
@@ -267,4 +267,10 @@ test('gcp: an unreachable token exchange is unreachable, an unreachable Secret M
         const noSecrets = await new RealmSecretsHome([new GcpWorkloadIdentity(new GcpEndpoints(fake.Google.Sts, fake.Google.IamCredentials, closed))]).For(settings, context)
         await assert.rejects(noSecrets.Get('probe'), Scene.Failure(SecretsHomeFailure.Unreachable))
     })
+})
+
+test('gcp: its settings are exactly the option\'s identifiers (RealmSecretsIdentifiers, what the console passes on)', () =>
+{
+    assert.deepEqual(new GcpWorkloadIdentity().Settings.map(rule => rule.Name), [...RealmSecretsIdentifiers.Gcp])
+    assert.deepEqual(RealmSecretsIdentifiers.Of(RealmSecretsOption.Gcp), RealmSecretsIdentifiers.Gcp)
 })

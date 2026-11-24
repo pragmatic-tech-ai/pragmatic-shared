@@ -1,9 +1,9 @@
-import { CustomRealmSecrets, RealmSecretsOption, RealmSecretsSettings, WorkloadContext } from '@pragmatic-tech-ai/pragmatic-realm-adapters'
+import { CustomRealmSecrets, RealmSecretsIdentifiers, RealmSecretsOption, RealmSecretsSettings, WorkloadContext } from '@pragmatic-tech-ai/pragmatic-realm-adapters'
 import type { IKubectl } from '@pragmatic-tech-ai/pragmatic-kube'
 import { ReleaseApp } from '@pragmatic-tech-ai/pragmatic-release-toolkit'
 import { posix } from 'node:path'
 import { ComponentConfigurationMounts } from './component-configuration-mounts.js'
-import { K8sManifestBuilder } from './k8s-manifest-builder.js'
+import { HiveLabels } from './hive-labels.js'
 
 type K8sObject = Record<string, unknown>
 
@@ -50,12 +50,6 @@ export class EnvironmentRealmSecrets
     public static readonly TokenFileName = posix.basename(WorkloadContext.DefaultTokenPath)
     /** The environment server's own account in its namespace: the subject every cloud binds (`system:serviceaccount:pragmatic-env-<env>:pragmatic-env-server`). */
     public static readonly ServiceAccountName = 'pragmatic-env-server'
-    /** The cloud options' identifier names (RealmSecretsSettings names); nothing else is carried into an environment. */
-    private static readonly CloudSettings: ReadonlyMap<RealmSecretsOption, readonly string[]> = new Map([
-        [RealmSecretsOption.Gcp, ['projectId', 'workloadIdentityAudience', 'serviceAccountEmail', 'replicaLocation']],
-        [RealmSecretsOption.Azure, ['tenantId', 'clientId', 'vaultUrl', 'authorityHost']],
-        [RealmSecretsOption.Aws, ['region', 'roleArn', 'sessionName']],
-    ])
     public static readonly TokenExpirationSeconds = 3600
     public static readonly AzureAudience = 'api://AzureADTokenExchange'
     public static readonly AwsAudience = 'sts.amazonaws.com'
@@ -134,7 +128,7 @@ export class EnvironmentRealmSecrets
             if (material === undefined) throw new EnvironmentRealmSecretsError(E.NoMaterial)
             return new EnvironmentRealmSecrets(settings.Option, realm, new Map(), material)
         }
-        const allowed = E.CloudSettings.get(settings.Option)!
+        const allowed = RealmSecretsIdentifiers.Of(settings.Option)
         for (const name of settings.Names)
         {
             if (!allowed.includes(name)) throw new EnvironmentRealmSecretsError(RealmSecretsSettings.VariableOf(name) + E.UnknownSetting + settings.Option)
@@ -234,8 +228,9 @@ export class EnvironmentRealmSecrets
     /**
      * The custom option's two Secrets in `namespace` (labelled with the hive and the console as their manager), created
      * when absent and otherwise kept (the reader password and the master key are minted once; a replaced key is refused by
-     * every component's start anyway), through kubectl's create only, so no last-applied annotation carries a value. A cloud
-     * option removes copies an earlier custom home left, so the master key never outlives the switch.
+     * every component's start anyway), through kubectl's create only, so no last-applied annotation carries a value. Run at
+     * each bring-up of the environment: under a cloud option it removes copies an earlier custom home left, so after a switch
+     * of option an environment keeps its copies (and its old pod spec) until it is next brought up.
      */
     public async EnsureCopies(kubectl: IKubectl, namespace: string, hiveId: string): Promise<void>
     {
@@ -279,6 +274,6 @@ export class EnvironmentRealmSecrets
 
     private static LabelsOf(hiveId: string): Record<string, string>
     {
-        return { ...K8sManifestBuilder.HiveLabelsOf(hiveId), [ComponentConfigurationMounts.ManagedByLabel]: ComponentConfigurationMounts.ManagedBy }
+        return { ...HiveLabels.Of(hiveId), [ComponentConfigurationMounts.ManagedByLabel]: ComponentConfigurationMounts.ManagedBy }
     }
 }

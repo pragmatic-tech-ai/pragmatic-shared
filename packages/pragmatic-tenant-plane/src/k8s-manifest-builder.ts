@@ -5,6 +5,7 @@ import { ComponentConfigurationMounts, WorkloadRoll } from './component-configur
 import { EnvConventions } from './seed/env-conventions.js'
 import { EnvironmentDatabaseSecret, EnvironmentHiveDatabase, WorkloadServerDatabases, type EnvironmentWorkload, type WorkloadAppDeployment, type WorkloadDatabase } from './environment-workload.js'
 import { EnvServerSeedSource } from './env-server-seed.js'
+import { HiveLabels } from './hive-labels.js'
 import { EnvironmentRealmSecrets } from './environment-realm-secrets.js'
 import { InClusterRegistry } from './in-cluster-registry.js'
 import { IdpDatabaseSecret, IdpWorkloadNames, type IdpWorkloadSpec } from './idp-workload-driver.js'
@@ -96,7 +97,7 @@ export class K8sManifestBuilder
 
     // Pragmatic conventions.
     private static readonly EnvironmentLabel = 'pragmatic/environment'
-    private static readonly HiveLabel = 'pragmatic/hive'
+    private static readonly HiveLabel = HiveLabels.Label
     private static readonly AppLabel = 'pragmatic/app'
     /** Every environment namespace starts with this; the console's guard fences its writes to it. */
     public static readonly EnvNamespacePrefix = 'pragmatic-env-'
@@ -378,7 +379,8 @@ export class K8sManifestBuilder
     private static readonly RoleBindingsResource = 'rolebindings'
     private static readonly ClusterRolesResource = 'clusterroles'
     private static readonly SecretsResource = 'secrets'
-    private static readonly EnvCoreResources = [K8sManifestBuilder.SecretsResource, K8sManifestBuilder.ConfigMapsResource, 'services', 'persistentvolumeclaims']
+    /** serviceaccounts: an environment server's own account with a realm secrets home (EnvironmentRealmSecrets), as the engine chart's role. */
+    public static readonly EnvCoreResources: readonly string[] = [K8sManifestBuilder.SecretsResource, K8sManifestBuilder.ConfigMapsResource, 'services', 'persistentvolumeclaims', 'serviceaccounts']
     private static readonly EnvAppsResources = ['deployments', 'deployments/scale', 'statefulsets', 'statefulsets/scale']
     private static readonly EnvNetworkingResources = ['ingresses']
     private static readonly CreateVerb = 'create'
@@ -669,7 +671,7 @@ export class K8sManifestBuilder
     /** The labels that mark an object as the hive's (selected by HiveLabelSelectorOf). */
     public static HiveLabelsOf(hiveId: string): Record<string, string>
     {
-        return { [K8sManifestBuilder.HiveLabel]: hiveId }
+        return HiveLabels.Of(hiveId)
     }
 
     /** Labels on an environment server deployment: the hive plus the environment marker the in-cluster agent's selector requires (agent objects deliberately lack it). */

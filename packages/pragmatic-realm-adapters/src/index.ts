@@ -22,6 +22,7 @@ export { SqlOidcFlowStateMigrations, SqlOidcFlowStateStore } from './oidc/sql-oi
 export { SqlRecordStore, SqlRecordStoreMigrations, SqlVersionedRecord, SqlRecordVersionConflictError, SqlRecordUpdateContentionError } from './records/sql-record-store.js'
 export type { SqlRecordStoreOptions } from './records/sql-record-store.js'
 export { RealmSecretsOption, RealmSecretsOptions } from './secrets-home/realm-secrets-option.js'
+export { RealmSecretsIdentifiers } from './secrets-home/realm-secrets-identifiers.js'
 export { SecretsHomeFailure, SecretsHomeUnavailableError } from './secrets-home/secrets-home-unavailable-error.js'
 export { RealmSecretsSettingRule, RealmSecretsSettings, RealmSecretsSettingsError } from './secrets-home/realm-secrets-settings.js'
 export { WorkloadContext, WorkloadContextError } from './secrets-home/workload-context.js'
