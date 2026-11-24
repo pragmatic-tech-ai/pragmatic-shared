@@ -99,6 +99,13 @@ export class SqlSecretStore implements ISecretStore
         return new SqlSecretStore(session, keys, scope)
     }
 
+    /** Over a database whose schema someone else migrated (a role that may not create tables: the custom realm
+     *  secrets home's components). */
+    public static Over(session: ISqlSession, keys: SqlSecretKeyRing, scope: string): SqlSecretStore
+    {
+        return new SqlSecretStore(session, keys, scope)
+    }
+
     public async Get(reference: string): Promise<string | null>
     {
         const rows = await this.session.Query(SqlSecretStore.GetSql, [this.scope, reference])

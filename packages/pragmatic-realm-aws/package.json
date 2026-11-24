@@ -36,6 +36,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "3.1151.0",
     "@aws-sdk/client-secrets-manager": "3.1151.0",
+    "@aws-sdk/credential-provider-web-identity": "3.972.90",
     "@aws-sdk/rds-signer": "3.1151.0",
     "@pragmatic-tech-ai/pragmatic-identity": "0.18.15",
     "@pragmatic-tech-ai/pragmatic-realm-adapters": "0.18.15",

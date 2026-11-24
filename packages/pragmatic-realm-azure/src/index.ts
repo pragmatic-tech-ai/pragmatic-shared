@@ -11,3 +11,4 @@ export { FlexiblePoolFactory, FlexibleAuthMode } from './sql/flexible-pool-facto
 export type { IFlexiblePoolOptions, IFlexiblePoolHandle, IEntraCredential, IFlexiblePool } from './sql/flexible-pool-factory.js'
 export { AzureCloudBackends } from './platform/azure-cloud-backends.js'
 export type { IAzureCloudBackendsConfig, IAzureCloudBackendsFactories } from './platform/azure-cloud-backends.js'
+export { AzureRealmSecretStore, AzureTransport, AzureWorkloadIdentity } from './secrets-home/azure-workload-identity.js'
