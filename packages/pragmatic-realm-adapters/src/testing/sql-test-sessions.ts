@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto'
+import { after } from 'node:test'
 import { DataType, newDb } from 'pg-mem'
 import { Pool } from 'pg'
 import type { ISqlSession } from '@pragmatic-tech-ai/todl'
@@ -13,12 +14,16 @@ export class SqlLiveTestDatabase
 {
     private static readonly SearchPathOption = '-c search_path='
     private static readonly MaxConnections = 10
+    /** An idle connection closes after a second, so the many databases one test file opens never hold the server's
+     *  connections between their cases. */
+    private static readonly IdleTimeoutMs = 1000
 
     private readonly pool: Pool
+    private disposed = false
 
     public constructor(public readonly Schema: string, url: string)
     {
-        this.pool = new Pool({ connectionString: url, options: SqlLiveTestDatabase.SearchPathOption + Schema, max: SqlLiveTestDatabase.MaxConnections, allowExitOnIdle: true })
+        this.pool = new Pool({ connectionString: url, options: SqlLiveTestDatabase.SearchPathOption + Schema, max: SqlLiveTestDatabase.MaxConnections, idleTimeoutMillis: SqlLiveTestDatabase.IdleTimeoutMs, allowExitOnIdle: true })
     }
 
     /** A session over the database's shared pool (Dispose on any of them ends the pool for all). */
@@ -27,8 +32,14 @@ export class SqlLiveTestDatabase
         return new PgSession(this.pool)
     }
 
+    /** Ends the pool and drops the schema; a second call does nothing. */
     public async Dispose(): Promise<void>
     {
+        if (this.disposed)
+        {
+            return
+        }
+        this.disposed = true
         await this.pool.end()
         await SqlTestSessions.DropSchema(this.Schema)
     }
@@ -53,6 +64,9 @@ export class SqlTestSessions
 
     private static admin: Pool | undefined
     private static staleSwept = false
+    /** The live databases Describe's sessions opened: disposed once the file's tests ended. */
+    private static readonly opened: SqlLiveTestDatabase[] = []
+    private static cleanupRegistered = false
 
     public static Describe(label: string, body: (makeSession: () => Promise<ISqlSession>, backend: string) => void): void
     {
@@ -60,7 +74,8 @@ export class SqlTestSessions
         const url = SqlTestSessions.LiveUrl()
         if (url !== '')
         {
-            body(async () => (await SqlTestSessions.LiveDatabase(url)).Session(), `${label} [${SqlTestSessions.LiveLabel}]`)
+            SqlTestSessions.RegisterCleanup()
+            body(async () => (await SqlTestSessions.Opened(await SqlTestSessions.LiveDatabase(url))).Session(), `${label} [${SqlTestSessions.LiveLabel}]`)
         }
     }
 
@@ -89,6 +104,32 @@ export class SqlTestSessions
     public static async DropSchema(schema: string): Promise<void>
     {
         await SqlTestSessions.Admin(SqlTestSessions.LiveUrl()).query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`)
+    }
+
+    /** Disposes every database Describe opened, once, when the file's tests are done (each owns a pool and a schema). */
+    public static async DisposeOpened(): Promise<void>
+    {
+        const databases = SqlTestSessions.opened.splice(0)
+        for (const database of databases)
+        {
+            await database.Dispose()
+        }
+    }
+
+    private static Opened(database: SqlLiveTestDatabase): SqlLiveTestDatabase
+    {
+        SqlTestSessions.opened.push(database)
+        return database
+    }
+
+    private static RegisterCleanup(): void
+    {
+        if (SqlTestSessions.cleanupRegistered)
+        {
+            return
+        }
+        SqlTestSessions.cleanupRegistered = true
+        after(() => SqlTestSessions.DisposeOpened())
     }
 
     private static LiveUrl(): string

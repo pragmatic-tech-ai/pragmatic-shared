@@ -62,3 +62,29 @@ SqlTestSessions.DescribeLive('SqlTestSessions', makeDatabase =>
         await second.Dispose()
     })
 })
+
+SqlTestSessions.Describe('SqlTestSessions cleanup', (makeSession, backend) =>
+{
+    if (!backend.endsWith('[live]'))
+    {
+        return
+    }
+    test('SqlTestSessions [live]: the databases Describe opened are disposed once, and a second Dispose does nothing', async () =>
+    {
+        const session = await makeSession()
+        await session.Execute('CREATE TABLE cleanup_probe (id text)', [])
+        await SqlTestSessions.DisposeOpened()
+        await assert.rejects(() => session.Query('SELECT id FROM cleanup_probe', []))
+        await SqlTestSessions.DisposeOpened()
+    })
+})
+
+SqlTestSessions.DescribeLive('SqlTestSessions dispose', makeDatabase =>
+{
+    test('SqlTestSessions [live]: Dispose twice is harmless', async () =>
+    {
+        const database = await makeDatabase()
+        await database.Dispose()
+        await database.Dispose()
+    })
+})
