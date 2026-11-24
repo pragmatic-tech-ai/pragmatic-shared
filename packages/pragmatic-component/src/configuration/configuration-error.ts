@@ -13,7 +13,8 @@ export enum ConfigurationErrorCode
     AboveMaximum = 'above-maximum',
 }
 
-/** One problem in a configuration document: where (a JSON pointer), what (a code) and a fixed message for the code. */
+/** One problem in a configuration document: where (a JSON pointer), what (a code) and a fixed message for the code; for a
+ *  value outside a setting's bounds, the range the descriptor declares (descriptor data, never the rejected value). */
 export class ConfigurationError
 {
     private static readonly Messages: Readonly<Record<ConfigurationErrorCode, string>> = {
@@ -29,16 +30,34 @@ export class ConfigurationError
         [ConfigurationErrorCode.AboveMaximum]: 'is above the largest value this setting accepts',
     };
 
+    private static readonly AcceptedOpen = ' (accepted: ';
+    private static readonly AcceptedTo = ' to ';
+    private static readonly AcceptedAtLeast = 'at least ';
+    private static readonly AcceptedAtMost = 'at most ';
+    private static readonly AcceptedClose = ')';
+
     public readonly Message: string;
 
     public constructor(
         /** JSON pointer (RFC 6901) to the offending member; `''` is the document itself. */
         public readonly Path: string,
         public readonly Code: ConfigurationErrorCode,
+        /** The inclusive range the setting accepts, for a bound error (each undefined when not declared). */
+        public readonly Minimum: number | undefined = undefined,
+        public readonly Maximum: number | undefined = undefined,
     )
     {
-        this.Message = ConfigurationError.Messages[Code];
+        this.Message = ConfigurationError.Messages[Code] + ConfigurationError.AcceptedOf(Minimum, Maximum);
         Object.freeze(this);
+    }
+
+    private static AcceptedOf(minimum: number | undefined, maximum: number | undefined): string
+    {
+        const E = ConfigurationError;
+        if (minimum === undefined && maximum === undefined) return '';
+        const range = minimum !== undefined && maximum !== undefined ? String(minimum) + E.AcceptedTo + String(maximum)
+            : minimum !== undefined ? E.AcceptedAtLeast + String(minimum) : E.AcceptedAtMost + String(maximum);
+        return E.AcceptedOpen + range + E.AcceptedClose;
     }
 
     public toString(): string

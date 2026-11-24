@@ -162,12 +162,12 @@ export class ConfigurationValidator
         }
         if (setting.Minimum !== undefined && !SettingValues.Within(value, setting.Minimum, undefined))
         {
-            errors.push(new ConfigurationError(path, ConfigurationErrorCode.BelowMinimum));
+            errors.push(new ConfigurationError(path, ConfigurationErrorCode.BelowMinimum, setting.Minimum, setting.Maximum));
             return undefined;
         }
         if (setting.Maximum !== undefined && !SettingValues.Within(value, undefined, setting.Maximum))
         {
-            errors.push(new ConfigurationError(path, ConfigurationErrorCode.AboveMaximum));
+            errors.push(new ConfigurationError(path, ConfigurationErrorCode.AboveMaximum, setting.Minimum, setting.Maximum));
             return undefined;
         }
         return Array.isArray(value) ? Object.freeze([...value as string[]]) : value as SettingValue;

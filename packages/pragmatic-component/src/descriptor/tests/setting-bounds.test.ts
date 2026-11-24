@@ -14,6 +14,8 @@ class Bounded
 {
     public static readonly Shortest = 1000;
     public static readonly Longest = 25000;
+    /** sha256 of the canonical JSON of the bound-free descriptor in the digest test, computed outside this package. */
+    public static readonly BoundFreeDigest = 'sha256:1fb35a3cf5ff7b1f3887685c8b609cc39753b64304bf24e8101baf881dc6ccd2';
 
     public static Descriptor(configure: (b: ComponentDescriptorBuilder) => ComponentDescriptorBuilder = b => b): ReturnType<ComponentDescriptorBuilder['Build']>
     {
@@ -56,7 +58,10 @@ describe('Setting bounds (optional minimum and maximum of an integer setting)', 
     {
         const text = ComponentDescriptorCodec.Serialize(RealmSignInDescriptor.Build());
         assert.doesNotMatch(text, /minimum|maximum/);
-        assert.equal(ComponentDescriptorCodec.Parse(text).ContentDigest(), RealmSignInDescriptor.Build().ContentDigest());
+        // A bound-free descriptor whose digest was computed independently (canonical JSON, sha256) before bounds existed:
+        // decoding and re-encoding it adds no member.
+        const before = '{"schema":1,"component":"bound-free","version":"1.0.0","options":[{"name":"core","description":"Core.","settings":[{"name":"drainTimeoutMs","type":"integer","required":false,"secret":false,"default":5000,"description":"Drain."},{"name":"label","type":"string","required":true,"secret":false,"description":"A label."}]}],"roles":[],"storage":{"postgres":false},"endpoints":{"ports":[]}}';
+        assert.equal(ComponentDescriptorCodec.Parse(before).ContentDigest(), Bounded.BoundFreeDigest);
     });
 
     it('round-trip through the codec to the same digest', () =>
@@ -105,8 +110,14 @@ describe('Setting bounds (optional minimum and maximum of an integer setting)', 
         ]);
         assert.deepEqual(Bounded.Errors({ options: { core: { drainTimeoutMs: 25000, idleTtlMs: 2147483647, backlog: -5 } } }), []);
         const [error] = new ConfigurationValidator(Bounded.Descriptor()).Validate({ options: { core: { drainTimeoutMs: 26000 } } }).Errors;
-        assert.equal(error!.toString(), '/options/core/drainTimeoutMs is above the largest value this setting accepts');
-        assert.equal(new ConfigurationValidator(Bounded.Descriptor()).Validate({ options: { core: { drainTimeoutMs: 1 } } }).Errors[0]!.Message, 'is below the smallest value this setting accepts');
+        assert.equal(error!.toString(), '/options/core/drainTimeoutMs is above the largest value this setting accepts (accepted: 1000 to 25000)');
+        assert.deepEqual([error!.Minimum, error!.Maximum], [1000, 25000]);
+        assert.equal(new ConfigurationValidator(Bounded.Descriptor()).Validate({ options: { core: { drainTimeoutMs: 1 } } }).Errors[0]!.Message, 'is below the smallest value this setting accepts (accepted: 1000 to 25000)');
+        const [low] = new ConfigurationValidator(Bounded.Descriptor()).Validate({ options: { core: { idleTtlMs: 5 } } }).Errors;
+        assert.equal(low!.Message, 'is below the smallest value this setting accepts (accepted: at least 1000)');
+        const [high] = new ConfigurationValidator(Bounded.Descriptor()).Validate({ options: { core: { backlog: 25001 } } }).Errors;
+        assert.equal(high!.Message, 'is above the largest value this setting accepts (accepted: at most 25000)');
+        assert.doesNotMatch(high!.toString(), /25001/, 'never the rejected value');
     });
 
     it('come from a declaration (`minimum`, `maximum`)', () =>

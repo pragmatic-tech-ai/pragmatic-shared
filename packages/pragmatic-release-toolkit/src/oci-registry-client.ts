@@ -105,6 +105,7 @@ class OciHttp
 class RegistryBearerAuth
 {
     private static readonly UnauthorizedStatus = 401
+    private static readonly ForbiddenStatus = 403
     private static readonly AuthorizationHeader = 'Authorization'
     private static readonly ChallengeHeader = 'www-authenticate'
     private static readonly BearerScheme = /^bearer\s/i
@@ -152,7 +153,9 @@ class RegistryBearerAuth
         const bearer = await this.IssueBearer(params, scope, this.credential)
         this.bearers.set(scope, bearer)
         const second = await this.Dispatch(url, init, bearer)
-        if (second.status === S.UnauthorizedStatus)
+        // Without a credential, a registry that issues the anonymous bearer yet denies the read (403, a private repository)
+        // is refused as before this client asked anonymously: callers read a 401 as "a token is needed".
+        if (second.status === S.UnauthorizedStatus || (this.credential === undefined && second.status === S.ForbiddenStatus))
         {
             await OciHttp.Drain(second)
             throw new OciResponseError(S.UnauthorizedStatus, S.RefusedMessage)

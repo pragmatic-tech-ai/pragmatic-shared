@@ -1,6 +1,6 @@
 {
   "name": "@pragmatic-tech-ai/pragmatic-kube",
-  "version": "0.18.10",
+  "version": "0.18.11",
   "license": "Apache-2.0",
   "description": "The Kubernetes client layer the platform consoles and the hive agent drive clusters through: the API client over the in-cluster service account, its HTTPS transport, the kubectl seam and the API-backed kubectl.",
   "repository": {

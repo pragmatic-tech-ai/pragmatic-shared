@@ -173,6 +173,19 @@ test('a public image index answers its component label without a credential (the
     assert.equal(await ComponentImageLabel.Read(new OciRegistryClient(Base, fake.Fetch), 'pragmatic-tech-ai/pragmatic-tenant-idp', digest), component)
 })
 
+test('a private repository that denies the anonymous bearer (403) is refused as 401, as before the anonymous request', async () =>
+{
+    const denied = new ChallengeStub(`Bearer realm="${Base}/token",service="s",scope="repository:r:pull"`)
+    const fetch: OciFetch = async (url, init) =>
+    {
+        const answer = await denied.Fetch(url, init)
+        return init.headers?.Authorization === ChallengeStub.IssuedAuthorization ? new Response(null, { status: 403 }) : answer
+    }
+    await assert.rejects(new OciRegistryClient(Base, fetch).ListTags('r'), (e: unknown) => e instanceof OciResponseError && e.status === 401)
+    const withCredential = new OciRegistryClient(Base, fetch, { username: User, token: Token })
+    await assert.rejects(withCredential.ListTags('r'), (e: unknown) => e instanceof OciResponseError && e.status === 403, 'with a credential a 403 stays a 403')
+})
+
 test('an anonymous token request never goes to a non-https realm on another host', async () =>
 {
     const stub = new ChallengeStub('Bearer realm="http://evil.test/token",service="s"')
