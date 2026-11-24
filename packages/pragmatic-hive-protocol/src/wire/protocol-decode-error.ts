@@ -19,6 +19,7 @@ export enum DecodeReason
     TooLarge = 'is too large',
     Inconsistent = 'does not match the other members',
     NotCanonical = 'holds a value the protocol cannot carry',
+    PrivateKeyMaterial = 'is private key material, which the protocol never carries',
 }
 
 /**

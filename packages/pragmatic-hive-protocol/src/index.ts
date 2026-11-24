@@ -42,6 +42,8 @@ export { IntentDecision, IntentDecisionKind, RealmSubject } from './intent/inten
 export type { IntentDecisionJson, RealmSubjectJson } from './intent/intent-decision.js'
 export { Pull, PullBatch } from './intent/pull.js'
 
+export { ServiceAccountKey, ServiceAccountKeys, ServiceAccountKeyType } from './identity/service-account-keys.js'
+export type { ServiceAccountKeyJson, ServiceAccountKeysJson, ServiceAccountKeysOptions } from './identity/service-account-keys.js'
 export { ComponentReport, ComponentState, EnvironmentReadiness, EnvironmentStatus, HiveReport, IntentProgress, IntentStatus } from './report/hive-report.js'
 export type { ComponentReportJson, EnvironmentStatusJson, HiveReportJson, HiveReportOptions, IntentStatusJson } from './report/hive-report.js'
 

@@ -17,6 +17,7 @@ export enum MessageKind
     PlacementResult = 'host.placement-result',
     ClusterCredentialHandover = 'host.cluster-credential',
     TunnelHello = 'agent.tunnel-hello',
+    ServiceAccountKeys = 'hive.service-account-keys',
 }
 
 /** How long a kind of message may be valid, and how much clock skew between the two parties is tolerated. */
@@ -70,6 +71,7 @@ export class MessageKinds
         [MessageKind.PlacementResult, new MessageKindRule(MessageKinds.Host, MessageKinds.Platform, false, FreshnessPolicy.Exchange)],
         [MessageKind.ClusterCredentialHandover, new MessageKindRule(MessageKinds.Host, MessageKinds.Platform, false, FreshnessPolicy.Exchange)],
         [MessageKind.TunnelHello, new MessageKindRule(MessageKinds.Agents, MessageKinds.Platform, false, FreshnessPolicy.Exchange)],
+        [MessageKind.ServiceAccountKeys, new MessageKindRule(MessageKinds.Hive, MessageKinds.Platform, false, FreshnessPolicy.Exchange)],
     ])
 
     public static Rule(kind: MessageKind): MessageKindRule

@@ -19,6 +19,7 @@ import { Intent, IntentAdmission, type IntentApplyMode } from '../intent/intent.
 import { IntentDecision, type IntentDecisionKind, type RealmSubject } from '../intent/intent-decision.js'
 import { Pull, PullBatch } from '../intent/pull.js'
 import type { HiveReport } from '../report/hive-report.js'
+import type { ServiceAccountKeys } from '../identity/service-account-keys.js'
 import { TunnelHello } from '../tunnel/tunnel.js'
 
 /** An agent call that needs enrolment first. */
@@ -183,6 +184,12 @@ export class FakeHiveAgent extends FakeAgent
     public async Report(report: HiveReport): Promise<void>
     {
         await this.Send(MessageKind.HiveReport, report)
+    }
+
+    /** Tells the platform its cluster's service-account issuer and public keys. */
+    public async ReportServiceAccountKeys(keys: ServiceAccountKeys): Promise<void>
+    {
+        await this.Send(MessageKind.ServiceAccountKeys, keys)
     }
 }
 

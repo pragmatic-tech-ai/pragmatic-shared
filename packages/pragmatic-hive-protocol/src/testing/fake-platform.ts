@@ -17,6 +17,7 @@ import type { IntentAction } from '../intent/intent-action.js'
 import { IntentDecision } from '../intent/intent-decision.js'
 import { Pull, PullBatch } from '../intent/pull.js'
 import { HiveReport } from '../report/hive-report.js'
+import { ServiceAccountKeys } from '../identity/service-account-keys.js'
 import { TunnelHello } from '../tunnel/tunnel.js'
 import { FakeClock } from './fake-clock.js'
 
@@ -174,6 +175,9 @@ export class FakePlatform
                 return null
             case MessageKind.TunnelHello:
                 await this.Take(envelope, TunnelHello)
+                return null
+            case MessageKind.ServiceAccountKeys:
+                await this.Take(envelope, ServiceAccountKeys)
                 return null
             case MessageKind.ClusterCredentialHandover:
                 await this.TakeCredential(envelope)
