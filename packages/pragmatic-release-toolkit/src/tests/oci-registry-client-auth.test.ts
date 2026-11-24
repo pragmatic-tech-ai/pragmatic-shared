@@ -186,6 +186,29 @@ test('a private repository that denies the anonymous bearer (403) is refused as 
     await assert.rejects(withCredential.ListTags('r'), (e: unknown) => e instanceof OciResponseError && e.status === 403, 'with a credential a 403 stays a 403')
 })
 
+test('without a credential a 404 after the anonymous bearer is a 401 too, and a cached anonymous bearer that is denied later is refused as 401, not reused', async () =>
+{
+    let deny = 404
+    let tokens = 0
+    const stub = new ChallengeStub(`Bearer realm="${Base}/token",service="s",scope="repository:r:pull"`)
+    const fetch: OciFetch = async (url, init) =>
+    {
+        if (url.includes(ChallengeStub.TokenPath)) tokens++
+        const answer = await stub.Fetch(url, init)
+        return init.headers?.Authorization === ChallengeStub.IssuedAuthorization && deny !== 200 ? new Response(null, { status: deny }) : answer
+    }
+    const client = new OciRegistryClient(Base, fetch)
+    await assert.rejects(client.ListTags('r'), (e: unknown) => e instanceof OciResponseError && e.status === 401)
+    deny = 200
+    assert.deepEqual(await client.ListTags('r'), ['t'], 'issued again, then answered')
+    deny = 403
+    await assert.rejects(client.ListTags('r'), (e: unknown) => e instanceof OciResponseError && e.status === 401, 'the cached bearer denied: 401')
+    deny = 200
+    const before = tokens
+    assert.deepEqual(await client.ListTags('r'), ['t'])
+    assert.equal(tokens, before + 1, 'the denied bearer was forgotten and a fresh one asked for')
+})
+
 test('an anonymous token request never goes to a non-https realm on another host', async () =>
 {
     const stub = new ChallengeStub('Bearer realm="http://evil.test/token",service="s"')

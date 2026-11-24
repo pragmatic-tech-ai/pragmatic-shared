@@ -106,6 +106,7 @@ class RegistryBearerAuth
 {
     private static readonly UnauthorizedStatus = 401
     private static readonly ForbiddenStatus = 403
+    private static readonly NotFoundStatus = 404
     private static readonly AuthorizationHeader = 'Authorization'
     private static readonly ChallengeHeader = 'www-authenticate'
     private static readonly BearerScheme = /^bearer\s/i
@@ -137,7 +138,14 @@ class RegistryBearerAuth
     public async Send(url: string, init: OciRequestInit, repo: string): Promise<Response>
     {
         const S = RegistryBearerAuth
-        const first = await this.Dispatch(url, init, this.CachedBearerFor(repo))
+        const cached = this.CachedBearerFor(repo)
+        const first = await this.Dispatch(url, init, cached)
+        if (cached !== undefined && this.DeniedAnonymously(first.status))
+        {
+            await OciHttp.Drain(first)
+            this.ForgetBearersOf(repo)
+            throw new OciResponseError(S.UnauthorizedStatus, S.RefusedMessage)
+        }
         if (first.status !== S.UnauthorizedStatus)
         {
             return first
@@ -153,14 +161,31 @@ class RegistryBearerAuth
         const bearer = await this.IssueBearer(params, scope, this.credential)
         this.bearers.set(scope, bearer)
         const second = await this.Dispatch(url, init, bearer)
-        // Without a credential, a registry that issues the anonymous bearer yet denies the read (403, a private repository)
-        // is refused as before this client asked anonymously: callers read a 401 as "a token is needed".
-        if (second.status === S.UnauthorizedStatus || (this.credential === undefined && second.status === S.ForbiddenStatus))
+        if (second.status === S.UnauthorizedStatus || this.DeniedAnonymously(second.status))
         {
             await OciHttp.Drain(second)
+            this.ForgetBearersOf(repo)
             throw new OciResponseError(S.UnauthorizedStatus, S.RefusedMessage)
         }
         return second
+    }
+
+    // Without a credential, a registry that issues the anonymous bearer yet denies the read (403, or 404 as GHCR answers a
+    // private repository) is refused as before this client asked anonymously: callers read a 401 as "a token is needed".
+    private DeniedAnonymously(status: number): boolean
+    {
+        const S = RegistryBearerAuth
+        return this.credential === undefined && (status === S.ForbiddenStatus || status === S.NotFoundStatus)
+    }
+
+    // A refused bearer is not reused: the next call asks the realm again.
+    private ForgetBearersOf(repo: string): void
+    {
+        const prefix = RegistryBearerAuth.RepositoryScopePrefix + repo + RegistryBearerAuth.Separator
+        for (const scope of [...this.bearers.keys()])
+        {
+            if (scope.startsWith(prefix)) this.bearers.delete(scope)
+        }
     }
 
     private static ParseChallenge(challenge: string): Map<string, string>
