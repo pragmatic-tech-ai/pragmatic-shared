@@ -90,16 +90,19 @@ export class AzureRealmSecretStore implements IRealmSecretStore
     {
         const name = this.NameOf(RealmSecretName.ForWrite(key).Name)
         await this.context.ReadToken(RealmSecretsOption.Azure)
-        const deleted = await this.Guarded(async () => (await this.client.beginDeleteSecret(name, AzureRealmSecretStore.PollOptions)).pollUntilDone(), true)
-        if (deleted === undefined) return
+        const A = AzureRealmSecretStore
+        // Deleted now or earlier (a delete whose purge did not happen): either way the purge is tried.
+        await this.Guarded(async () => (await this.client.beginDeleteSecret(name, A.PollOptions)).pollUntilDone(), true)
         try
         {
             await this.client.purgeDeletedSecret(name)
         }
         catch (error)
         {
-            // No purge permission (or purge protection): the secret stays soft-deleted, recovered by a later write.
-            if (AzureRealmSecretStore.StatusOf(error) !== AzureRealmSecretStore.Forbidden) throw AzureRealmSecretStore.Typed(error)
+            // No purge permission or purge protection (403), still being deleted (409), nothing deleted (404): the secret
+            // stays soft-deleted where it is, and a later write recovers it.
+            const status = A.StatusOf(error)
+            if (status !== A.Forbidden && status !== A.Conflict && status !== A.NotFound) throw A.Typed(error)
         }
     }
 

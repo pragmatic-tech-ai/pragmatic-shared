@@ -139,10 +139,14 @@ test('the custom factory reads its URL and key files; an unreadable key or datab
 
 // Live only: roles, grants and row-level security (pg-mem has none of them). Creating roles needs a role that may
 // (PRAGMATIC_TEST_PG_ADMIN_URL: the test Postgres's superuser on the hive laptop); the test role itself may not.
-const adminUrl = process.env.PRAGMATIC_TEST_PG_ADMIN_URL ?? ''
+class AdminDatabase
+{
+    public static readonly Url = process.env.PRAGMATIC_TEST_PG_ADMIN_URL ?? ''
+}
+
 SqlTestSessions.DescribeLive('realm secrets provisioning', makeDatabase =>
 {
-    if (adminUrl === '') return
+    if (AdminDatabase.Url === '') return
 
     class Roles
     {
@@ -152,7 +156,7 @@ SqlTestSessions.DescribeLive('realm secrets provisioning', makeDatabase =>
 
         public constructor(private readonly schema: string, private readonly url: string)
         {
-            this.Admin = new PgSession(new Pool({ connectionString: adminUrl, options: `-c search_path=${schema}`, max: 2, allowExitOnIdle: true }))
+            this.Admin = new PgSession(new Pool({ connectionString: AdminDatabase.Url, options: `-c search_path=${schema}`, max: 2, allowExitOnIdle: true }))
         }
 
         public async Create(suffix: string): Promise<string>
@@ -204,8 +208,35 @@ SqlTestSessions.DescribeLive('realm secrets provisioning', makeDatabase =>
             assert.equal(await CustomRealmSecrets.Over(asGone, key, 'realm-x', false, true).Get('probe'), 'x-value')
             // Realm X's grants change: `gone` is no reader any more, so it loses its privileges.
             await RealmSecretsProvisioning.Run(roles.Admin, [new RealmSecretsGrant('realm-x', [both], [])])
-            await assert.rejects(asGone.Query('SELECT reference FROM sealed_secrets', []), (error: { code?: string }) => error.code === '42501')
+            // Without schema usage the table is not even visible (42P01); without table privileges it is refused (42501).
+            await assert.rejects(asGone.Query('SELECT reference FROM sealed_secrets', []), (error: { code?: string }) => error.code === '42501' || error.code === '42P01')
             assert.equal(await CustomRealmSecrets.Over(asBoth, key, 'realm-x', false, true).Get('probe'), 'x-value')
+        }
+        finally
+        {
+            for (const session of sessions) await session.Dispose()
+            await roles.Drop()
+            await database.Dispose()
+        }
+    })
+
+    test('[live] an owner that is not a superuser provisions and converges every grant', async () =>
+    {
+        const database = await makeDatabase()
+        const roles = new Roles(database.Schema, process.env.PRAGMATIC_TEST_PG_URL!)
+        const owner = database.Session()
+        const sessions: PgSession[] = []
+        try
+        {
+            const writer = await roles.Create('owner_writer')
+            const reader = await roles.Create('owner_reader')
+            // The test role owns the schema and is no superuser: the grants table's row security must not bind it.
+            await RealmSecretsProvisioning.Run(owner, [new RealmSecretsGrant('realm-o', [writer], [reader])])
+            await RealmSecretsProvisioning.Run(owner, [new RealmSecretsGrant('realm-o', [writer], [])])
+            assert.deepEqual((await owner.Query('SELECT role_name FROM realm_secret_grants ORDER BY role_name', [])).map(row => row.role_name), [writer])
+            const asReader = roles.Session(reader)
+            sessions.push(asReader)
+            await assert.rejects(asReader.Query('SELECT reference FROM sealed_secrets', []), (error: { code?: string }) => error.code === '42501' || error.code === '42P01')
         }
         finally
         {

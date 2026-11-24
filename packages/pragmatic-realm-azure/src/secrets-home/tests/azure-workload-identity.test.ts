@@ -233,6 +233,12 @@ test('azure: writes add versions; a deleted name the identity may not purge is r
         await store.Delete('probe')
         await store.Put('probe', 'three')
         assert.equal(await store.Get('probe'), 'three')
+        // A later delete with purge allowed purges also what an earlier one left soft-deleted.
+        await store.Delete('probe')
+        assert.equal(fake.Deleted.size, 1)
+        fake.PurgeForbidden = false
+        await store.Delete('probe')
+        assert.equal(fake.Deleted.size, 0)
     })
 })
 
@@ -276,6 +282,8 @@ test('azure: with AZURE_* variables present, the projected token is what is pres
             assert.equal(form.get('client_assertion'), ProjectToken)
             assert.equal(form.get('client_id'), Client)
             assert.equal(form.get('client_secret'), null)
+            assert.ok(!fake.Requests.some(request => request.Url.host.startsWith('169.254.') || request.Url.pathname.includes('/metadata/identity')), 'the instance metadata service is never called')
+            assert.ok(fake.Requests.every(request => request.Url.host === 'login.microsoftonline.com' || request.Url.host === new URL(Vault).host))
         }
         finally
         {

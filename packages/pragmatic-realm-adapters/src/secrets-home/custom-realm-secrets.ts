@@ -188,9 +188,15 @@ export class CustomRealmSecretStore implements IRealmSecretStore
         }
         // No check row: a sealed row that is there must open with this key before anything trusts it.
         const other = await this.Guarded(() => session.Query(C.AnyRowSql, [this.Scope, C.KeyCheckReference]))
-        if (other.length > 0 && await this.Guarded(() => store.Get(String(other[0]!.reference))) === null)
+        if (other.length > 0)
         {
-            throw new SecretsHomeUnavailableError(RealmSecretsOption.Custom, SecretsHomeFailure.KeyMismatch)
+            const reference = String(other[0]!.reference)
+            // A row that does not open is a mismatch, unless it was deleted meanwhile.
+            const opened = await this.Guarded(() => store.Get(reference))
+            if (opened === null && (await this.Guarded(() => session.Query(C.ExistsSql, [this.Scope, reference]))).length > 0)
+            {
+                throw new SecretsHomeUnavailableError(RealmSecretsOption.Custom, SecretsHomeFailure.KeyMismatch)
+            }
         }
         if (this.Writer)
         {

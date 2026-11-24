@@ -27,6 +27,9 @@ export class SecretStoreDirectory
     private static readonly UnreadableInfix = ', which its store could not read: ';
     private static readonly NotHeld = ", which the realm's secrets home does not hold";
     private static readonly HomeUnavailable = ", but the realm's secrets home is unavailable: ";
+    private static readonly OptionOpen = '(';
+    private static readonly OptionClose = ') ';
+    private static readonly NoOption = '';
     /** The error name pragmatic-realm-adapters' `SecretsHomeUnavailableError` carries (this package does not depend on it). */
     public static readonly HomeUnavailableErrorName = 'SecretsHomeUnavailableError';
 
@@ -80,7 +83,8 @@ export class SecretStoreDirectory
     private static OptionOf(error: unknown): string
     {
         const option = (error as { Option?: unknown }).Option;
-        return typeof option === 'string' && SecretStoreDirectory.StorePattern.test(option) ? `(${option}) ` : '';
+        const S = SecretStoreDirectory;
+        return typeof option === 'string' && S.StorePattern.test(option) ? S.OptionOpen + option + S.OptionClose : S.NoOption;
     }
 
     // The error's code or name only: a store's message could carry what it read.

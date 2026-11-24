@@ -58,11 +58,13 @@ export class AwsRealmSecretStore implements IRealmSecretStore
     private static readonly ForbiddenStatus = 403
     private static readonly Exists = 'ResourceExistsException'
     private static readonly PendingDeletion = 'InvalidRequestException'
-    /** A name a force delete is still releasing: a create is retried this many times, this far apart. */
+    /** A name a force delete is still releasing: a create is retried this many times (CreateRetryMs apart). */
     public static readonly CreateAttempts = 5
     public static readonly CreateRetryMs = 1000
+    /** How Secrets Manager says a name is still being released (the only InvalidRequestException retried). */
+    private static readonly ScheduledForDeletion = /scheduled for deletion/i
 
-    public constructor(private readonly client: SecretsManagerClient, private readonly context: WorkloadContext)
+    public constructor(private readonly client: SecretsManagerClient, private readonly context: WorkloadContext, private readonly createRetryMs: number = AwsRealmSecretStore.CreateRetryMs)
     {
     }
 
@@ -102,12 +104,13 @@ export class AwsRealmSecretStore implements IRealmSecretStore
             }
             catch (error)
             {
+                const A = AwsRealmSecretStore
                 const name = (error as { name?: unknown } | null)?.name
                 // Created meanwhile by another writer: the value goes in as its next version.
-                if (name === AwsRealmSecretStore.Exists && await this.PutValue(id, secret)) return
-                if (name !== AwsRealmSecretStore.PendingDeletion || attempt >= AwsRealmSecretStore.CreateAttempts) throw AwsRealmSecretStore.Typed(error)
+                if (name === A.Exists && await this.PutValue(id, secret)) return
+                if (!A.IsPendingDeletion(error) || attempt >= A.CreateAttempts) throw A.Typed(error)
             }
-            await new Promise<void>(resolve => setTimeout(resolve, AwsRealmSecretStore.CreateRetryMs))
+            await new Promise<void>(resolve => setTimeout(resolve, this.createRetryMs))
         }
     }
 
@@ -141,6 +144,13 @@ export class AwsRealmSecretStore implements IRealmSecretStore
             if (absentIsUndefined && (error as { name?: unknown } | null)?.name === A.NotFound) return undefined
             throw A.Typed(error)
         }
+    }
+
+    // The message is read for the one fact, never kept or shown.
+    private static IsPendingDeletion(error: unknown): boolean
+    {
+        const fields = error as { name?: unknown, message?: unknown } | null
+        return fields?.name === AwsRealmSecretStore.PendingDeletion && typeof fields.message === 'string' && AwsRealmSecretStore.ScheduledForDeletion.test(fields.message)
     }
 
     private static Typed(error: unknown): SecretsHomeUnavailableError
@@ -183,7 +193,7 @@ export class AwsWorkloadIdentity implements IRealmSecretsHomeFactory
         new RealmSecretsSettingRule(AwsWorkloadIdentity.SessionName, AwsWorkloadIdentity.SessionPattern, false, AwsWorkloadIdentity.SessionForm),
     ]
 
-    public constructor(private readonly endpoints: AwsEndpoints = AwsEndpoints.Aws)
+    public constructor(private readonly endpoints: AwsEndpoints = AwsEndpoints.Aws, private readonly createRetryMs: number = AwsRealmSecretStore.CreateRetryMs)
     {
     }
 
@@ -210,6 +220,6 @@ export class AwsWorkloadIdentity implements IRealmSecretsHomeFactory
             }
         }
         const client = new SecretsManagerClient({ region, endpoint: this.endpoints.SecretsManagerFor(region, roleArn), credentials, maxAttempts: A.MaxAttempts })
-        return Promise.resolve(new AwsRealmSecretStore(client, context))
+        return Promise.resolve(new AwsRealmSecretStore(client, context, this.createRetryMs))
     }
 }

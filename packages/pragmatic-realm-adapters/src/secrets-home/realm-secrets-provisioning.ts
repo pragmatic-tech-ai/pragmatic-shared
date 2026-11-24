@@ -51,7 +51,8 @@ export class RealmSecretsGrant
 /**
  * Sets up the custom option's `realm_secrets` database, as the database's owner (the engine chart's bootstrap Job, with
  * the Postgres superuser): the sealed-secrets table, the grants table, `CONNECT` and schema usage for the realm's roles,
- * row-level security (forced, so even the tables' owner is bound by it) and the roles' privileges. A role sees, and a
+ * row-level security (on the sealed secrets forced, so even their owner is bound by it; on the grants not, so the owner
+ * running this reads and changes every grant) and the roles' privileges. A role sees, and a
  * writer changes, only the rows of the realms the grants table gives it (`scope = 'realm/<realm>'`), and sees only its
  * own grant rows; a reader role has `SELECT` only. Each role's privileges follow all its grant rows (earlier runs'
  * included), and a role whose last grant a run removes loses them. The login roles themselves (and their passwords) are
@@ -68,9 +69,10 @@ export class RealmSecretsProvisioning
         'DROP POLICY IF EXISTS realm_secrets_write ON sealed_secrets',
         "CREATE POLICY realm_secrets_read ON sealed_secrets FOR SELECT USING (EXISTS (SELECT 1 FROM realm_secret_grants g WHERE g.role_name = current_user AND sealed_secrets.scope = 'realm/' || g.realm_id))",
         "CREATE POLICY realm_secrets_write ON sealed_secrets FOR ALL USING (EXISTS (SELECT 1 FROM realm_secret_grants g WHERE g.role_name = current_user AND g.writer AND sealed_secrets.scope = 'realm/' || g.realm_id)) WITH CHECK (EXISTS (SELECT 1 FROM realm_secret_grants g WHERE g.role_name = current_user AND g.writer AND sealed_secrets.scope = 'realm/' || g.realm_id))",
-        // A role sees its own grant rows only: no role learns another realm's id or roles.
+        // A role sees its own grant rows only: no role learns another realm's id or roles. Not forced: the owner running
+        // this (the bootstrap) reads and changes every grant row.
         'ALTER TABLE realm_secret_grants ENABLE ROW LEVEL SECURITY',
-        'ALTER TABLE realm_secret_grants FORCE ROW LEVEL SECURITY',
+        'ALTER TABLE realm_secret_grants NO FORCE ROW LEVEL SECURITY',
         'DROP POLICY IF EXISTS realm_secret_grants_own ON realm_secret_grants',
         'CREATE POLICY realm_secret_grants_own ON realm_secret_grants FOR SELECT USING (role_name = current_user)',
     ]
@@ -120,7 +122,7 @@ export class RealmSecretsProvisioning
             // A role this run took its last grant from keeps nothing.
             for (const role of cleared)
             {
-                if (!remaining.has(role)) await P.Revoke(tx, role)
+                if (!remaining.has(role)) await P.Revoke(tx, database, schema, role)
             }
         })
     }
@@ -136,12 +138,14 @@ export class RealmSecretsProvisioning
         await tx.Execute(`GRANT SELECT ON realm_secret_grants TO ${name}`, [])
     }
 
-    private static async Revoke(tx: ISqlSession, role: string): Promise<void>
+    private static async Revoke(tx: ISqlSession, database: string, schema: string, role: string): Promise<void>
     {
         const P = RealmSecretsProvisioning
         const name = P.Identifier(role)
         await tx.Execute(`REVOKE ALL ON sealed_secrets FROM ${name}`, [])
         await tx.Execute(`REVOKE ALL ON realm_secret_grants FROM ${name}`, [])
+        await tx.Execute(`REVOKE USAGE ON SCHEMA ${P.Identifier(schema)} FROM ${name}`, [])
+        await tx.Execute(`REVOKE CONNECT ON DATABASE ${P.Identifier(database)} FROM ${name}`, [])
     }
 
     // Role names are pattern-checked by RealmSecretsGrant; the schema and database are the session's own. Quoted either way.

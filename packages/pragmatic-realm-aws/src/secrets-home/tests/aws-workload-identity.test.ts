@@ -25,6 +25,8 @@ class AwsFake
     public PendingDeletions = 0
     /** A writer that creates the secret between this one's put and create. */
     public RacingCreate: string | undefined
+    /** One create refused as invalid for another reason (never retried). */
+    public OtherInvalid = false
 
     public async Start(): Promise<AwsFake>
     {
@@ -77,6 +79,11 @@ class AwsFake
             if (this.PendingDeletions > 0)
             {
                 this.PendingDeletions -= 1
+                return new RecordedResponse(400, JSON.stringify({ __type: 'InvalidRequestException', message: "You can't create this secret because a secret with this name is already scheduled for deletion." }), 'application/x-amz-json-1.1')
+            }
+            if (this.OtherInvalid)
+            {
+                this.OtherInvalid = false
                 return error('InvalidRequestException')
             }
             if (this.RacingCreate !== undefined)
@@ -117,7 +124,7 @@ class Scene
 
     public static Open(fake: AwsFake, tokenFile: string, values: Record<string, string> = {}): Promise<ISecretStore>
     {
-        const home = new RealmSecretsHome([new AwsWorkloadIdentity(fake.Endpoints)])
+        const home = new RealmSecretsHome([new AwsWorkloadIdentity(fake.Endpoints, 1)])
         const settings = RealmSecretsSettings.Of(RealmSecretsOption.Aws, { region: 'eu-central-1', roleArn: RoleArn, ...values })
         return home.For(settings, new WorkloadContext('acme', 'pragmatic-tenant-idp', tokenFile))
     }
@@ -197,6 +204,11 @@ test('aws: a create racing another writer adds a version; a name still being rel
         fake.PendingDeletions = AwsRealmSecretStore.CreateAttempts
         await store.Delete('probe')
         await assert.rejects(store.Put('probe', 'never'), Scene.Failure(SecretsHomeFailure.Unreachable))
+        fake.PendingDeletions = 0
+        fake.OtherInvalid = true
+        const before = fake.Secrets.Requests.length
+        await assert.rejects(store.Put('probe', 'invalid'), Scene.Failure(SecretsHomeFailure.Unreachable))
+        assert.equal(fake.Secrets.To(/./).slice(before).filter(request => (request.Headers['x-amz-target'] ?? '').endsWith('.CreateSecret')).length, 1, 'another invalid request is not retried')
     })
 })
 
