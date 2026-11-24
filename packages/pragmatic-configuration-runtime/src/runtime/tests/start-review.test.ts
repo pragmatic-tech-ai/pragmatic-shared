@@ -118,3 +118,15 @@ test('a source that already names a file is read as that file', async () =>
         assert.equal(SecretVariable.Read({}, 'TEST_KEY_FILE'), undefined);
     });
 });
+
+test('a secrets home that is unavailable refuses the start as secrets-home-unavailable, with its code only', async () =>
+{
+    const home = { Get: async (): Promise<string | null> => { throw Object.assign(new Error("the realm's secrets home (gcp) is unavailable: exchange-refused"), { name: 'SecretsHomeUnavailableError', code: 'exchange-refused', detail: 'leaked-cloud-text' }); } };
+    const directory = new SecretStoreDirectory().Add('realm', home);
+    let caught: unknown;
+    await directory.Resolve(new SecretReference('realm', 'google-client-secret'), 'google.clientSecret').catch(error => { caught = error; });
+    assert.ok(caught instanceof ConfigurationStartError);
+    assert.equal(caught.Reason, ConfigurationStartReason.SecretsHomeUnavailable);
+    assert.match(caught.message, /google\.clientSecret refers to secret:realm\/google-client-secret, but the realm's secrets home is unavailable: exchange-refused/);
+    assert.ok(!caught.message.includes('leaked-cloud-text'));
+});

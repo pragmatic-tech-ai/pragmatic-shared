@@ -26,6 +26,9 @@ export class SecretStoreDirectory
     private static readonly NoStoreSuffix = "' is available to this component";
     private static readonly UnreadableInfix = ', which its store could not read: ';
     private static readonly NotHeld = ", which the realm's secrets home does not hold";
+    private static readonly HomeUnavailable = ", but the realm's secrets home is unavailable: ";
+    /** The error name pragmatic-realm-adapters' `SecretsHomeUnavailableError` carries (this package does not depend on it). */
+    public static readonly HomeUnavailableErrorName = 'SecretsHomeUnavailableError';
 
     private readonly stores = new Map<string, ISecretSource>();
 
@@ -60,6 +63,10 @@ export class SecretStoreDirectory
         catch (error)
         {
             if (error instanceof ConfigurationStartError) throw error;
+            if ((error as { name?: unknown } | null)?.name === S.HomeUnavailableErrorName)
+            {
+                throw new ConfigurationStartError(ConfigurationStartReason.SecretsHomeUnavailable, `${where}${S.Refers}${reference.Format()}${S.HomeUnavailable}${S.CodeOf(error)}`);
+            }
             throw new ConfigurationStartError(ConfigurationStartReason.SecretUnreadable, `${where}${S.Refers}${reference.Format()}${S.UnreadableInfix}${S.CodeOf(error)}`);
         }
         if (value === null)

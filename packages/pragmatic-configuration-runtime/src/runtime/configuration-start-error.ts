@@ -16,6 +16,9 @@ export enum ConfigurationStartReason
     SecretsUnwritable = 'secrets-unwritable',
     /** A secret store failed to answer (other than "absent"), or cannot serve the reference's form. */
     SecretUnreadable = 'secret-unreadable',
+    /** The realm's secrets home did not answer (its projected token, the token exchange, its permissions, its key or
+     *  the home itself), or its settings are refused. The detail names the option and a code, never a cloud's text. */
+    SecretsHomeUnavailable = 'secrets-home-unavailable',
 }
 
 /** The component cannot start on its applied configuration. The message says what to do; it names settings and secret

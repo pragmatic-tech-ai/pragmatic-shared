@@ -73,7 +73,7 @@ export class UrlFileRealmSecretsDatabase implements IRealmSecretsDatabase
         }
         if (url === '') throw new SecretsHomeUnavailableError(RealmSecretsOption.Custom, SecretsHomeFailure.Unreachable)
         const pg = (await import('pg')).default
-        const pool = new pg.Pool({ connectionString: url, max: U.MaxConnections })
+        const pool = new pg.Pool({ connectionString: url, max: U.MaxConnections, allowExitOnIdle: true })
         // An idle client failing (Postgres restarted) must not crash the process; the pool reconnects on the next query.
         pool.on(U.ErrorEvent, () => undefined)
         return new PgSession(pool)
