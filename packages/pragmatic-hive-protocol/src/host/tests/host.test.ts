@@ -15,7 +15,7 @@ class Samples
 
     public static Place(): PlacementRequest
     {
-        return PlacementRequest.Place({ PlacementId: 'p-1', Tenant: 'acme', EnrolmentCode: 'abcdefghijklmnop0123', EngineVersion: '0.10.0', ChartDigest: Samples.Chart, HiveHostName: 'acme.hives.pragmatic-tech.ai' })
+        return PlacementRequest.Place({ PlacementId: 'p-1', Version: 1, Tenant: 'acme', EnrolmentCode: 'abcdefghijklmnop0123', EngineVersion: '0.10.0', ChartDigest: Samples.Chart, HiveHostName: 'acme.hives.pragmatic-tech.ai' })
     }
 }
 
@@ -47,10 +47,20 @@ describe('PlacementRequest', () =>
     it('places with all details and removes with none', () =>
     {
         assert.deepEqual(PlacementRequest.Parse(Samples.Place().ToJson()).ToJson(), Samples.Place().ToJson())
-        assert.equal(PlacementRequest.Remove('p-1', 'acme').EnrolmentCode, null)
+        assert.equal(PlacementRequest.Remove('p-1', 'acme', 2).EnrolmentCode, null)
         assert.throws(() => PlacementRequest.Parse({ ...Samples.Place().ToJson(), ChartDigest: null }), ProtocolDecodeError)
-        assert.throws(() => PlacementRequest.Parse({ ...PlacementRequest.Remove('p-1', 'acme').ToJson(), EngineVersion: '0.10.0' }), ProtocolDecodeError)
+        assert.throws(() => PlacementRequest.Parse({ ...PlacementRequest.Remove('p-1', 'acme', 2).ToJson(), EngineVersion: '0.10.0' }), ProtocolDecodeError)
         assert.throws(() => PlacementRequest.Parse({ ...Samples.Place().ToJson(), HiveHostName: 'acme.example.com' }), ProtocolDecodeError)
+    })
+
+    it('carries the placement version, an integer from 1, on a place and a removal', () =>
+    {
+        assert.equal(Samples.Place().Version, 1)
+        assert.equal(PlacementRequest.Parse(PlacementRequest.Remove('p-1', 'acme', 7).ToJson()).Version, 7)
+        for (const bad of [0, -1, 1.5, '2', null, undefined])
+        {
+            assert.throws(() => PlacementRequest.Parse({ ...Samples.Place().ToJson(), Version: bad }), ProtocolDecodeError, String(bad))
+        }
     })
 })
 
@@ -58,16 +68,28 @@ describe('PlacementResult', () =>
 {
     it('names the credential reference and API server when placed, a failure code when failed, never the credential', () =>
     {
-        const placed = PlacementResult.Placed('p-1', new ApiServerAddress('100.64.0.7', 6443))
+        const placed = PlacementResult.Placed('p-1', 3, new ApiServerAddress('100.64.0.7', 6443))
         assert.equal(placed.CredentialReference, 'clusters/p-1')
         assert.deepEqual(PlacementResult.Parse(placed.ToJson()).ToJson(), placed.ToJson())
-        assert.equal(PlacementResult.Failed('p-1', PlacementFailure.NoCapacity).CredentialReference, null)
-        assert.equal(PlacementResult.Removed('p-1').ApiServer, null)
+        assert.equal(PlacementResult.Failed('p-1', 3, PlacementFailure.NoCapacity).CredentialReference, null)
+        assert.equal(PlacementResult.Removed('p-1', 3).ApiServer, null)
         assert.throws(() => PlacementResult.Parse({ ...placed.ToJson(), Kubeconfig: 'apiVersion: v1' }), ProtocolDecodeError)
         assert.throws(() => PlacementResult.Parse({ ...placed.ToJson(), CredentialReference: 'clusters/p-2' }), ProtocolDecodeError)
         assert.throws(() => PlacementResult.Parse({ ...placed.ToJson(), Failure: 'no-capacity' }), ProtocolDecodeError)
-        assert.throws(() => PlacementResult.Parse({ ...PlacementResult.Failed('p-1', PlacementFailure.NoCapacity).ToJson(), Failure: 'disk full on /dev/sda1' }), ProtocolDecodeError)
+        assert.throws(() => PlacementResult.Parse({ ...PlacementResult.Failed('p-1', 3, PlacementFailure.NoCapacity).ToJson(), Failure: 'disk full on /dev/sda1' }), ProtocolDecodeError)
         assert.throws(() => PlacementResult.Parse({ ...placed.ToJson(), ApiServer: { Host: '100.64.0.7', Port: 70000 } }), ProtocolDecodeError)
+    })
+
+    it('names the placement version it answers, and a credential failure has its own code', () =>
+    {
+        const placed = PlacementResult.Placed('p-1', 4, new ApiServerAddress('100.64.0.7', 6443))
+        assert.equal(PlacementResult.Parse(placed.ToJson()).Version, 4)
+        assert.throws(() => PlacementResult.Parse({ ...placed.ToJson(), Version: 0 }), ProtocolDecodeError)
+        const unversioned: Record<string, unknown> = { ...placed.ToJson() }
+        delete unversioned.Version
+        assert.throws(() => PlacementResult.Parse(unversioned), ProtocolDecodeError)
+        assert.equal(PlacementFailure.CredentialFailed, 'credential-failed')
+        assert.equal(PlacementResult.Parse(PlacementResult.Failed('p-1', 4, PlacementFailure.CredentialFailed).ToJson()).Failure, PlacementFailure.CredentialFailed)
     })
 })
 

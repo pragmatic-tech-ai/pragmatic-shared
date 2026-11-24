@@ -192,13 +192,13 @@ describe('the host agent over the fake channel (Hosted path)', () =>
         await host.Report(HostReport.Create({ AgentVersion: '0.10.0', Health: HostHealth.Healthy, Capacity: new Resources(16000, 65536, 900), Allocatable: new Resources(16000, 65536, 900), HiveSlots: 1, Placements: [] }))
 
         const hiveCode = world.Platform.IssueHiveCode('acme', HiveLevel.Hosted)
-        world.Platform.Place(host.Self.Id, PlacementRequest.Place({ PlacementId: 'p-1', Tenant: 'acme', EnrolmentCode: hiveCode, EngineVersion: '0.10.0', ChartDigest: 'sha256:' + 'c'.repeat(64), HiveHostName: 'acme.hives.pragmatic-tech.ai' }))
+        world.Platform.Place(host.Self.Id, PlacementRequest.Place({ PlacementId: 'p-1', Version: 1, Tenant: 'acme', EnrolmentCode: hiveCode, EngineVersion: '0.10.0', ChartDigest: 'sha256:' + 'c'.repeat(64), HiveHostName: 'acme.hives.pragmatic-tech.ai' }))
         const [placement] = await host.PullPlacements()
         assert.equal(placement?.Body.EnrolmentCode, hiveCode)
 
         const engine = world.Hive()
         await engine.Enrol(hiveCode, 'acme', HiveLevel.Hosted)
-        await host.Result(PlacementResult.Placed('p-1', new ApiServerAddress('100.64.0.7', 6443)))
+        await host.Result(PlacementResult.Placed('p-1', 1, new ApiServerAddress('100.64.0.7', 6443)))
         await host.HandOver('p-1', 1, Buffer.from('apiVersion: v1\nkind: Config'), new Date('2026-11-27T10:00:00.000Z'))
         await host.Hello(['acme.hives.pragmatic-tech.ai'])
 
@@ -212,6 +212,6 @@ describe('the host agent over the fake channel (Hosted path)', () =>
     {
         const world = new World()
         const hive = await world.EnrolledHive()
-        await assert.rejects(hive.Send(MessageKind.PlacementResult, PlacementResult.Removed('p-1')), EnvelopeSigningError)
+        await assert.rejects(hive.Send(MessageKind.PlacementResult, PlacementResult.Removed('p-1', 1)), EnvelopeSigningError)
     })
 })

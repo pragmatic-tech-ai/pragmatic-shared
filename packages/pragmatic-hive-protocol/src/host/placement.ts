@@ -19,6 +19,7 @@ export enum PlacementOperation
 export interface PlacementRequestJson
 {
     PlacementId: string
+    Version: number
     Operation: PlacementOperation
     Tenant: string
     EnrolmentCode: string | null
@@ -30,6 +31,8 @@ export interface PlacementRequestJson
 export interface PlacementRequestOptions
 {
     PlacementId: string
+    /** The placement's version (>= 1): each new request for one placement (an engine upgrade, the removal) carries a higher one. */
+    Version: number
     Tenant: string
     EnrolmentCode: string
     EngineVersion: string
@@ -41,16 +44,20 @@ export interface PlacementRequestOptions
  * "Host a hive for tenant T" (`MessageKind.PlacementRequest`, signed by the platform, addressed to one host, pulled
  * like an intent): the placement id, the tenant, the one-time enrolment code the new engine enrols with, the engine
  * version and its chart's digest, and the hive's host name under `hives.pragmatic-tech.ai` (what the edge relays to
- * this machine by SNI). A removal names only the placement and tenant.
+ * this machine by SNI). A removal names only the placement and tenant. Every request carries the placement's version
+ * (an integer from 1, raised by each new request for the placement): a host applies a placement's newest version only
+ * and ignores an older one delivered late.
  */
 export class PlacementRequest
 {
     public static readonly Operations: readonly PlacementOperation[] = Object.values(PlacementOperation)
-    private static readonly Field = { PlacementId: 'PlacementId', Operation: 'Operation', Tenant: 'Tenant', EnrolmentCode: 'EnrolmentCode', EngineVersion: 'EngineVersion', ChartDigest: 'ChartDigest', HiveHostName: 'HiveHostName' } as const
+    public static readonly MaxVersion = Number.MAX_SAFE_INTEGER
+    private static readonly Field = { PlacementId: 'PlacementId', Version: 'Version', Operation: 'Operation', Tenant: 'Tenant', EnrolmentCode: 'EnrolmentCode', EngineVersion: 'EngineVersion', ChartDigest: 'ChartDigest', HiveHostName: 'HiveHostName' } as const
     private static readonly Members: readonly string[] = Object.values(PlacementRequest.Field)
 
     private constructor(
         public readonly PlacementId: string,
+        public readonly Version: number,
         public readonly Operation: PlacementOperation,
         public readonly Tenant: string,
         public readonly EnrolmentCode: string | null,
@@ -65,9 +72,9 @@ export class PlacementRequest
         return PlacementRequest.Parse({ ...options, Operation: PlacementOperation.Place })
     }
 
-    public static Remove(placementId: string, tenant: string): PlacementRequest
+    public static Remove(placementId: string, tenant: string, version: number): PlacementRequest
     {
-        return PlacementRequest.Parse({ PlacementId: placementId, Operation: PlacementOperation.Remove, Tenant: tenant, EnrolmentCode: null, EngineVersion: null, ChartDigest: null, HiveHostName: null })
+        return PlacementRequest.Parse({ PlacementId: placementId, Version: version, Operation: PlacementOperation.Remove, Tenant: tenant, EnrolmentCode: null, EngineVersion: null, ChartDigest: null, HiveHostName: null })
     }
 
     public static Parse(value: unknown, path: string = StrictFields.Root): PlacementRequest
@@ -77,6 +84,7 @@ export class PlacementRequest
         const fields = StrictFields.Exactly(value, P.Members, path)
         const request = new PlacementRequest(
             fields.String(F.PlacementId, { Max: 63, Pattern: ProtocolNames.Label }),
+            fields.Integer(F.Version, { Min: 1, Max: P.MaxVersion }),
             fields.Enum(F.Operation, P.Operations),
             fields.String(F.Tenant, { Pattern: ProtocolNames.Tenant }),
             fields.NullableString(F.EnrolmentCode, { Max: 128, Pattern: ProtocolNames.EnrolmentCode }),
@@ -100,6 +108,7 @@ export class PlacementRequest
     {
         return {
             PlacementId: this.PlacementId,
+            Version: this.Version,
             Operation: this.Operation,
             Tenant: this.Tenant,
             EnrolmentCode: this.EnrolmentCode,
@@ -126,6 +135,8 @@ export enum PlacementFailure
     EngineInstallFailed = 'engine-install-failed',
     EnrolmentFailed = 'enrolment-failed',
     RemoveFailed = 'remove-failed',
+    /** The cluster runs, but its credential could not be issued or handed over. */
+    CredentialFailed = 'credential-failed',
     Unsupported = 'unsupported',
 }
 
@@ -160,6 +171,7 @@ export class ApiServerAddress
 export interface PlacementResultJson
 {
     PlacementId: string
+    Version: number
     Outcome: PlacementOutcome
     Failure: PlacementFailure | null
     CredentialReference: string | null
@@ -170,17 +182,18 @@ export interface PlacementResultJson
  * The host's answer to a placement (`MessageKind.PlacementResult`, signed by the host key). A placed hive names the
  * reference its cluster credential is stored under on the platform (`clusters/<placement id>`) and its API server's
  * mesh address, never the credential itself: that travels sealed in a `ClusterCredentialHandover`. A failure carries
- * a code, never text.
+ * a code, never text. It names the placement version it answers (the request's `Version`).
  */
 export class PlacementResult
 {
     public static readonly Outcomes: readonly PlacementOutcome[] = Object.values(PlacementOutcome)
     public static readonly Failures: readonly PlacementFailure[] = Object.values(PlacementFailure)
-    private static readonly Field = { PlacementId: 'PlacementId', Outcome: 'Outcome', Failure: 'Failure', CredentialReference: 'CredentialReference', ApiServer: 'ApiServer' } as const
+    private static readonly Field = { PlacementId: 'PlacementId', Version: 'Version', Outcome: 'Outcome', Failure: 'Failure', CredentialReference: 'CredentialReference', ApiServer: 'ApiServer' } as const
     private static readonly Members: readonly string[] = Object.values(PlacementResult.Field)
 
     private constructor(
         public readonly PlacementId: string,
+        public readonly Version: number,
         public readonly Outcome: PlacementOutcome,
         public readonly Failure: PlacementFailure | null,
         public readonly CredentialReference: string | null,
@@ -188,19 +201,19 @@ export class PlacementResult
     {
     }
 
-    public static Placed(placementId: string, apiServer: ApiServerAddress): PlacementResult
+    public static Placed(placementId: string, version: number, apiServer: ApiServerAddress): PlacementResult
     {
-        return PlacementResult.Parse({ PlacementId: placementId, Outcome: PlacementOutcome.Placed, Failure: null, CredentialReference: ClusterCredentialHandover.ReferenceFor(placementId), ApiServer: apiServer.ToJson() })
+        return PlacementResult.Parse({ PlacementId: placementId, Version: version, Outcome: PlacementOutcome.Placed, Failure: null, CredentialReference: ClusterCredentialHandover.ReferenceFor(placementId), ApiServer: apiServer.ToJson() })
     }
 
-    public static Removed(placementId: string): PlacementResult
+    public static Removed(placementId: string, version: number): PlacementResult
     {
-        return PlacementResult.Parse({ PlacementId: placementId, Outcome: PlacementOutcome.Removed, Failure: null, CredentialReference: null, ApiServer: null })
+        return PlacementResult.Parse({ PlacementId: placementId, Version: version, Outcome: PlacementOutcome.Removed, Failure: null, CredentialReference: null, ApiServer: null })
     }
 
-    public static Failed(placementId: string, failure: PlacementFailure): PlacementResult
+    public static Failed(placementId: string, version: number, failure: PlacementFailure): PlacementResult
     {
-        return PlacementResult.Parse({ PlacementId: placementId, Outcome: PlacementOutcome.Failed, Failure: failure, CredentialReference: null, ApiServer: null })
+        return PlacementResult.Parse({ PlacementId: placementId, Version: version, Outcome: PlacementOutcome.Failed, Failure: failure, CredentialReference: null, ApiServer: null })
     }
 
     public static Parse(value: unknown, path: string = StrictFields.Root): PlacementResult
@@ -210,6 +223,7 @@ export class PlacementResult
         const fields = StrictFields.Exactly(value, P.Members, path)
         const result = new PlacementResult(
             fields.String(F.PlacementId, { Max: 63, Pattern: ProtocolNames.Label }),
+            fields.Integer(F.Version, { Min: 1, Max: PlacementRequest.MaxVersion }),
             fields.Enum(F.Outcome, P.Outcomes),
             fields.NullableEnum(F.Failure, P.Failures),
             fields.NullableString(F.CredentialReference, { Max: 128, Pattern: ProtocolNames.CredentialReference }),
@@ -234,6 +248,7 @@ export class PlacementResult
     {
         return {
             PlacementId: this.PlacementId,
+            Version: this.Version,
             Outcome: this.Outcome,
             Failure: this.Failure,
             CredentialReference: this.CredentialReference,
