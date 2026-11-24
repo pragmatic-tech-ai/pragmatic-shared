@@ -46,7 +46,13 @@ export class FakePlatformRefusalError extends Error
 /** A hive or host as the fake platform recorded it at enrolment (public key only). */
 export class FakeAgentRecord
 {
-    public constructor(public readonly Participant: Participant, public readonly PublicKey: SigningPublicKey, public readonly Tenant: string | null, public readonly Level: HiveLevel | null)
+    public constructor(
+        public readonly Participant: Participant,
+        public readonly PublicKey: SigningPublicKey,
+        public readonly Tenant: string | null,
+        public readonly Level: HiveLevel | null,
+        /** The key a hive rotated away from, kept so a rotation whose acknowledgement was lost can be acknowledged again. */
+        public readonly PreviousKey: SigningPublicKey | null = null)
     {
     }
 }
@@ -234,17 +240,37 @@ export class FakePlatform
     }
 
     /** Switches the hive's key in one step (the old key is refused from then on) and acknowledges the new key id. */
+    /**
+     * Switches the hive's key in one step (the old key is refused from then on) and acknowledges the new key id. A
+     * rotation re-sent under the previous key and naming the key already switched to (its acknowledgement was lost) is
+     * acknowledged again, without switching anything.
+     */
     private async RotateHiveKey(envelope: SignedEnvelope): Promise<SignedEnvelope>
     {
+        const record = this.records.get(envelope.Issuer.Key)
+        if (record !== undefined && record.PreviousKey !== null && envelope.KeyId === record.PreviousKey.KeyId)
+        {
+            return this.AcknowledgeAgain(envelope, record)
+        }
         const verified = await this.verifier.Verify(envelope, MessageKind.HiveKeyRotation, HiveKeyRotation)
         const rotation = verified.Body
-        const record = this.records.get(envelope.Issuer.Key)
         if (record === undefined || rotation.HiveId !== envelope.Issuer.Id || rotation.PreviousKeyId !== envelope.KeyId || !rotation.Proven)
         {
             throw new FakePlatformRefusalError(FakePlatformRefusal.RotationRefused)
         }
-        this.Enrol(new FakeAgentRecord(record.Participant, rotation.NewPublicKey, record.Tenant, record.Level))
+        this.Enrol(new FakeAgentRecord(record.Participant, rotation.NewPublicKey, record.Tenant, record.Level, record.PublicKey))
         this.Received.push(verified)
+        return this.signer.Sign(MessageKind.HiveKeyRotationAck, envelope.Issuer, HiveKeyRotationAck.Create(rotation.HiveId, rotation.NewPublicKey.KeyId))
+    }
+
+    private async AcknowledgeAgain(envelope: SignedEnvelope, record: FakeAgentRecord): Promise<SignedEnvelope>
+    {
+        const previous = new EnvelopeVerifier({ Self: Participant.Platform, Keys: new KeyDirectory().Add(record.Participant, record.PreviousKey as SigningPublicKey), Nonces: this.Nonces, Clock: this.Clock })
+        const rotation = (await previous.Verify(envelope, MessageKind.HiveKeyRotation, HiveKeyRotation)).Body
+        if (rotation.HiveId !== envelope.Issuer.Id || !rotation.NewPublicKey.Equals(record.PublicKey) || !rotation.Proven)
+        {
+            throw new FakePlatformRefusalError(FakePlatformRefusal.RotationRefused)
+        }
         return this.signer.Sign(MessageKind.HiveKeyRotationAck, envelope.Issuer, HiveKeyRotationAck.Create(rotation.HiveId, rotation.NewPublicKey.KeyId))
     }
 

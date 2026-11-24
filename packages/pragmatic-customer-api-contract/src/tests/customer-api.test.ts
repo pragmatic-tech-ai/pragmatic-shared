@@ -228,6 +228,8 @@ describe('customer API: cabinet -> edge -> platform admin console', () =>
         const requested = await cabinet.RequestEnvironment('alice-token', new RequestEnvironmentRequest('acme', 'hive-1', 'prod', RequestedEnvironmentPurpose.Runtime))
         assert.equal(requested.IntentId, 'inabcdefghijkl')
         await Refused.With(cabinet.RequestEnvironment('alice-token', new RequestEnvironmentRequest('acme', 'hive-9', 'prod', RequestedEnvironmentPurpose.Runtime)), CustomerErrorCode.UnknownHive)
+        platform.Hives.push(new HiveView('hive-2', 'acme-main', HiveLevel.Hosted, false, HiveHealth.Healthy, null, []))
+        await Refused.With(cabinet.RequestEnvironment('alice-token', new RequestEnvironmentRequest('acme', 'hive-2', 'prod', RequestedEnvironmentPurpose.Development)), CustomerErrorCode.HiveTakesNoIntents)
         const left = await cabinet.LeaveHive('alice-token', new LeaveHiveRequest('acme', 'hive-1'))
         assert.equal(left.Health, HiveHealth.Gone)
         await Refused.With(cabinet.LeaveHive('alice-token', new LeaveHiveRequest('acme', 'hive-9')), CustomerErrorCode.UnknownHive)

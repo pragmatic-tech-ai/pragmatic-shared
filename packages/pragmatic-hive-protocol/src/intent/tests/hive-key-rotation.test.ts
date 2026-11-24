@@ -75,6 +75,24 @@ describe('HiveKeyRotation', () =>
         await assert.rejects(world.Platform.Handle(stale), (error: unknown) => error instanceof ProtocolVerificationError && error.Failure === VerificationFailure.KeyMismatch)
     })
 
+    it('a rotation whose acknowledgement was lost is acknowledged again when re-sent under the previous key', async () =>
+    {
+        const world = new RotationWorld()
+        const hive = await world.Hive()
+        const old = hive.Key
+        const next = SigningKeyPair.Generate()
+        const signer = new EnvelopeSigner(old, hive.Self, world.Clock)
+        const first = await world.Platform.Handle(signer.Sign(MessageKind.HiveKeyRotation, Participant.Platform, HiveKeyRotation.Create(hive.Self.Id, old.KeyId, next)))
+        assert.ok(first !== null)
+        const again = await world.Platform.Handle(signer.Sign(MessageKind.HiveKeyRotation, Participant.Platform, HiveKeyRotation.Create(hive.Self.Id, old.KeyId, next)))
+        assert.ok(again !== null)
+        const ack = (await hive.Verifier().Verify(again, MessageKind.HiveKeyRotationAck, HiveKeyRotationAck)).Body
+        assert.equal(ack.KeyId, next.KeyId)
+        const other = signer.Sign(MessageKind.HiveKeyRotation, Participant.Platform, HiveKeyRotation.Create(hive.Self.Id, old.KeyId, SigningKeyPair.Generate()))
+        await assert.rejects(world.Platform.Handle(other), (error: unknown) => error instanceof FakePlatformRefusalError && error.Refusal === FakePlatformRefusal.RotationRefused)
+        await assert.rejects(world.Platform.Handle(new EnvelopeSigner(old, hive.Self, world.Clock).Sign(MessageKind.HiveReport, Participant.Platform, RotationWorld.Report())), ProtocolVerificationError)
+    })
+
     it('a rotation naming another hive is refused and the key stays', async () =>
     {
         const world = new RotationWorld()
