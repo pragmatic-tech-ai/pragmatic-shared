@@ -36,7 +36,8 @@ No dependencies beyond `node:crypto`.
   `KeptIntentListing`, `IntentDecisionRefusal`: the agent's internal intent routes the console calls (list, approve or
   reject by digest and realm subject). `ConsoleIntentLink`, `ConsoleIntentCall`, `ConsoleIntentOutcome`,
   `ConsoleIntentRefusal`: the console's internal endpoint (port 7211, audience `pragmatic-tenant-admin`) the agent
-  forwards environment intents and the ingress-certificate rotation to.
+  forwards environment intents and the ingress-certificate rotation to; `ConsoleEnvironmentListing` at
+  `ConsoleIntentLink.EnvironmentsPath` (the console tells an Enrolled or Delegated agent its environments).
   Compatibility (0.22): `IntentStatus` carries `Failure` and `CreateEnvironment` carries `Purpose` as required members
   (closed shapes), so a 0.21 reader refuses a report with an intent status and a create-environment intent; every
   connected agent before 0.22 reports no intents and was never sent one, and the platform and agents of a release move

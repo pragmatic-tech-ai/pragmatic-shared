@@ -1,7 +1,7 @@
 import { HiveLevel, HiveLevels } from '../hive/hive-level.js'
 import { IntentActionKind, IntentActions, RepairScope, RotationSubject, type IntentAction } from '../intent/intent-action.js'
 import { RealmSubject, type RealmSubjectJson } from '../intent/intent-decision.js'
-import { IntentFailure, IntentProgress, IntentStatus } from '../report/hive-report.js'
+import { EnvironmentStatus, HiveReport, IntentFailure, IntentProgress, IntentStatus, type EnvironmentStatusJson } from '../report/hive-report.js'
 import { DecodeReason } from '../wire/protocol-decode-error.js'
 import { ProtocolNames } from '../wire/protocol-names.js'
 import { StrictFields } from '../wire/strict-fields.js'
@@ -340,6 +340,37 @@ export class ConsoleIntentOutcome
 }
 
 /**
+ * `GET /internal/environments` on the console's internal listener: its hive's environments with readiness and
+ * version, the report's closed EnvironmentStatus (C3.4 review: the agent of an Enrolled or Delegated engine lists no
+ * Deployments; the console, which owns the environments, tells it).
+ */
+export class ConsoleEnvironmentListing
+{
+    private static readonly Field = { Environments: 'Environments' } as const
+    private static readonly Members: readonly string[] = Object.values(ConsoleEnvironmentListing.Field)
+
+    private constructor(public readonly Environments: readonly EnvironmentStatus[])
+    {
+    }
+
+    public static Of(environments: readonly EnvironmentStatus[]): ConsoleEnvironmentListing
+    {
+        return ConsoleEnvironmentListing.Parse({ Environments: environments.map(environment => environment.ToJson()) })
+    }
+
+    public static Parse(value: unknown, path: string = StrictFields.Root): ConsoleEnvironmentListing
+    {
+        const fields = StrictFields.Exactly(value, ConsoleEnvironmentListing.Members, path)
+        return new ConsoleEnvironmentListing(fields.UniqueArray(ConsoleEnvironmentListing.Field.Environments, HiveReport.MaxEnvironments, (raw, at) => EnvironmentStatus.Parse(raw, at), environment => environment.Name))
+    }
+
+    public ToJson(): { Environments: EnvironmentStatusJson[] }
+    {
+        return { Environments: this.Environments.map(environment => environment.ToJson()) }
+    }
+}
+
+/**
  * The console's internal intent endpoint (C3.4): its own cluster-internal listener on port 7211 behind a ClusterIP
  * Service the chart names, fenced by a NetworkPolicy to the hive agent's pods, each call carrying the agent's projected
  * service-account token for audience `pragmatic-tenant-admin` (TokenReview: audience and the agent's service account).
@@ -350,6 +381,8 @@ export class ConsoleIntentLink
     public static readonly Port = 7211
     public static readonly Audience = 'pragmatic-tenant-admin'
     public static readonly Path = '/internal/environment-intents'
+    /** `GET`: the console's ConsoleEnvironmentListing. */
+    public static readonly EnvironmentsPath = '/internal/environments'
     public static readonly BodyLimit = 16_384
     /** Creating an environment provisions its database and waits for its server: the agent waits up to ten minutes. */
     public static readonly TimeoutMs = 600_000

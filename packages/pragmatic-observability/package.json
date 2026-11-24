@@ -1,6 +1,6 @@
 {
   "name": "@pragmatic-tech-ai/pragmatic-observability",
-  "version": "0.22.2",
+  "version": "0.22.3",
   "license": "Apache-2.0",
   "description": "Structured logging for the Pragmatic containers: one JSON line per event, levels, a null logger.",
   "repository": {

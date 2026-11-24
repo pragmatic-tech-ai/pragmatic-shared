@@ -5,10 +5,10 @@ import {
     ComponentAtVersion, CreateEnvironment, DeleteEnvironment, EnvironmentPurpose, Repair, RepairScope, Rotate, RotationSubject, UpdateEnvironment,
 } from '../../intent/intent-action.js'
 import { RealmSubject } from '../../intent/intent-decision.js'
-import { IntentFailure, IntentProgress, IntentStatus } from '../../report/hive-report.js'
+import { EnvironmentReadiness, EnvironmentStatus, IntentFailure, IntentProgress, IntentStatus } from '../../report/hive-report.js'
 import { ProtocolDecodeError } from '../../wire/protocol-decode-error.js'
 import {
-    ConsoleIntentCall, ConsoleIntentLink, ConsoleIntentOutcome, ConsoleIntentRefusal, IntentChoice, IntentDecisionCall, IntentDecisionRefusal, IntentInternalLink,
+    ConsoleEnvironmentListing, ConsoleIntentCall, ConsoleIntentLink, ConsoleIntentOutcome, ConsoleIntentRefusal, IntentChoice, IntentDecisionCall, IntentDecisionRefusal, IntentInternalLink,
     KeptIntentListing, KeptIntentView,
 } from '../intent-internal-link.js'
 
@@ -110,5 +110,17 @@ describe('ConsoleIntentLink', () =>
         assert.equal(ConsoleIntentLink.CodeOf(ConsoleIntentLink.RefusalBody(ConsoleIntentRefusal.Unavailable)), ConsoleIntentRefusal.Unavailable)
         assert.equal(ConsoleIntentLink.Port, 7211)
         assert.equal(ConsoleIntentLink.Path, '/internal/environment-intents')
+    })
+})
+
+describe('ConsoleEnvironmentListing', () =>
+{
+    it('lists each environment once in the closed report shape, at the documented path', () =>
+    {
+        const listing = ConsoleEnvironmentListing.Of([new EnvironmentStatus('prod', EnvironmentReadiness.Ready, '1.2.0'), new EnvironmentStatus('dev', EnvironmentReadiness.Progressing, null)])
+        assert.deepEqual(ConsoleEnvironmentListing.Parse(JSON.parse(JSON.stringify(listing.ToJson()))).ToJson(), listing.ToJson())
+        assert.throws(() => ConsoleEnvironmentListing.Parse({ Environments: [listing.ToJson().Environments[0], listing.ToJson().Environments[0]] }), ProtocolDecodeError)
+        assert.throws(() => ConsoleEnvironmentListing.Parse({ Environments: [{ Name: 'prod', Readiness: 'ready', Version: null, Rows: 10421 }] }), ProtocolDecodeError)
+        assert.equal(ConsoleIntentLink.EnvironmentsPath, '/internal/environments')
     })
 })

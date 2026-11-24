@@ -68,7 +68,7 @@ export { AgentChannelFailure, AgentChannelUnavailableError, HttpAgentChannel } f
 export { EnrolmentHandshake, EnrolmentMismatch, EnrolmentMismatchError } from './channel/enrolment-handshake.js'
 export type { EnrolmentHandshakeOptions } from './channel/enrolment-handshake.js'
 export {
-    ConsoleIntentCall, ConsoleIntentLink, ConsoleIntentOutcome, ConsoleIntentRefusal, IntentChoice, IntentDecisionCall, IntentDecisionRefusal, IntentInternalLink,
+    ConsoleEnvironmentListing, ConsoleIntentCall, ConsoleIntentLink, ConsoleIntentOutcome, ConsoleIntentRefusal, IntentChoice, IntentDecisionCall, IntentDecisionRefusal, IntentInternalLink,
     KeptIntentListing, KeptIntentView,
 } from './channel/intent-internal-link.js'
 export type { KeptIntentViewJson } from './channel/intent-internal-link.js'

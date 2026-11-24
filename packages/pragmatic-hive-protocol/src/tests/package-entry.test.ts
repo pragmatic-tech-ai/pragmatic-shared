@@ -14,7 +14,7 @@ test('the package entry exports the codecs, keys, envelope, messages and verifie
         'AgentExchangeLink', 'AgentExchangeRefusal', 'HttpAgentChannel', 'AgentChannelUnavailableError', 'AgentChannelFailure',
         'AgentInternalLink', 'HiveEnrolmentCall', 'HiveEnrolmentRefusal', 'HiveEnrolmentStatus', 'HiveKeyRotation', 'HiveKeyRotationAck', 'IntentFailure',
         'EnvironmentPurpose', 'IntentInternalLink', 'IntentDecisionCall', 'IntentDecisionRefusal', 'KeptIntentView', 'KeptIntentListing', 'ConsoleIntentLink',
-        'ConsoleIntentCall', 'ConsoleIntentOutcome', 'ConsoleIntentRefusal',
+        'ConsoleIntentCall', 'ConsoleIntentOutcome', 'ConsoleIntentRefusal', 'ConsoleEnvironmentListing',
     ])
     {
         assert.ok(name in entry, name)
