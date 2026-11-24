@@ -183,7 +183,7 @@ export class AwsWorkloadIdentity implements IRealmSecretsHomeFactory
     private static readonly RegionForm = 'an AWS region (eu-central-1)'
     private static readonly RoleArnPattern = /^arn:aws(-cn|-us-gov)?:iam::[0-9]{12}:role\/[A-Za-z0-9+=,.@_/-]{1,512}$/
     private static readonly RoleArnForm = 'an IAM role ARN (arn:aws:iam::<account>:role/<name>)'
-    private static readonly SessionPattern = /^[A-Za-z0-9+=,.@-]{2,64}$/
+    private static readonly SessionPattern = /^[A-Za-z][A-Za-z0-9+=,.@-]{1,31}$/
     private static readonly SessionForm = 'a role session name'
 
     public readonly Option = RealmSecretsOption.Aws

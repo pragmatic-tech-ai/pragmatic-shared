@@ -68,11 +68,12 @@ class RealmFixture
         }
     }
 
-    public static Server(realm?: EnvironmentRealmSecrets): { container: any; volumes: any[] }
+    public static Server(realm?: EnvironmentRealmSecrets): { container: any; volumes: any[]; pod: any; items: any[] }
     {
         const workload = EnvironmentWorkloadFactory.From(RealmFixture.Env(), RealmFixture.Hive(), undefined, undefined, RealmFixture.Engine(realm))
-        const deployment = (JSON.parse(new K8sManifestBuilder().Render(workload)).items as any[]).find(i => i.kind === 'Deployment')
-        return { container: deployment.spec.template.spec.containers[0], volumes: deployment.spec.template.spec.volumes }
+        const items = JSON.parse(new K8sManifestBuilder().Render(workload)).items as any[]
+        const deployment = items.find(i => i.kind === 'Deployment')
+        return { container: deployment.spec.template.spec.containers[0], volumes: deployment.spec.template.spec.volumes, pod: deployment.spec.template.spec, items }
     }
 
     public static EnvOf(container: any): Record<string, string>
@@ -103,13 +104,22 @@ class SecretKubectl
         const key = item.metadata.namespace + ' secret/' + item.metadata.name
         if (this.Secrets.has(key)) return false
         this.Secrets.set(key, item.data)
+        this.Labels.set(key, item.metadata.labels)
         return true
     }
+
+    public readonly Labels = new Map<string, Record<string, string>>()
 
     public async Find(namespace: string, resource: string): Promise<string | undefined>
     {
         const data = this.Secrets.get(namespace + ' ' + resource)
         return data === undefined ? undefined : JSON.stringify({ kind: 'Secret', data })
+    }
+
+    public async DeleteManifest(manifestJson: string): Promise<void>
+    {
+        const item = JSON.parse(manifestJson)
+        this.Secrets.delete(item.metadata.namespace + ' secret/' + item.metadata.name)
     }
 }
 
@@ -121,6 +131,29 @@ describe('EnvironmentRealmSecrets', () =>
         const { container, volumes } = RealmFixture.Server(undefined)
         assert.equal(Object.keys(RealmFixture.EnvOf(container)).some(name => name.startsWith('PRAGMATIC_REALM')), false)
         assert.equal(volumes.some(v => v.name.startsWith('realm-')), false)
+        const plain = RealmFixture.Server(undefined)
+        assert.equal(plain.pod.serviceAccountName, undefined, 'no own account without a home')
+        assert.equal(plain.items.some(i => i.kind === 'ServiceAccount'), false)
+    })
+
+    it('the server runs as its own account pragmatic-env-server (no API token), the subject a cloud binds', () =>
+    {
+        for (const realm of [EnvironmentRealmSecrets.FromEnvironment(RealmFixture.Gcp())!, EnvironmentRealmSecrets.FromEnvironment(RealmFixture.Custom(), new CountingMaterial())!])
+        {
+            const { pod, items } = RealmFixture.Server(realm)
+            assert.equal(pod.serviceAccountName, 'pragmatic-env-server')
+            const account = items.find(i => i.kind === 'ServiceAccount')
+            assert.deepEqual(account.metadata, { name: 'pragmatic-env-server', namespace: 'pragmatic-env-sales-eu', labels: { 'pragmatic/hive': 'hive-1', 'app.kubernetes.io/managed-by': 'pragmatic-tenant-admin' } })
+            assert.equal(account.automountServiceAccountToken, false)
+            assert.ok(items.indexOf(account) < items.findIndex(i => i.kind === 'Deployment'), 'the account before the Deployment')
+        }
+        assert.equal(EnvironmentRealmSecrets.TokenDirectory + '/' + EnvironmentRealmSecrets.TokenFileName, EnvironmentRealmSecrets.TokenFile)
+    })
+
+    it('carries only the option’s identifiers into an environment', () =>
+    {
+        assert.throws(() => EnvironmentRealmSecrets.FromEnvironment({ ...RealmFixture.Gcp(), PRAGMATIC_REALM_SECRETS_VAULT_URL: 'https://x.vault.azure.net' }), /PRAGMATIC_REALM_SECRETS_VAULT_URL is not an identifier of the realm secrets option gcp/)
+        assert.throws(() => EnvironmentRealmSecrets.FromEnvironment({ ...RealmFixture.Gcp(), PRAGMATIC_REALM_SECRETS_CREDENTIALS_JSON: '{}' }), EnvironmentRealmSecretsError)
     })
 
     it('gcp renders the projected token with the pool audience, the identifiers, the realm and the env server as component', () =>
@@ -190,16 +223,18 @@ describe('EnvironmentRealmSecrets', () =>
         const material = new CountingMaterial()
         const realm = EnvironmentRealmSecrets.FromEnvironment(RealmFixture.Custom(), material)!
         const kubectl = new SecretKubectl()
-        await realm.EnsureCopies(kubectl as unknown as IKubectl, 'pragmatic-env-sales-eu')
+        await realm.EnsureCopies(kubectl as unknown as IKubectl, 'pragmatic-env-sales-eu', 'hive-1')
         assert.equal(kubectl.Secrets.size, 2)
+        assert.deepEqual(kubectl.Labels.get('pragmatic-env-sales-eu secret/pragmatic-realm-master-key'), { 'pragmatic/hive': 'hive-1', 'app.kubernetes.io/managed-by': 'pragmatic-tenant-admin' })
         assert.equal(Buffer.from(kubectl.Secrets.get('pragmatic-env-sales-eu secret/pragmatic-realm-master-key')!['master.key'], 'base64').length, 32)
         assert.match(Buffer.from(kubectl.Secrets.get('pragmatic-env-sales-eu secret/pragmatic-realm-secrets-reader')!['database-url'], 'base64').toString(), /realm_secrets_environments/)
-        await realm.EnsureCopies(kubectl as unknown as IKubectl, 'pragmatic-env-sales-eu')
+        await realm.EnsureCopies(kubectl as unknown as IKubectl, 'pragmatic-env-sales-eu', 'hive-1')
         assert.equal(material.Reads, 1, 'nothing read when both copies exist')
         const cloud = EnvironmentRealmSecrets.FromEnvironment(RealmFixture.Gcp())!
-        const empty = new SecretKubectl()
-        await cloud.EnsureCopies(empty as unknown as IKubectl, 'pragmatic-env-sales-eu')
-        assert.equal(empty.Secrets.size, 0, 'a cloud option copies nothing')
+        await cloud.EnsureCopies(kubectl as unknown as IKubectl, 'pragmatic-env-sales-eu', 'hive-1')
+        assert.equal(kubectl.Secrets.size, 0, 'a switch to a cloud option removes the master key and the reader URL')
+        await cloud.EnsureCopies(kubectl as unknown as IKubectl, 'pragmatic-env-sales-eu', 'hive-1')
+        assert.equal(kubectl.Secrets.size, 0, 'a cloud option copies nothing')
     })
 
     it('a bring-up copies the custom Secrets after the apply', async () =>

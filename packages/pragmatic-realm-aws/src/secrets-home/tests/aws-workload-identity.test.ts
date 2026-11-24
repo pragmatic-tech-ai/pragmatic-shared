@@ -304,5 +304,7 @@ test('aws: a key-shaped setting is refused by the descriptor', async () =>
         await assert.rejects(Scene.Open(fake, tokenFile, { accessKeyId: 'AKIAABCDEFGHIJKLMNOP' }), (error: Error) => error instanceof RealmSecretsSettingsError && /ACCESS_KEY_ID is refused/.test(error.message))
         await assert.rejects(Scene.Open(fake, tokenFile, { secretAccessKey: 'x' }), /SECRET_ACCESS_KEY is refused/)
         await assert.rejects(Scene.Open(fake, tokenFile, { sessionName: 'AKIAABCDEFGHIJKLMNOP' }), /SESSION_NAME holds a key-shaped value/)
+        // A 40-character secret access key does not have a session name's form (letter-led, at most 32).
+        await assert.rejects(Scene.Open(fake, tokenFile, { sessionName: 'Ab1+'.repeat(10) }), /SESSION_NAME does not have the form/)
     })
 })

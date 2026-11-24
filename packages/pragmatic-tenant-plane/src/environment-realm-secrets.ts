@@ -1,6 +1,9 @@
 import { CustomRealmSecrets, RealmSecretsOption, RealmSecretsSettings, WorkloadContext } from '@pragmatic-tech-ai/pragmatic-realm-adapters'
 import type { IKubectl } from '@pragmatic-tech-ai/pragmatic-kube'
 import { ReleaseApp } from '@pragmatic-tech-ai/pragmatic-release-toolkit'
+import { posix } from 'node:path'
+import { ComponentConfigurationMounts } from './component-configuration-mounts.js'
+import { K8sManifestBuilder } from './k8s-manifest-builder.js'
 
 type K8sObject = Record<string, unknown>
 
@@ -34,14 +37,25 @@ export class EnvironmentRealmSecretsError extends Error
  * service-account token with the cloud's audience (`expirationSeconds` 3600, rotated by the kubelet) at the token path; the
  * custom option mounts two Secrets in the environment namespace, the reader role's database URL and the realm master key,
  * which the console copies there once (`EnsureCopies`; never replaced: the key and the reader password are minted once).
- * No cloud credential exists anywhere: the settings are identifiers only (RealmSecretsSettings refuses key-shaped ones).
+ * No cloud credential exists anywhere: the settings are identifiers only, and only the option's own identifier names are
+ * carried over (anything else the console's environment holds is refused). The server runs as its own service account
+ * `pragmatic-env-server` (no API token mounted), so a cloud binds exactly the environments' servers, by that name, and no
+ * other pod of an environment namespace.
  */
 export class EnvironmentRealmSecrets
 {
     public static readonly Component = ReleaseApp.EnvServer
-    public static readonly TokenDirectory = '/var/run/secrets/pragmatic/workload-identity'
-    public static readonly TokenFileName = 'token'
     public static readonly TokenFile = WorkloadContext.DefaultTokenPath
+    public static readonly TokenDirectory = posix.dirname(WorkloadContext.DefaultTokenPath)
+    public static readonly TokenFileName = posix.basename(WorkloadContext.DefaultTokenPath)
+    /** The environment server's own account in its namespace: the subject every cloud binds (`system:serviceaccount:pragmatic-env-<env>:pragmatic-env-server`). */
+    public static readonly ServiceAccountName = 'pragmatic-env-server'
+    /** The cloud options' identifier names (RealmSecretsSettings names); nothing else is carried into an environment. */
+    private static readonly CloudSettings: ReadonlyMap<RealmSecretsOption, readonly string[]> = new Map([
+        [RealmSecretsOption.Gcp, ['projectId', 'workloadIdentityAudience', 'serviceAccountEmail', 'replicaLocation']],
+        [RealmSecretsOption.Azure, ['tenantId', 'clientId', 'vaultUrl', 'authorityHost']],
+        [RealmSecretsOption.Aws, ['region', 'roleArn', 'sessionName']],
+    ])
     public static readonly TokenExpirationSeconds = 3600
     public static readonly AzureAudience = 'api://AzureADTokenExchange'
     public static readonly AwsAudience = 'sts.amazonaws.com'
@@ -88,6 +102,10 @@ export class EnvironmentRealmSecrets
     private static readonly NoMaterial = 'the custom realm secrets option needs the reader material the environments read with (PRAGMATIC_TENANT_ADMIN_REALM_SECRETS_READER_URL_FILE and the realm master key)'
     private static readonly NoAudience = 'the gcp realm secrets option needs PRAGMATIC_REALM_SECRETS_WORKLOAD_IDENTITY_AUDIENCE (the pool provider) for the environments\' projected token'
     private static readonly NoRealm = 'a realm secrets option needs PRAGMATIC_REALM_ID'
+    private static readonly UnknownSetting = ' is not an identifier of the realm secrets option '
+    private static readonly ServiceAccountKind = 'ServiceAccount'
+    private static readonly LabelsKey = 'labels'
+    private static readonly AutomountKey = 'automountServiceAccountToken'
 
     private constructor(
         public readonly Option: RealmSecretsOption,
@@ -115,6 +133,11 @@ export class EnvironmentRealmSecrets
         {
             if (material === undefined) throw new EnvironmentRealmSecretsError(E.NoMaterial)
             return new EnvironmentRealmSecrets(settings.Option, realm, new Map(), material)
+        }
+        const allowed = E.CloudSettings.get(settings.Option)!
+        for (const name of settings.Names)
+        {
+            if (!allowed.includes(name)) throw new EnvironmentRealmSecretsError(RealmSecretsSettings.VariableOf(name) + E.UnknownSetting + settings.Option)
         }
         const values = new Map(settings.Names.map(name => [name, settings.Get(name)!]))
         if (settings.Option === RealmSecretsOption.Gcp && !values.has(E.GcpAudienceSetting)) throw new EnvironmentRealmSecretsError(E.NoAudience)
@@ -196,32 +219,66 @@ export class EnvironmentRealmSecrets
         return [secret(E.ReaderVolume, E.ReaderSecretName, E.DatabaseUrlKey), secret(E.MasterKeyVolume, E.MasterKeySecretName, E.MasterKeyKey)]
     }
 
-    /**
-     * The custom option's two Secrets in `namespace`, created when absent and otherwise kept (the reader password and the
-     * master key are minted once; a replaced key is refused by every component's start anyway). Created through kubectl's
-     * create only, so no last-applied annotation carries a value. Nothing for a cloud option.
-     */
-    public async EnsureCopies(kubectl: IKubectl, namespace: string): Promise<void>
+    /** The environment server's own account (no API token mounted): the identity every cloud binds. */
+    public ServiceAccount(namespace: string, hiveId: string): K8sObject
     {
         const E = EnvironmentRealmSecrets
-        if (this.material === undefined) return
-        const missing: Array<readonly [string, string]> = []
-        for (const [name, key] of [[E.ReaderSecretName, E.DatabaseUrlKey], [E.MasterKeySecretName, E.MasterKeyKey]] as const)
+        return {
+            [E.ApiVersionKey]: E.ApiVersion,
+            [E.KindKey]: E.ServiceAccountKind,
+            [E.MetadataKey]: { [E.NameKey]: E.ServiceAccountName, [E.NamespaceKey]: namespace, [E.LabelsKey]: E.LabelsOf(hiveId) },
+            [E.AutomountKey]: false,
+        }
+    }
+
+    /**
+     * The custom option's two Secrets in `namespace` (labelled with the hive and the console as their manager), created
+     * when absent and otherwise kept (the reader password and the master key are minted once; a replaced key is refused by
+     * every component's start anyway), through kubectl's create only, so no last-applied annotation carries a value. A cloud
+     * option removes copies an earlier custom home left, so the master key never outlives the switch.
+     */
+    public async EnsureCopies(kubectl: IKubectl, namespace: string, hiveId: string): Promise<void>
+    {
+        const E = EnvironmentRealmSecrets
+        const names = [[E.ReaderSecretName, E.DatabaseUrlKey], [E.MasterKeySecretName, E.MasterKeyKey]] as const
+        if (this.material === undefined)
         {
-            if (await kubectl.Find(namespace, E.SecretResourcePrefix + name) === undefined) missing.push([name, key] as const)
+            const left: K8sObject[] = []
+            for (const [name] of names)
+            {
+                if (await kubectl.Find(namespace, E.SecretResourcePrefix + name) !== undefined) left.push(E.SecretOf(namespace, hiveId, name, {}))
+            }
+            for (const item of left) await kubectl.DeleteManifest(JSON.stringify(item))
+            return
+        }
+        const missing: Array<readonly [string, string]> = []
+        for (const [name, key] of names)
+        {
+            if (await kubectl.Find(namespace, E.SecretResourcePrefix + name) === undefined) missing.push([name, key])
         }
         if (missing.length === 0) return
         const material = await this.material.Read()
         for (const [name, key] of missing)
         {
             const value = name === E.ReaderSecretName ? material.DatabaseUrl : material.MasterKey
-            await kubectl.Create(JSON.stringify({
-                [E.ApiVersionKey]: E.ApiVersion,
-                [E.KindKey]: E.SecretKind,
-                [E.MetadataKey]: { [E.NameKey]: name, [E.NamespaceKey]: namespace },
-                [E.TypeKey]: E.OpaqueType,
-                [E.DataKey]: { [key]: value.toString(E.Base64) },
-            }))
+            await kubectl.Create(JSON.stringify(E.SecretOf(namespace, hiveId, name, { [key]: value.toString(E.Base64) })))
         }
+    }
+
+    private static SecretOf(namespace: string, hiveId: string, name: string, data: Record<string, string>): K8sObject
+    {
+        const E = EnvironmentRealmSecrets
+        return {
+            [E.ApiVersionKey]: E.ApiVersion,
+            [E.KindKey]: E.SecretKind,
+            [E.MetadataKey]: { [E.NameKey]: name, [E.NamespaceKey]: namespace, [E.LabelsKey]: E.LabelsOf(hiveId) },
+            [E.TypeKey]: E.OpaqueType,
+            [E.DataKey]: data,
+        }
+    }
+
+    private static LabelsOf(hiveId: string): Record<string, string>
+    {
+        return { ...K8sManifestBuilder.HiveLabelsOf(hiveId), [ComponentConfigurationMounts.ManagedByLabel]: ComponentConfigurationMounts.ManagedBy }
     }
 }

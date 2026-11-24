@@ -5,6 +5,7 @@ import { ComponentConfigurationMounts, WorkloadRoll } from './component-configur
 import { EnvConventions } from './seed/env-conventions.js'
 import { EnvironmentDatabaseSecret, EnvironmentHiveDatabase, WorkloadServerDatabases, type EnvironmentWorkload, type WorkloadAppDeployment, type WorkloadDatabase } from './environment-workload.js'
 import { EnvServerSeedSource } from './env-server-seed.js'
+import { EnvironmentRealmSecrets } from './environment-realm-secrets.js'
 import { InClusterRegistry } from './in-cluster-registry.js'
 import { IdpDatabaseSecret, IdpWorkloadNames, type IdpWorkloadSpec } from './idp-workload-driver.js'
 import { TenantAdminEnv } from './tenant-admin-env.js'
@@ -477,11 +478,16 @@ export class K8sManifestBuilder
 
     public Render(workload: EnvironmentWorkload): string
     {
-        const items: K8sObject[] = [
-            this.Namespace(workload),
+        const items: K8sObject[] = [this.Namespace(workload)]
+        if (workload.realmSecrets !== undefined)
+        {
+            // The server's own account: the identity a cloud binds (never the namespace's default account).
+            items.push(workload.realmSecrets.ServiceAccount(K8sManifestBuilder.NamespaceOf(workload.environmentName), workload.hiveId))
+        }
+        items.push(
             this.ServerDeployment(workload),
             this.ServerService(workload),
-        ]
+        )
         if (workload.database)
         {
             items.push(this.DatabaseStatefulSet(workload, workload.database))
@@ -2109,6 +2115,7 @@ export class K8sManifestBuilder
                 [K8sManifestBuilder.TemplateKey]: {
                     [K8sManifestBuilder.MetadataKey]: { [K8sManifestBuilder.LabelsKey]: this.Selector(name) },
                     [K8sManifestBuilder.SpecKey]: {
+                        ...(workload.realmSecrets === undefined ? {} : { [K8sManifestBuilder.ServiceAccountNameKey]: EnvironmentRealmSecrets.ServiceAccountName }),
                         [K8sManifestBuilder.SecurityContextKey]: { [K8sManifestBuilder.FsGroupKey]: K8sManifestBuilder.ServerUid },
                         // The env server's longest configurable drain is declared from the same constant (ComponentTermination).
                         [K8sManifestBuilder.TerminationGracePeriodKey]: ComponentTermination.GracePeriodSeconds,

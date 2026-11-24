@@ -154,8 +154,9 @@ export class InClusterEnvironmentRuntime implements IEnvironmentRuntime
             {
                 await EnvironmentHiveDatabaseSecret.Ensure(orchestrator.Kubectl, ctx.record.name, this.Databases())
             }
-            // The custom realm secrets home's reader URL and master key, copied once into the namespace (after Apply made it).
-            await workload.realmSecrets?.EnsureCopies(orchestrator.Kubectl, K8sManifestBuilder.NamespaceOf(ctx.record.name))
+            // The custom realm secrets home's reader URL and master key, copied once into the namespace (after Apply made it);
+            // a cloud option removes copies an earlier custom home left.
+            await workload.realmSecrets?.EnsureCopies(orchestrator.Kubectl, K8sManifestBuilder.NamespaceOf(ctx.record.name), workload.hiveId)
             if (workload.federation !== undefined && ctx.caPem !== undefined)
             {
                 // ca.crt-only trust Secret. Applied after Apply creates the namespace; the pod's CA volume mount
