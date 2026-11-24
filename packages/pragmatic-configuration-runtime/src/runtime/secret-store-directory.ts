@@ -65,7 +65,7 @@ export class SecretStoreDirectory
             if (error instanceof ConfigurationStartError) throw error;
             if ((error as { name?: unknown } | null)?.name === S.HomeUnavailableErrorName)
             {
-                throw new ConfigurationStartError(ConfigurationStartReason.SecretsHomeUnavailable, `${where}${S.Refers}${reference.Format()}${S.HomeUnavailable}${S.CodeOf(error)}`);
+                throw new ConfigurationStartError(ConfigurationStartReason.SecretsHomeUnavailable, `${where}${S.Refers}${reference.Format()}${S.HomeUnavailable}${S.OptionOf(error)}${S.CodeOf(error)}`);
             }
             throw new ConfigurationStartError(ConfigurationStartReason.SecretUnreadable, `${where}${S.Refers}${reference.Format()}${S.UnreadableInfix}${S.CodeOf(error)}`);
         }
@@ -74,6 +74,13 @@ export class SecretStoreDirectory
             throw new ConfigurationStartError(ConfigurationStartReason.SecretMissing, `${where}${S.Refers}${reference.Format()}${S.NotHeld}`);
         }
         return new SecretValue(value);
+    }
+
+    // `(<option>) ` of a secrets home's error, when it names one (a fixed word: custom, gcp, azure, aws).
+    private static OptionOf(error: unknown): string
+    {
+        const option = (error as { Option?: unknown }).Option;
+        return typeof option === 'string' && SecretStoreDirectory.StorePattern.test(option) ? `(${option}) ` : '';
     }
 
     // The error's code or name only: a store's message could carry what it read.

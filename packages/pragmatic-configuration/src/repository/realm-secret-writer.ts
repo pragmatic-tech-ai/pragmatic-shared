@@ -28,7 +28,8 @@ export class RealmSecretWriter
     {
     }
 
-    /** The console's writer, from the environment the engine chart sets. */
+    /** The console's writer, from the environment the engine chart sets; the home is verified first (a replaced master key
+     *  refuses the console's start, ConfigurationStartError `secrets-home-unavailable`). */
     public static async FromEnvironment(component: string, env: Readonly<Record<string, string | undefined>>): Promise<RealmSecretWriter>
     {
         const home = await RealmSecretsDirectory.RealmStoreFor(component, env);
@@ -50,6 +51,8 @@ export class RealmSecretWriter
         return (await this.home.Get(RealmSecretName.ForWrite(name).Name)) !== null;
     }
 
+    /** Deletes the realm secret `name`. Where a cloud keeps deleted secrets recoverable (a Key Vault this identity may not
+     *  purge) it stays recoverable for the vault's retention, and a later write of that name brings it back first. */
     public async Delete(name: string): Promise<void>
     {
         await this.home.Delete(RealmSecretName.ForWrite(name).Name);

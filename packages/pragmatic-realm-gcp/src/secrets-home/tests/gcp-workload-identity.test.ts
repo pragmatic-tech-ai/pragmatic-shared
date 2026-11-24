@@ -18,19 +18,22 @@ class GoogleFake
     public readonly Metadata = new RecordedEndpoints()
     public readonly Secrets = new Map<string, string[]>()
     public RefuseExchange = false
+    public RefuseImpersonation = false
     public DenySecrets = false
 
     public async Start(): Promise<GoogleFake>
     {
         const E = this.Endpoints
-        E.Route('POST', /^\/v1\/token$/, () => this.RefuseExchange
+        E.Route('POST', /^\/sts\/v1\/token$/, () => this.RefuseExchange
             ? RecordedResponse.Json(400, { error: 'invalid_grant', error_description: 'The audience in the token does not match: secret-looking detail' })
             : RecordedResponse.Json(200, { access_token: 'federated-token', issued_token_type: 'urn:ietf:params:oauth:token-type:access_token', token_type: 'Bearer', expires_in: 3600 }))
-        E.Route('POST', /^\/v1\/projects\/-\/serviceAccounts\/[^/]+:generateAccessToken$/, request =>
-            request.Headers.authorization === 'Bearer federated-token'
+        E.Route('POST', /^\/iam\/v1\/projects\/-\/serviceAccounts\/[^/]+:generateAccessToken$/, request =>
+            this.RefuseImpersonation
+                ? RecordedResponse.Json(403, { error: { code: 403, message: 'Permission iam.serviceAccounts.getAccessToken denied: secret-looking detail' } })
+                : request.Headers.authorization === 'Bearer federated-token'
                 ? RecordedResponse.Json(200, { accessToken: 'impersonated-token', expireTime: new Date(Date.now() + 3600_000).toISOString() })
                 : RecordedResponse.Json(401, { error: { code: 401 } }))
-        E.Route('GET', /^\/v1\/projects\/pragmatic-ops\/secrets\/[^/]+\/versions\/[^/]+:access$/, request =>
+        E.Route('GET', /^\/sm\/v1\/projects\/pragmatic-ops\/secrets\/[^/]+\/versions\/[^/]+:access$/, request =>
         {
             if (this.DenySecrets) return RecordedResponse.Json(403, { error: { code: 403, message: 'Permission denied on resource projects/pragmatic-ops' } })
             const [, id, version] = /secrets\/([^/]+)\/versions\/([^/:]+):access$/.exec(request.Path)!
@@ -38,20 +41,20 @@ class GoogleFake
             const value = versions === undefined ? undefined : version === 'latest' ? versions[versions.length - 1] : versions[Number(version) - 1]
             return value === undefined ? RecordedResponse.Json(404, { error: { code: 404 } }) : RecordedResponse.Json(200, { payload: { data: Buffer.from(value).toString('base64') } })
         })
-        E.Route('POST', /^\/v1\/projects\/pragmatic-ops\/secrets\?secretId=/, request =>
+        E.Route('POST', /^\/sm\/v1\/projects\/pragmatic-ops\/secrets\?secretId=/, request =>
         {
             const id = new URL(request.Path, 'http://x').searchParams.get('secretId')!
             if (this.Secrets.has(id)) return RecordedResponse.Json(409, { error: { code: 409 } })
             this.Secrets.set(id, [])
             return RecordedResponse.Json(200, { name: id })
         })
-        E.Route('POST', /^\/v1\/projects\/pragmatic-ops\/secrets\/[^/]+:addVersion$/, request =>
+        E.Route('POST', /^\/sm\/v1\/projects\/pragmatic-ops\/secrets\/[^/]+:addVersion$/, request =>
         {
             const id = /secrets\/([^/:]+):addVersion$/.exec(request.Path)![1]!
             this.Secrets.get(id)!.push(Buffer.from((request.Json as { payload: { data: string } }).payload.data, 'base64').toString())
             return RecordedResponse.Json(200, {})
         })
-        E.Route('DELETE', /^\/v1\/projects\/pragmatic-ops\/secrets\/[^/]+$/, request =>
+        E.Route('DELETE', /^\/sm\/v1\/projects\/pragmatic-ops\/secrets\/[^/]+$/, request =>
         {
             const id = /secrets\/([^/]+)$/.exec(request.Path)![1]!
             return this.Secrets.delete(id) ? RecordedResponse.Json(200, {}) : RecordedResponse.Json(404, { error: { code: 404 } })
@@ -63,7 +66,7 @@ class GoogleFake
 
     public get Google(): GcpEndpoints
     {
-        return new GcpEndpoints(this.Endpoints.Origin, this.Endpoints.Origin, this.Endpoints.Origin)
+        return new GcpEndpoints(this.Endpoints.Origin + '/sts', this.Endpoints.Origin + '/iam', this.Endpoints.Origin + '/sm')
     }
 
     public async Stop(): Promise<void>
@@ -120,11 +123,11 @@ test('gcp: exchanges the projected token and reads a secret', async () =>
         fake.Secrets.set(GcpRealmSecretStore.SecretIdFor('acme', 'probe'), ['first', 'second'])
         assert.equal(await store.Get('probe'), 'second')
         assert.equal(await store.Get('probe@1'), 'first')
-        const exchange = fake.Endpoints.To(/^\/v1\/token$/)[0]!
+        const exchange = fake.Endpoints.To(/^\/sts\/v1\/token$/)[0]!
         assert.equal(exchange.Form.get('subject_token'), ProjectToken, 'the projected token is what was presented')
         assert.equal(exchange.Form.get('audience'), Audience)
         assert.equal(exchange.Form.get('subject_token_type'), 'urn:ietf:params:oauth:token-type:jwt')
-        assert.equal(fake.Endpoints.To(/generateAccessToken$/)[0]!.Path, `/v1/projects/-/serviceAccounts/${Email}:generateAccessToken`)
+        assert.equal(fake.Endpoints.To(/generateAccessToken$/)[0]!.Path, `/iam/v1/projects/-/serviceAccounts/${Email}:generateAccessToken`)
         const read = fake.Endpoints.To(/:access$/)[0]!
         assert.equal(read.Headers.authorization, 'Bearer impersonated-token')
         assert.match(read.Path, /\/secrets\/acme_probe\/versions\/latest:access$/, 'secret ids carry the realm prefix')
@@ -154,6 +157,52 @@ test('gcp: a refused exchange is exchange-refused without cloud text', async () 
         fake.RefuseExchange = true
         const store = await Scene.Open(fake, tokenFile)
         await assert.rejects(store.Get('probe'), Scene.Failure(SecretsHomeFailure.ExchangeRefused))
+    })
+})
+
+test('gcp: a refused impersonation is exchange-refused, not a Secret Manager refusal', async () =>
+{
+    await Scene.With(async (fake, tokenFile) =>
+    {
+        fake.RefuseImpersonation = true
+        const store = await Scene.Open(fake, tokenFile, { serviceAccountEmail: Email })
+        await assert.rejects(store.Get('probe'), Scene.Failure(SecretsHomeFailure.ExchangeRefused))
+        assert.equal(fake.Endpoints.To(/:access$/).length, 0)
+    })
+})
+
+test('gcp: with ADC variables and a metadata server present, the exchanged token is what reads, and the metadata server is never called', async () =>
+{
+    await Scene.With(async (fake, tokenFile, dir) =>
+    {
+        const adc = join(dir, 'adc.json')
+        await writeFile(adc, JSON.stringify({ type: 'authorized_user', client_id: 'x', client_secret: 'y', refresh_token: 'z' }))
+        const saved = { ...process.env }
+        const metadataHost = fake.Metadata.Origin.replace('http://', '')
+        Object.assign(process.env, { GOOGLE_APPLICATION_CREDENTIALS: adc, GCE_METADATA_HOST: metadataHost, GCE_METADATA_IP: metadataHost, GOOGLE_CLOUD_PROJECT: 'ambient-project' })
+        try
+        {
+            const store = await Scene.Open(fake, tokenFile, { serviceAccountEmail: Email })
+            fake.Secrets.set(GcpRealmSecretStore.SecretIdFor('acme', 'probe'), ['value'])
+            assert.equal(await store.Get('probe'), 'value')
+            assert.equal(fake.Endpoints.To(/:access$/)[0]!.Headers.authorization, 'Bearer impersonated-token')
+            assert.equal(fake.Endpoints.To(/^\/sts\/v1\/token$/)[0]!.Form.get('subject_token'), ProjectToken)
+            assert.equal(fake.Metadata.Requests.length, 0)
+        }
+        finally
+        {
+            process.env = saved
+        }
+    })
+})
+
+test('gcp: Verify reads the projected token only', async () =>
+{
+    await Scene.With(async (fake, tokenFile, dir) =>
+    {
+        await (await Scene.Open(fake, tokenFile) as GcpRealmSecretStore).Verify()
+        await assert.rejects((await Scene.Open(fake, join(dir, 'no-token')) as GcpRealmSecretStore).Verify(), Scene.Failure(SecretsHomeFailure.TokenUnreadable))
+        assert.equal(fake.Endpoints.Requests.length, 0)
     })
 })
 
@@ -213,9 +262,9 @@ test('gcp: an unreachable token exchange is unreachable, an unreachable Secret M
         const context = new WorkloadContext('acme', 'pragmatic-tenant-idp', tokenFile)
         const settings = RealmSecretsSettings.Of(RealmSecretsOption.Gcp, { projectId: 'pragmatic-ops', workloadIdentityAudience: Audience })
         const closed = 'http://127.0.0.1:1'
-        const noSts = await new RealmSecretsHome([new GcpWorkloadIdentity(new GcpEndpoints(closed, closed, fake.Endpoints.Origin))]).For(settings, context)
+        const noSts = await new RealmSecretsHome([new GcpWorkloadIdentity(new GcpEndpoints(closed, closed, fake.Google.SecretManager))]).For(settings, context)
         await assert.rejects(noSts.Get('probe'), Scene.Failure(SecretsHomeFailure.Unreachable))
-        const noSecrets = await new RealmSecretsHome([new GcpWorkloadIdentity(new GcpEndpoints(fake.Endpoints.Origin, fake.Endpoints.Origin, closed))]).For(settings, context)
+        const noSecrets = await new RealmSecretsHome([new GcpWorkloadIdentity(new GcpEndpoints(fake.Google.Sts, fake.Google.IamCredentials, closed))]).For(settings, context)
         await assert.rejects(noSecrets.Get('probe'), Scene.Failure(SecretsHomeFailure.Unreachable))
     })
 })

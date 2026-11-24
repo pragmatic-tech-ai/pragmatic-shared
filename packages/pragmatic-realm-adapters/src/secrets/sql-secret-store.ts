@@ -88,6 +88,7 @@ export class SqlSecretStore implements ISecretStore
     private static readonly ListSql = 'SELECT reference, key_id, nonce, tag, ciphertext FROM sealed_secrets WHERE scope = $1 AND key_id <> $2'
     private static readonly UpsertSql = 'INSERT INTO sealed_secrets (scope, reference, key_id, nonce, tag, ciphertext, updated_at) VALUES ($1, $2, $3, $4, $5, $6, now()) ON CONFLICT (scope, reference) DO UPDATE SET key_id = EXCLUDED.key_id, nonce = EXCLUDED.nonce, tag = EXCLUDED.tag, ciphertext = EXCLUDED.ciphertext, updated_at = EXCLUDED.updated_at'
     private static readonly DeleteSql = 'DELETE FROM sealed_secrets WHERE scope = $1 AND reference = $2'
+    private static readonly ReferencesSql = 'SELECT reference FROM sealed_secrets WHERE scope = $1 ORDER BY reference'
 
     private constructor(private readonly session: ISqlSession, private readonly keys: SqlSecretKeyRing, private readonly scope: string)
     {
@@ -125,6 +126,12 @@ export class SqlSecretStore implements ISecretStore
     public async Delete(reference: string): Promise<void>
     {
         await this.session.Execute(SqlSecretStore.DeleteSql, [this.scope, reference])
+    }
+
+    /** The references this scope holds, in order (names only: nothing is unsealed). */
+    public async References(): Promise<readonly string[]>
+    {
+        return (await this.session.Query(SqlSecretStore.ReferencesSql, [this.scope])).map(row => String(row.reference))
     }
 
     /** Re-seals every row of this scope that is under an older key with the current key; returns how many moved.

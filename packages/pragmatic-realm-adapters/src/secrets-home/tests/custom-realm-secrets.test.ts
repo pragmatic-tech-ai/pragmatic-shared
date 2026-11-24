@@ -8,7 +8,7 @@ import { Pool } from 'pg'
 import type { ISqlSession } from '@pragmatic-tech-ai/todl'
 import { PgSession } from '../../sql/pg-session.js'
 import { SqlMigrationRunner } from '../../sql/sql-migration-runner.js'
-import { SqlSecretMigrations } from '../../secrets/sql-secret-store.js'
+import { SqlSecretKeyRing, SqlSecretMigrations, SqlSecretStore } from '../../secrets/sql-secret-store.js'
 import { SqlTestSessions } from '../../testing/sql-test-sessions.js'
 import { CustomRealmSecrets, UnversionedSecretsHomeError } from '../custom-realm-secrets.js'
 import { RealmSecretsHome } from '../realm-secrets-home.js'
@@ -77,6 +77,21 @@ SqlTestSessions.Describe('CustomRealmSecretStore', (makeSession, backend) =>
         await assert.rejects(CustomRealmSecrets.Over(session, wrong, 'acme', true).Put('other', 'v'), Failure.Is(SecretsHomeFailure.KeyMismatch))
     })
 
+    test(`${backend}: rows without a key check row must open before the writer adopts the mounted key`, async () =>
+    {
+        const session = await migrated()
+        const original = randomBytes(32)
+        // Rows sealed before any key check (an import, a restore that lost the check row).
+        await SqlSecretStore.Open(session, SqlSecretKeyRing.Single('realm-master', original), 'realm/acme').then(store => store.Put('probe', 'v'))
+        const replaced = randomBytes(32)
+        await assert.rejects(CustomRealmSecrets.Over(session, replaced, 'acme', true).Verify(), Failure.Is(SecretsHomeFailure.KeyMismatch))
+        await assert.rejects(CustomRealmSecrets.Over(session, replaced, 'acme', false).Get('probe'), Failure.Is(SecretsHomeFailure.KeyMismatch))
+        // The replaced key was not adopted: the original still opens, and the writer then writes the check row.
+        await CustomRealmSecrets.Over(session, original, 'acme', true).Verify()
+        await assert.rejects(CustomRealmSecrets.Over(session, replaced, 'acme', true).Verify(), Failure.Is(SecretsHomeFailure.KeyMismatch))
+        assert.equal(await CustomRealmSecrets.Over(session, original, 'acme', false).Get('probe'), 'v')
+    })
+
     test(`${backend}: a pinned version is refused as such`, async () =>
     {
         const session = await migrated()
@@ -106,9 +121,9 @@ test('the custom factory reads its URL and key files; an unreadable key or datab
         const home = new RealmSecretsHome([new CustomRealmSecrets()])
         const settings = RealmSecretsSettings.Of(RealmSecretsOption.Custom, { databaseUrlFile: urlFile, masterKeyFile: keyFile, access: 'reader' })
         const store = await home.For(settings, new WorkloadContext('acme', 'pragmatic-tenant-idp'))
-        await assert.rejects(store.Get('probe'), Failure.Is(SecretsHomeFailure.KeyMismatch))
+        await assert.rejects(store.Get('probe'), Failure.Is(SecretsHomeFailure.KeyUnreadable), 'a missing key file')
         await writeFile(keyFile, randomBytes(16))
-        await assert.rejects(store.Get('probe'), Failure.Is(SecretsHomeFailure.KeyMismatch))
+        await assert.rejects(store.Get('probe'), Failure.Is(SecretsHomeFailure.KeyUnreadable), 'a key of the wrong length')
         await writeFile(keyFile, randomBytes(32).toString('base64') + '\n')
         await assert.rejects(store.Get('probe'), Failure.Is(SecretsHomeFailure.Unreachable))
         await writeFile(urlFile, 'postgres://nobody:nothing@127.0.0.1:1/realm_secrets\n')
@@ -167,6 +182,39 @@ SqlTestSessions.DescribeLive('realm secrets provisioning', makeDatabase =>
         }
     }
 
+    test('[live] privileges follow every grant row: a writer elsewhere keeps writing; a role losing its last grant loses them', async () =>
+    {
+        const database = await makeDatabase()
+        const roles = new Roles(database.Schema, process.env.PRAGMATIC_TEST_PG_URL!)
+        const sessions: PgSession[] = []
+        try
+        {
+            const both = await roles.Create('both')
+            const consoleY = await roles.Create('console_y')
+            const gone = await roles.Create('gone')
+            await RealmSecretsProvisioning.Run(roles.Admin, [new RealmSecretsGrant('realm-x', [both], [gone])])
+            // A later run for realm Y only, where `both` reads: it still writes in X.
+            await RealmSecretsProvisioning.Run(roles.Admin, [new RealmSecretsGrant('realm-y', [consoleY], [both])])
+            const key = randomBytes(32)
+            const asBoth = roles.Session(both)
+            const asGone = roles.Session(gone)
+            sessions.push(asBoth, asGone)
+            await CustomRealmSecrets.Over(asBoth, key, 'realm-x', true, true).Put('probe', 'x-value')
+            await assert.rejects(CustomRealmSecrets.Over(asBoth, key, 'realm-y', true, true).Put('probe', 'forged'), Failure.Is(SecretsHomeFailure.PermissionDenied))
+            assert.equal(await CustomRealmSecrets.Over(asGone, key, 'realm-x', false, true).Get('probe'), 'x-value')
+            // Realm X's grants change: `gone` is no reader any more, so it loses its privileges.
+            await RealmSecretsProvisioning.Run(roles.Admin, [new RealmSecretsGrant('realm-x', [both], [])])
+            await assert.rejects(asGone.Query('SELECT reference FROM sealed_secrets', []), (error: { code?: string }) => error.code === '42501')
+            assert.equal(await CustomRealmSecrets.Over(asBoth, key, 'realm-x', false, true).Get('probe'), 'x-value')
+        }
+        finally
+        {
+            for (const session of sessions) await session.Dispose()
+            await roles.Drop()
+            await database.Dispose()
+        }
+    })
+
     test('[live] two roles: the reader cannot write, realm B\'s rows are invisible to realm A\'s roles', async () =>
     {
         const database = await makeDatabase()
@@ -178,9 +226,9 @@ SqlTestSessions.DescribeLive('realm secrets provisioning', makeDatabase =>
             const writerA = await roles.Create('console_a')
             const readerA = await roles.Create('idp_a')
             const writerB = await roles.Create('console_b')
-            await RealmSecretsProvisioning.Run(admin, [new RealmSecretsGrant('realm-a', writerA, [readerA]), new RealmSecretsGrant('realm-b', writerB, [])])
+            await RealmSecretsProvisioning.Run(admin, [new RealmSecretsGrant('realm-a', [writerA], [readerA]), new RealmSecretsGrant('realm-b', [writerB], [])])
             // Converges: running it again changes nothing.
-            await RealmSecretsProvisioning.Run(admin, [new RealmSecretsGrant('realm-a', writerA, [readerA]), new RealmSecretsGrant('realm-b', writerB, [])])
+            await RealmSecretsProvisioning.Run(admin, [new RealmSecretsGrant('realm-a', [writerA], [readerA]), new RealmSecretsGrant('realm-b', [writerB], [])])
             const key = randomBytes(32)
             const asWriterA = roles.Session(writerA)
             const asReaderA = roles.Session(readerA)
@@ -202,8 +250,13 @@ SqlTestSessions.DescribeLive('realm secrets provisioning', makeDatabase =>
             // ... and cannot write into it.
             await assert.rejects(CustomRealmSecrets.Over(asWriterA, key, 'realm-b', true).Put('probe', 'forged'), Failure.Is(SecretsHomeFailure.PermissionDenied))
             assert.equal(await CustomRealmSecrets.Over(asWriterB, key, 'realm-b', false).Get('probe'), 'b-value')
-            // A role cannot grant itself another realm.
+            // A role cannot grant itself another realm, and sees only its own grant rows.
             await assert.rejects(asWriterA.Execute("INSERT INTO realm_secret_grants (role_name, realm_id, writer) VALUES (current_user, 'realm-b', true)", []), (error: { code?: string }) => error.code === '42501')
+            assert.deepEqual((await asReaderA.Query('SELECT role_name, realm_id FROM realm_secret_grants', [])).map(row => [row.role_name, row.realm_id]), [[readerA, 'realm-a']])
+            // Opened as the factory opens it, a store checks its role's grant first: realm B is permission-denied for A's
+            // reader instead of every secret reading absent.
+            await assert.rejects(CustomRealmSecrets.Over(asReaderA, key, 'realm-b', false, true).Get('probe'), Failure.Is(SecretsHomeFailure.PermissionDenied))
+            assert.equal(await CustomRealmSecrets.Over(asReaderA, key, 'realm-a', false, true).Get('probe'), 'a-value')
         }
         finally
         {

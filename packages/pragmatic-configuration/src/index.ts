@@ -14,7 +14,8 @@ export {
     ConfigurationVersionNotFoundError,
 } from './repository/configuration-repository-errors.js';
 export { NoRealmSecretsHomeError, RealmSecretWriter } from './repository/realm-secret-writer.js';
-export { RealmSecretsDirectory, RealmSecretsHomes } from './runtime/realm-secrets-directory.js';
+export { PackageRealmSecretsOptionLoader, RealmSecretsDirectory, RealmSecretsHomes } from './runtime/realm-secrets-directory.js';
+export type { IRealmSecretsOptionLoader } from './runtime/realm-secrets-directory.js';
 export { InMemoryConfigurationRepository } from './repository/in-memory-configuration-repository.js';
 export { SqlConfigurationMigrations, SqlConfigurationRepository } from './sql/sql-configuration-repository.js';
 export {

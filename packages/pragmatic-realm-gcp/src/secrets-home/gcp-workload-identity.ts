@@ -1,7 +1,6 @@
 import { IdentityPoolClient } from 'google-auth-library'
-import type { ISecretStore } from '@pragmatic-tech-ai/pragmatic-identity'
 import { RealmSecretName, RealmSecretsOption, RealmSecretsSettingRule, SecretsHomeFailure, SecretsHomeUnavailableError } from '@pragmatic-tech-ai/pragmatic-realm-adapters'
-import type { IRealmSecretsHomeFactory, RealmSecretsSettings, WorkloadContext } from '@pragmatic-tech-ai/pragmatic-realm-adapters'
+import type { IRealmSecretStore, IRealmSecretsHomeFactory, RealmSecretsSettings, WorkloadContext } from '@pragmatic-tech-ai/pragmatic-realm-adapters'
 
 /** The Google endpoints a GCP secrets home talks to; tests point them at recorded fakes. */
 export class GcpEndpoints
@@ -25,7 +24,7 @@ export class GcpEndpoints
  *
  * Absent secrets (and absent pinned versions) read as null. Everything else fails typed, never with Google's text.
  */
-export class GcpRealmSecretStore implements ISecretStore
+export class GcpRealmSecretStore implements IRealmSecretStore
 {
     private static readonly RealmSeparator = '_'
     private static readonly ApiVersion = '/v1/projects/'
@@ -61,6 +60,12 @@ export class GcpRealmSecretStore implements ISecretStore
     public static SecretIdFor(realm: string, name: string): string
     {
         return realm + GcpRealmSecretStore.RealmSeparator + name
+    }
+
+    /** At start: the projected token is readable (nothing is sent to Google). */
+    public async Verify(): Promise<void>
+    {
+        await this.context.ReadToken(RealmSecretsOption.Gcp)
     }
 
     public async Get(key: string): Promise<string | null>
@@ -114,7 +119,7 @@ export class GcpRealmSecretStore implements ISecretStore
             if (error instanceof SecretsHomeUnavailableError) throw error
             const status = GcpRealmSecretStore.StatusOf(error)
             const failedUrl = GcpRealmSecretStore.UrlOf(error)
-            if (failedUrl === undefined || !failedUrl.startsWith(this.endpoints.SecretManager + GcpRealmSecretStore.ApiVersion))
+            if (failedUrl === undefined || !failedUrl.startsWith(this.endpoints.SecretManager + GcpRealmSecretStore.ApiVersion + this.projectId + GcpRealmSecretStore.SecretsSegment))
             {
                 // The token exchange (STS or IAM Credentials) failed: refused when it answered, else unreachable.
                 throw new SecretsHomeUnavailableError(RealmSecretsOption.Gcp, GcpRealmSecretStore.IsNetworkFailure(error) ? SecretsHomeFailure.Unreachable : SecretsHomeFailure.ExchangeRefused)
@@ -171,20 +176,28 @@ export class GcpWorkloadIdentity implements IRealmSecretsHomeFactory
     private static readonly ImpersonationPrefix = '/v1/projects/-/serviceAccounts/'
     private static readonly ImpersonationSuffix = ':generateAccessToken'
     private static readonly CloudPlatformScope = 'https://www.googleapis.com/auth/cloud-platform'
+    private static readonly ProjectPattern = /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/
+    private static readonly ProjectForm = 'a Google Cloud project id'
+    private static readonly AudiencePattern = /^\/\/iam\.googleapis\.com\/projects\/[0-9]{1,20}\/locations\/global\/workloadIdentityPools\/[a-z0-9-]{4,32}\/providers\/[a-z0-9-]{4,32}$/
+    private static readonly AudienceForm = 'a workload identity pool provider (//iam.googleapis.com/projects/<number>/locations/global/workloadIdentityPools/<pool>/providers/<provider>)'
+    private static readonly EmailPattern = /^[a-z][a-z0-9-]{4,28}[a-z0-9]@[a-z][a-z0-9-]{4,28}[a-z0-9]\.iam\.gserviceaccount\.com$/
+    private static readonly EmailForm = 'a service account email (<name>@<project>.iam.gserviceaccount.com)'
+    private static readonly RegionPattern = /^[a-z]+-[a-z]+[0-9]{1,2}$/
+    private static readonly RegionForm = 'a Google Cloud region'
 
     public readonly Option = RealmSecretsOption.Gcp
     public readonly Settings: readonly RealmSecretsSettingRule[] = [
-        new RealmSecretsSettingRule(GcpWorkloadIdentity.ProjectId, /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/, true, 'a Google Cloud project id'),
-        new RealmSecretsSettingRule(GcpWorkloadIdentity.Audience, /^\/\/iam\.googleapis\.com\/projects\/[0-9]{1,20}\/locations\/global\/workloadIdentityPools\/[a-z0-9-]{4,32}\/providers\/[a-z0-9-]{4,32}$/, true, 'a workload identity pool provider (//iam.googleapis.com/projects/<number>/locations/global/workloadIdentityPools/<pool>/providers/<provider>)'),
-        new RealmSecretsSettingRule(GcpWorkloadIdentity.ServiceAccountEmail, /^[a-z][a-z0-9-]{4,28}[a-z0-9]@[a-z][a-z0-9-]{4,28}[a-z0-9]\.iam\.gserviceaccount\.com$/, false, 'a service account email (<name>@<project>.iam.gserviceaccount.com)'),
-        new RealmSecretsSettingRule(GcpWorkloadIdentity.ReplicaLocation, /^[a-z]+-[a-z]+[0-9]{1,2}$/, false, 'a Google Cloud region'),
+        new RealmSecretsSettingRule(GcpWorkloadIdentity.ProjectId, GcpWorkloadIdentity.ProjectPattern, true, GcpWorkloadIdentity.ProjectForm),
+        new RealmSecretsSettingRule(GcpWorkloadIdentity.Audience, GcpWorkloadIdentity.AudiencePattern, true, GcpWorkloadIdentity.AudienceForm),
+        new RealmSecretsSettingRule(GcpWorkloadIdentity.ServiceAccountEmail, GcpWorkloadIdentity.EmailPattern, false, GcpWorkloadIdentity.EmailForm),
+        new RealmSecretsSettingRule(GcpWorkloadIdentity.ReplicaLocation, GcpWorkloadIdentity.RegionPattern, false, GcpWorkloadIdentity.RegionForm),
     ]
 
     public constructor(private readonly endpoints: GcpEndpoints = GcpEndpoints.Google)
     {
     }
 
-    public Open(settings: RealmSecretsSettings, context: WorkloadContext): Promise<ISecretStore>
+    public Open(settings: RealmSecretsSettings, context: WorkloadContext): Promise<IRealmSecretStore>
     {
         const G = GcpWorkloadIdentity
         const email = settings.Get(G.ServiceAccountEmail)

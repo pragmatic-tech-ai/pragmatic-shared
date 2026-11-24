@@ -61,6 +61,8 @@ class AzureFake implements HttpClient
     public readonly Deleted = new Map<string, string[]>()
     public RefuseExchange = false
     public DenySecrets = false
+    public PurgeForbidden = false
+    public LoginUnreachable = false
 
     public async sendRequest(request: PipelineRequest): Promise<PipelineResponse>
     {
@@ -72,6 +74,7 @@ class AzureFake implements HttpClient
             ({ request, status, headers: new FakeHeaders({ 'content-type': 'application/json', ...headers }), bodyAsText: JSON.stringify(json) })
         if (url.host === 'login.microsoftonline.com')
         {
+            if (this.LoginUnreachable) throw Object.assign(new Error('connect ECONNREFUSED'), { name: 'RestError', code: 'ECONNREFUSED' })
             if (url.pathname.endsWith('/oauth2/v2.0/token'))
             {
                 return this.RefuseExchange
@@ -125,6 +128,12 @@ class AzureFake implements HttpClient
             this.Deleted.delete(parts[1]!)
             this.Secrets.set(parts[1]!, versions)
             return answer(200, secretJson(parts[1]!, versions))
+        }
+        if (parts[0] === 'deletedsecrets' && request.method === 'DELETE')
+        {
+            if (this.PurgeForbidden) return answer(403, { error: { code: 'Forbidden', message: 'purge not allowed' } })
+            this.Deleted.delete(parts[1]!)
+            return answer(204, {})
         }
         if (parts[0] === 'deletedsecrets' && request.method === 'GET')
         {
@@ -196,10 +205,25 @@ test('azure: exchanges the projected token and reads a secret', async () =>
     })
 })
 
-test('azure: writes add versions; a deleted name is recovered before it is written again', async () =>
+test('azure: a deletion is purged where the identity may purge', async () =>
 {
     await Scene.With(async (fake, tokenFile) =>
     {
+        const store = await Scene.Open(fake, tokenFile)
+        await store.Put('probe', 'one')
+        await store.Delete('probe')
+        assert.equal(fake.Deleted.size, 0, 'purged')
+        assert.ok(fake.Requests.some(request => request.Method === 'DELETE' && request.Url.pathname.startsWith('/deletedsecrets/')))
+        await store.Put('probe', 'two')
+        assert.equal(await store.Get('probe'), 'two')
+    })
+})
+
+test('azure: writes add versions; a deleted name the identity may not purge is recovered before it is written again', async () =>
+{
+    await Scene.With(async (fake, tokenFile) =>
+    {
+        fake.PurgeForbidden = true
         const store = await Scene.Open(fake, tokenFile)
         await store.Put('probe', 'one')
         await store.Put('probe', 'two')
@@ -219,6 +243,59 @@ test('azure: a refused exchange is exchange-refused without cloud text', async (
         fake.RefuseExchange = true
         const store = await Scene.Open(fake, tokenFile)
         await assert.rejects(store.Get('probe'), Scene.Failure(SecretsHomeFailure.ExchangeRefused))
+    })
+})
+
+test('azure: an unreachable login host is unreachable, not a refused exchange', async () =>
+{
+    await Scene.With(async (fake, tokenFile) =>
+    {
+        fake.LoginUnreachable = true
+        const store = await Scene.Open(fake, tokenFile)
+        await assert.rejects(store.Get('probe'), Scene.Failure(SecretsHomeFailure.Unreachable))
+    })
+})
+
+test('azure: with AZURE_* variables present, the projected token is what is presented', async () =>
+{
+    await Scene.With(async (fake, tokenFile, dir) =>
+    {
+        const ambientToken = join(dir, 'ambient-token')
+        await writeFile(ambientToken, 'ambient.jwt')
+        const saved = { ...process.env }
+        Object.assign(process.env, { AZURE_FEDERATED_TOKEN_FILE: ambientToken, AZURE_TENANT_ID: '99999999-9999-9999-9999-999999999999', AZURE_CLIENT_ID: '88888888-8888-8888-8888-888888888888', AZURE_CLIENT_SECRET: 'ambient-secret', AZURE_AUTHORITY_HOST: 'https://login.microsoftonline.us' })
+        try
+        {
+            const store = await Scene.Open(fake, tokenFile)
+            fake.Secrets.set(AzureRealmSecretStore.SecretNameFor('acme', 'probe'), ['value'])
+            assert.equal(await store.Get('probe'), 'value')
+            const exchange = fake.Exchanges()[0]!
+            assert.equal(exchange.Url.host, 'login.microsoftonline.com')
+            assert.equal(exchange.Url.pathname, `/${Tenant}/oauth2/v2.0/token`)
+            const form = new URLSearchParams(exchange.Body)
+            assert.equal(form.get('client_assertion'), ProjectToken)
+            assert.equal(form.get('client_id'), Client)
+            assert.equal(form.get('client_secret'), null)
+        }
+        finally
+        {
+            process.env = saved
+        }
+    })
+})
+
+test('azure: a realm id that does not fit Key Vault names is refused at open; Verify reads the token only', async () =>
+{
+    await Scene.With(async (fake, tokenFile, dir) =>
+    {
+        const home = new RealmSecretsHome([new AzureWorkloadIdentity(new AzureTransport(fake))])
+        const settings = RealmSecretsSettings.Of(RealmSecretsOption.Azure, { tenantId: Tenant, clientId: Client, vaultUrl: Vault })
+        await assert.rejects(home.For(settings, new WorkloadContext('a--b', 'pragmatic-tenant-idp', tokenFile)), RealmSecretsSettingsError)
+        await assert.rejects(home.For(settings, new WorkloadContext('r'.repeat(63), 'pragmatic-tenant-idp', tokenFile)), /does not fit Key Vault/)
+        assert.ok(AzureRealmSecretStore.FitsRealm('r'.repeat(62)))
+        await (await home.For(settings, new WorkloadContext('acme', 'pragmatic-tenant-idp', tokenFile))).Verify()
+        await assert.rejects((await home.For(settings, new WorkloadContext('acme', 'pragmatic-tenant-idp', join(dir, 'none')))).Verify(), Scene.Failure(SecretsHomeFailure.TokenUnreadable))
+        assert.equal(fake.Requests.length, 0)
     })
 })
 
@@ -263,5 +340,10 @@ test('azure: a key-shaped setting is refused by the descriptor', async () =>
         await assert.rejects(Scene.Open(fake, tokenFile, { clientSecret: 'abc' }), (error: Error) => error instanceof RealmSecretsSettingsError && /CLIENT_SECRET is refused/.test(error.message))
         await assert.rejects(Scene.Open(fake, tokenFile, { clientCertificate: 'x' }), /CLIENT_CERTIFICATE is refused/)
         await assert.rejects(Scene.Open(fake, tokenFile, { vaultUrl: 'https://evil.example.com' }), /VAULT_URL does not have the form/)
+        for (const vault of ['https://1vault.vault.azure.net', 'https://' + 'v'.repeat(30) + '.vault.azure.net', 'https://ab--cd.vault.azure.net', 'https://vault-.vault.azure.net', 'https://acme.vault.microsoftazure.de'])
+        {
+            await assert.rejects(Scene.Open(fake, tokenFile, { vaultUrl: vault }), /VAULT_URL does not have the form/, vault)
+        }
+        await Scene.Open(fake, tokenFile, { vaultUrl: 'https://' + 'v'.repeat(24) + '.vault.azure.net/' })
     })
 })

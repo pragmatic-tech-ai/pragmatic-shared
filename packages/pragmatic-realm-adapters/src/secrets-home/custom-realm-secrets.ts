@@ -1,9 +1,8 @@
 import { readFile } from 'node:fs/promises'
 import type { ISqlSession } from '@pragmatic-tech-ai/todl'
-import type { ISecretStore } from '@pragmatic-tech-ai/pragmatic-identity'
 import { PgSession } from '../sql/pg-session.js'
 import { SqlSecretKeyRing, SqlSecretStore } from '../secrets/sql-secret-store.js'
-import type { IRealmSecretsHomeFactory } from './realm-secrets-home.js'
+import type { IRealmSecretStore, IRealmSecretsHomeFactory } from './realm-secrets-home.js'
 import { RealmSecretName } from './realm-secret-name.js'
 import { RealmSecretsOption } from './realm-secrets-option.js'
 import { RealmSecretsSettingRule, type RealmSecretsSettings } from './realm-secrets-settings.js'
@@ -83,19 +82,26 @@ export class UrlFileRealmSecretsDatabase implements IRealmSecretsDatabase
 /**
  * The realm's secrets in the custom home: rows of the `realm_secrets` database's sealed-secrets table, scope
  * `realm/<realm>`, sealed with AES-256-GCM under the realm master key. Every component of the realm shares the
- * database; the tenant admin console's role writes, the others read (`RealmSecretsProvisioning`'s grants and
- * row-level security), so this store refuses writes when opened for reading before the database would.
+ * database; the writers' roles (the tenant admin console, the realm sign-in service) write, the others read
+ * (`RealmSecretsProvisioning`'s grants and row-level security), so this store refuses writes when opened for reading
+ * before the database would.
  *
  * The key check row (reference `.key-check`, never a realm secret's name) holds a fixed text sealed under the master
  * key: the writer writes it on first use, and every open checks that it opens with the mounted key, so a replaced
- * master key is refused (`key-mismatch`) instead of reading every secret as absent.
+ * master key is refused (`key-mismatch`) instead of reading every secret as absent. Where the scope holds sealed rows
+ * but no check row (rows written before it, a restore without it), one of them must open with the mounted key before
+ * the writer writes the check row, so a replaced key is never adopted. Opened by the factory, the store first checks
+ * that its database role has a grant for the realm (`permission-denied` otherwise, rather than every secret reading
+ * absent under row-level security).
  */
-export class CustomRealmSecretStore implements ISecretStore
+export class CustomRealmSecretStore implements IRealmSecretStore
 {
     private static readonly ScopePrefix = 'realm/'
     private static readonly KeyCheckReference = '.key-check'
     private static readonly KeyCheckText = 'pragmatic.realm-secrets.key-check.v1'
     private static readonly ExistsSql = 'SELECT 1 AS present FROM sealed_secrets WHERE scope = $1 AND reference = $2'
+    private static readonly AnyRowSql = 'SELECT reference FROM sealed_secrets WHERE scope = $1 AND reference <> $2 ORDER BY reference LIMIT 1'
+    private static readonly GrantSql = 'SELECT 1 AS granted FROM realm_secret_grants WHERE role_name = current_user AND realm_id = $1'
     private static readonly PermissionCodes: ReadonlySet<string> = new Set(['42501', '28000', '28P01'])
     private static readonly MissingCodes: ReadonlySet<string> = new Set(['3D000', '42P01'])
 
@@ -105,7 +111,9 @@ export class CustomRealmSecretStore implements ISecretStore
         private readonly database: IRealmSecretsDatabase,
         private readonly keys: () => Promise<SqlSecretKeyRing>,
         public readonly RealmId: string,
-        public readonly Writer: boolean)
+        public readonly Writer: boolean,
+        /** Check the role's grant for the realm at open (the provisioned database; tests over a bare schema skip it). */
+        private readonly grantChecked: boolean = true)
     {
     }
 
@@ -164,6 +172,10 @@ export class CustomRealmSecretStore implements ISecretStore
         const C = CustomRealmSecretStore
         const keys = await this.keys()
         const session = await this.Guarded(() => this.database.Session())
+        if (this.grantChecked && (await this.Guarded(() => session.Query(C.GrantSql, [this.RealmId]))).length === 0)
+        {
+            throw new SecretsHomeUnavailableError(RealmSecretsOption.Custom, SecretsHomeFailure.PermissionDenied)
+        }
         const store = SqlSecretStore.Over(session, keys, this.Scope)
         const present = await this.Guarded(() => session.Query(C.ExistsSql, [this.Scope, C.KeyCheckReference]))
         if (present.length > 0)
@@ -172,8 +184,15 @@ export class CustomRealmSecretStore implements ISecretStore
             {
                 throw new SecretsHomeUnavailableError(RealmSecretsOption.Custom, SecretsHomeFailure.KeyMismatch)
             }
+            return store
         }
-        else if (this.Writer)
+        // No check row: a sealed row that is there must open with this key before anything trusts it.
+        const other = await this.Guarded(() => session.Query(C.AnyRowSql, [this.Scope, C.KeyCheckReference]))
+        if (other.length > 0 && await this.Guarded(() => store.Get(String(other[0]!.reference))) === null)
+        {
+            throw new SecretsHomeUnavailableError(RealmSecretsOption.Custom, SecretsHomeFailure.KeyMismatch)
+        }
+        if (this.Writer)
         {
             await this.Guarded(() => store.Put(C.KeyCheckReference, C.KeyCheckText))
         }
@@ -208,7 +227,7 @@ export class CustomRealmSecretStore implements ISecretStore
  * The custom option's secrets home: the realm's rows in the hive's `realm_secrets` database (`CustomRealmSecretStore`).
  * Settings: `databaseUrlFile` (the component's mounted database URL; its role decides what it may do), `masterKeyFile`
  * (the mounted `pragmatic-realm-master-key`: 32 bytes, raw or base64) and `access` (`writer` for the tenant admin
- * console, `reader` otherwise). No workload identity: Postgres roles and the mounted key are the access control.
+ * console and the realm sign-in service, `reader` otherwise). No workload identity: Postgres roles and the mounted key are the access control.
  */
 export class CustomRealmSecrets implements IRealmSecretsHomeFactory
 {
@@ -234,7 +253,7 @@ export class CustomRealmSecrets implements IRealmSecretsHomeFactory
         new RealmSecretsSettingRule(CustomRealmSecrets.Access, CustomRealmSecrets.AccessPattern, false, CustomRealmSecrets.AccessForm),
     ]
 
-    public Open(settings: RealmSecretsSettings, context: WorkloadContext): Promise<ISecretStore>
+    public Open(settings: RealmSecretsSettings, context: WorkloadContext): Promise<IRealmSecretStore>
     {
         const C = CustomRealmSecrets
         const keyFile = settings.Get(C.MasterKeyFile)!
@@ -242,11 +261,11 @@ export class CustomRealmSecrets implements IRealmSecretsHomeFactory
         return Promise.resolve(new CustomRealmSecretStore(database, () => C.ReadKeys(keyFile), context.RealmId, settings.Get(C.Access) === C.WriterAccess))
     }
 
-    /** A store over a session the caller holds (tests, the bootstrap). */
-    public static Over(session: ISqlSession, masterKey: Buffer, realm: string, writer: boolean): CustomRealmSecretStore
+    /** A store over a session the caller holds (tests, the bootstrap); `grantChecked` as the factory's store does. */
+    public static Over(session: ISqlSession, masterKey: Buffer, realm: string, writer: boolean, grantChecked: boolean = false): CustomRealmSecretStore
     {
         const keys = SqlSecretKeyRing.Single(CustomRealmSecrets.KeyId, masterKey)
-        return new CustomRealmSecretStore({ Session: () => Promise.resolve(session) }, () => Promise.resolve(keys), realm, writer)
+        return new CustomRealmSecretStore({ Session: () => Promise.resolve(session) }, () => Promise.resolve(keys), realm, writer, grantChecked)
     }
 
     /** The master key file as a key ring: exactly 32 raw bytes, or their base64 text. */
@@ -260,11 +279,11 @@ export class CustomRealmSecrets implements IRealmSecretsHomeFactory
         }
         catch
         {
-            throw new SecretsHomeUnavailableError(RealmSecretsOption.Custom, SecretsHomeFailure.KeyMismatch)
+            throw new SecretsHomeUnavailableError(RealmSecretsOption.Custom, SecretsHomeFailure.KeyUnreadable)
         }
         const text = bytes.toString(C.Latin1).trim()
         const key = bytes.length === C.KeyBytes ? bytes : C.Base64Key.test(text) ? Buffer.from(text, C.Base64) : undefined
-        if (key === undefined || key.length !== C.KeyBytes) throw new SecretsHomeUnavailableError(RealmSecretsOption.Custom, SecretsHomeFailure.KeyMismatch)
+        if (key === undefined || key.length !== C.KeyBytes) throw new SecretsHomeUnavailableError(RealmSecretsOption.Custom, SecretsHomeFailure.KeyUnreadable)
         return SqlSecretKeyRing.Single(C.KeyId, key)
     }
 }

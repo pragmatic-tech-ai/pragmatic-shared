@@ -27,7 +27,7 @@ export { RealmSecretsSettingRule, RealmSecretsSettings, RealmSecretsSettingsErro
 export { WorkloadContext, WorkloadContextError } from './secrets-home/workload-context.js'
 export { RealmSecretName } from './secrets-home/realm-secret-name.js'
 export { RealmSecretsHome } from './secrets-home/realm-secrets-home.js'
-export type { IRealmSecretsHomeFactory } from './secrets-home/realm-secrets-home.js'
+export type { IRealmSecretStore, IRealmSecretsHomeFactory } from './secrets-home/realm-secrets-home.js'
 export { CustomRealmSecrets, CustomRealmSecretStore, UnversionedSecretsHomeError, UrlFileRealmSecretsDatabase } from './secrets-home/custom-realm-secrets.js'
 export type { IRealmSecretsDatabase } from './secrets-home/custom-realm-secrets.js'
 export { RealmSecretsGrant, RealmSecretsMigrations, RealmSecretsProvisioning } from './secrets-home/realm-secrets-provisioning.js'

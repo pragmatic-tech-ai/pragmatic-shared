@@ -111,3 +111,16 @@ SqlTestSessions.Describe('SqlSecretStore', (makeSession, backend) =>
         assert.equal(await (await SqlSecretStore.Open(session, SqlSecretKeyRing.Single('new', randomBytes(32)), 's')).Get('ref'), null)
     })
 })
+
+SqlTestSessions.Describe('SqlSecretStore references', (makeSession, backend) =>
+{
+    test(`${backend}: References lists one scope's names in order, unsealing nothing`, async () =>
+    {
+        const session = await makeSession()
+        const store = await SqlSecretStore.Open(session, SqlSecretKeyRing.Single('k1', randomBytes(32)), 'a')
+        await store.Put('b-name', 'x')
+        await store.Put('a-name', 'y')
+        await (await SqlSecretStore.Open(session, SqlSecretKeyRing.Single('k1', randomBytes(32)), 'other')).Put('c-name', 'z')
+        assert.deepEqual(await store.References(), ['a-name', 'b-name'])
+    })
+})

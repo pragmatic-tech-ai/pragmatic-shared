@@ -61,6 +61,9 @@ export interface IConfigurationApplier
 export interface IComponentSecretWriter
 {
     Put(component: string, name: string, value: string, targets: readonly ApplyTarget[]): Promise<SecretReference>
+    /** Whether this writer can hold a secret of that name (the realm secrets home takes one lowercase segment); absent:
+     *  every name the console's own pattern allows. */
+    AcceptsName?(name: string): boolean
 }
 
 /** The console runs outside a cluster: there is nothing to write to. */

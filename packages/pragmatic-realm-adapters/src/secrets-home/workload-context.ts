@@ -26,10 +26,11 @@ export class WorkloadContext
     public static readonly RealmVariable = 'PRAGMATIC_REALM_ID'
     public static readonly ComponentVariable = 'PRAGMATIC_COMPONENT'
     public static readonly TokenVariable = 'PRAGMATIC_WORKLOAD_TOKEN_FILE'
-    private static readonly RealmPattern = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/
+    /** A realm id: one DNS label (the shape every realm secrets home and its grants take). */
+    public static readonly RealmPattern = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/
     private static readonly ComponentPattern = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/
     private static readonly Encoding = 'utf8'
-    private static readonly BadRealm = 'a realm id is lowercase letters, digits and "-" (at most 63)'
+    public static readonly BadRealm = 'a realm id is lowercase letters, digits and "-" (at most 63)'
     private static readonly BadComponent = 'a component name is lowercase letters, digits and "-" (at most 63)'
     private static readonly MissingPrefix = 'the workload context needs '
 

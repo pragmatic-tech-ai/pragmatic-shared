@@ -13,8 +13,10 @@ export enum SecretsHomeFailure
     PermissionDenied = 'permission-denied',
     /** The home could not be reached or answered with an unexpected status. */
     Unreachable = 'unreachable',
-    /** The custom home's key check does not open with the mounted realm master key. */
+    /** The custom home's rows (its key check, or a sealed secret) do not open with the mounted realm master key. */
     KeyMismatch = 'key-mismatch',
+    /** The custom home's master key file is missing, unreadable or not a 32-byte key. */
+    KeyUnreadable = 'key-unreadable',
 }
 
 /** A realm's secrets home failed to answer. The message names the option and the code only. */

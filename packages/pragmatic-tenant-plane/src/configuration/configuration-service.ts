@@ -269,7 +269,7 @@ export class ConfigurationService
     public async PutSecret(tenantId: string, component: string, target: string, name: string, value: string): Promise<ConfigurationSecretDto>
     {
         this.CurrentOf(component)
-        if (!ConfigurationService.SecretNamePattern.test(name))
+        if (!ConfigurationService.SecretNamePattern.test(name) || this.secrets.AcceptsName?.(name) === false)
         {
             throw new ConfigurationSecretNameError()
         }

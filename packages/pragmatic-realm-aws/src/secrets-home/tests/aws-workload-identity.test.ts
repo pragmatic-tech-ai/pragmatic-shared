@@ -19,11 +19,18 @@ class AwsFake
     public readonly Metadata = new RecordedEndpoints()
     public readonly Values = new Map<string, string[]>()
     public RefuseExchange = false
+    public FailExchange = false
     public DenySecrets = false
+    /** Creates refused while a deleted name is still being released. */
+    public PendingDeletions = 0
+    /** A writer that creates the secret between this one's put and create. */
+    public RacingCreate: string | undefined
 
     public async Start(): Promise<AwsFake>
     {
-        this.Sts.Route('POST', /^\//, () => this.RefuseExchange
+        this.Sts.Route('POST', /^\//, () => this.FailExchange
+            ? new RecordedResponse(503, '<ErrorResponse><Error><Type>Receiver</Type><Code>ServiceUnavailable</Code><Message>down</Message></Error><RequestId>r</RequestId></ErrorResponse>', 'text/xml')
+            : this.RefuseExchange
             ? new RecordedResponse(400, '<ErrorResponse><Error><Type>Sender</Type><Code>InvalidIdentityToken</Code><Message>Incorrect token audience secret-looking detail</Message></Error><RequestId>r</RequestId></ErrorResponse>', 'text/xml')
             : new RecordedResponse(200, '<AssumeRoleWithWebIdentityResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/"><AssumeRoleWithWebIdentityResult><Credentials><AccessKeyId>ASIAFAKEFAKEFAKEFAKE</AccessKeyId><SecretAccessKey>fake-secret</SecretAccessKey><SessionToken>fake-session</SessionToken><Expiration>2099-01-01T00:00:00Z</Expiration></Credentials><SubjectFromWebIdentityToken>system:serviceaccount:pragmatic-system:pragmatic-tenant-idp</SubjectFromWebIdentityToken><AssumedRoleUser><Arn>arn:aws:sts::123456789012:assumed-role/pragmatic-realm-acme/s</Arn><AssumedRoleId>AROA:s</AssumedRoleId></AssumedRoleUser></AssumeRoleWithWebIdentityResult><ResponseMetadata><RequestId>r</RequestId></ResponseMetadata></AssumeRoleWithWebIdentityResponse>', 'text/xml'))
         this.Secrets.Route('POST', /^\//, request => this.Answer(request))
@@ -67,6 +74,17 @@ class AwsFake
         }
         if (target.endsWith('.CreateSecret'))
         {
+            if (this.PendingDeletions > 0)
+            {
+                this.PendingDeletions -= 1
+                return error('InvalidRequestException')
+            }
+            if (this.RacingCreate !== undefined)
+            {
+                this.Values.set(body.Name!, [this.RacingCreate])
+                this.RacingCreate = undefined
+            }
+            if (this.Values.has(body.Name!)) return error('ResourceExistsException')
             this.Values.set(body.Name!, [body.SecretString!])
             return ok({ Name: body.Name })
         }
@@ -161,6 +179,72 @@ test('aws: a refused exchange is exchange-refused without cloud text', async () 
         const store = await Scene.Open(fake, tokenFile)
         await assert.rejects(store.Get('probe'), Scene.Failure(SecretsHomeFailure.ExchangeRefused))
         assert.equal(fake.Secrets.Requests.length, 0)
+    })
+})
+
+test('aws: a create racing another writer adds a version; a name still being released is retried', async () =>
+{
+    await Scene.With(async (fake, tokenFile) =>
+    {
+        const store = await Scene.Open(fake, tokenFile)
+        fake.RacingCreate = 'other-writer'
+        await store.Put('probe', 'mine')
+        assert.deepEqual(fake.Values.get('pragmatic/acme/probe'), ['other-writer', 'mine'])
+        await store.Delete('probe')
+        fake.PendingDeletions = 1
+        await store.Put('probe', 'again')
+        assert.deepEqual(fake.Values.get('pragmatic/acme/probe'), ['again'])
+        fake.PendingDeletions = AwsRealmSecretStore.CreateAttempts
+        await store.Delete('probe')
+        await assert.rejects(store.Put('probe', 'never'), Scene.Failure(SecretsHomeFailure.Unreachable))
+    })
+})
+
+test('aws: an STS that fails (5xx) is unreachable, not a refused exchange', async () =>
+{
+    await Scene.With(async (fake, tokenFile) =>
+    {
+        fake.FailExchange = true
+        const store = await Scene.Open(fake, tokenFile)
+        await assert.rejects(store.Get('probe'), Scene.Failure(SecretsHomeFailure.Unreachable))
+    })
+})
+
+test('aws: with AWS_* variables and a metadata server present, the exchanged credentials sign, and nothing ambient is used', async () =>
+{
+    await Scene.With(async (fake, tokenFile, dir) =>
+    {
+        const ambientToken = join(dir, 'ambient-token')
+        await writeFile(ambientToken, 'ambient.jwt')
+        const saved = { ...process.env }
+        Object.assign(process.env, {
+            AWS_ACCESS_KEY_ID: 'AKIAAMBIENTAMBIENTAM', AWS_SECRET_ACCESS_KEY: 'ambient', AWS_WEB_IDENTITY_TOKEN_FILE: ambientToken, AWS_ROLE_ARN: 'arn:aws:iam::999999999999:role/ambient',
+            AWS_CONTAINER_CREDENTIALS_FULL_URI: fake.Metadata.Origin + '/creds', AWS_EC2_METADATA_SERVICE_ENDPOINT: fake.Metadata.Origin, AWS_ENDPOINT_URL: fake.Metadata.Origin, AWS_REGION: 'us-east-1',
+        })
+        try
+        {
+            const store = await Scene.Open(fake, tokenFile)
+            fake.Values.set('pragmatic/acme/probe', ['value'])
+            assert.equal(await store.Get('probe'), 'value')
+            assert.equal(fake.Sts.Requests[0]!.Form.get('WebIdentityToken'), ProjectToken)
+            assert.equal(fake.Sts.Requests[0]!.Form.get('RoleArn'), RoleArn)
+            assert.match(fake.Secrets.Requests[0]!.Headers.authorization ?? '', /Credential=ASIAFAKEFAKEFAKEFAKE\/[0-9]+\/eu-central-1\//)
+            assert.equal(fake.Metadata.Requests.length, 0)
+        }
+        finally
+        {
+            process.env = saved
+        }
+    })
+})
+
+test('aws: Verify reads the projected token only', async () =>
+{
+    await Scene.With(async (fake, tokenFile, dir) =>
+    {
+        await (await Scene.Open(fake, tokenFile) as AwsRealmSecretStore).Verify()
+        await assert.rejects((await Scene.Open(fake, join(dir, 'no-token')) as AwsRealmSecretStore).Verify(), Scene.Failure(SecretsHomeFailure.TokenUnreadable))
+        assert.equal(fake.Sts.Requests.length + fake.Secrets.Requests.length, 0)
     })
 })
 

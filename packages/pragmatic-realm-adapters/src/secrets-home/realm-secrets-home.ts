@@ -4,6 +4,14 @@ import type { RealmSecretsSettingRule, RealmSecretsSettings } from './realm-secr
 import { RealmSecretsSettingsError } from './realm-secrets-settings.js'
 import type { WorkloadContext } from './workload-context.js'
 
+/** A realm's secrets store: an `ISecretStore` that can check, at a component's start, what it can check without
+ *  reaching a cloud (the projected token is readable; the custom home's key check opens with the mounted key). */
+export interface IRealmSecretStore extends ISecretStore
+{
+    /** Throws `SecretsHomeUnavailableError` when the home cannot serve this workload. */
+    Verify(): Promise<void>
+}
+
 /** One realm option's secrets home: the settings it takes and how it opens the realm's store for a workload. */
 export interface IRealmSecretsHomeFactory
 {
@@ -11,7 +19,7 @@ export interface IRealmSecretsHomeFactory
     readonly Settings: readonly RealmSecretsSettingRule[]
     /** The realm's store for this workload. Opening does no I/O that can fail on the home's state: the first read or
      *  write reaches the home and fails typed (`SecretsHomeUnavailableError`). */
-    Open(settings: RealmSecretsSettings, context: WorkloadContext): Promise<ISecretStore>
+    Open(settings: RealmSecretsSettings, context: WorkloadContext): Promise<IRealmSecretStore>
 }
 
 /**
@@ -47,7 +55,7 @@ export class RealmSecretsHome
     }
 
     /** The realm's secrets store for `context`, through the settings' option (validated first). */
-    public async For(settings: RealmSecretsSettings, context: WorkloadContext): Promise<ISecretStore>
+    public async For(settings: RealmSecretsSettings, context: WorkloadContext): Promise<IRealmSecretStore>
     {
         const factory = this.FactoryFor(settings.Option)
         return factory.Open(settings.Validated(factory.Settings), context)

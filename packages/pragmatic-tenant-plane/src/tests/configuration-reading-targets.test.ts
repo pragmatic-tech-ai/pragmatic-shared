@@ -1,8 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { ComponentDeclarations, SettingType, type ComponentDescriptor } from '@pragmatic-tech-ai/pragmatic-component'
+import { ComponentDeclarations, SecretReference, SettingType, type ComponentDescriptor } from '@pragmatic-tech-ai/pragmatic-component'
 import { ApplyTarget, InMemoryConfigurationRepository, type AppliedConfiguration } from '@pragmatic-tech-ai/pragmatic-configuration'
-import { ConfigurationService } from '../configuration/configuration-service.js'
+import { ConfigurationSecretNameError, ConfigurationService } from '../configuration/configuration-service.js'
 import {
     ConfigurationApplyInProgressError, ConfigurationApplyResult, ConfigurationReadsNoConfigurationError, ConfigurationTarget, NoConfigurationPreparations, UnavailableComponentSecretWriter,
     type ConfigurationPreparationDto, type ConfigurationRunsDto, type IComponentDescriptorSource, type IConfigurationApplier, type IConfigurationPreparationSource,
@@ -154,4 +154,29 @@ test('an apply to a target the applier is still proving (the console restarted b
     applier.BusyTargets = []
     await service.Apply(ReadingCase.Tenant, ReadingCase.Component, saved.version, 'dev1', 'admin')
     assert.equal(applier.Applied, 1)
+})
+
+class OneSegmentWriter
+{
+    public readonly Written: string[] = []
+
+    public AcceptsName(name: string): boolean
+    {
+        return /^[a-z0-9][a-z0-9-]{0,62}$/.test(name)
+    }
+
+    public async Put(_component: string, name: string): Promise<SecretReference>
+    {
+        this.Written.push(name)
+        return new SecretReference('realm', name)
+    }
+}
+
+test('a secret name the writer cannot hold is refused as a name, before anything is written', async () =>
+{
+    const writer = new OneSegmentWriter()
+    const service = new ConfigurationService(new InMemoryConfigurationRepository(), new OldDescriptor(), new FixedTargets(ReadingCase.Target(true)), new CountingApplier(), writer)
+    await assert.rejects(service.PutSecret(ReadingCase.Tenant, ReadingCase.Component, 'dev1', 'Google.Secret', 'value'), ConfigurationSecretNameError)
+    assert.deepEqual(writer.Written, [])
+    assert.deepEqual(await service.PutSecret(ReadingCase.Tenant, ReadingCase.Component, 'dev1', 'google-secret', 'value'), { name: 'google-secret', reference: 'secret:realm/google-secret' })
 })

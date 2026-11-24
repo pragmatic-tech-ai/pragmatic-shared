@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ISecretStore } from '@pragmatic-tech-ai/pragmatic-identity'
 import { CloudSecretManagerSecretStore } from '../../secrets/cloud-secret-manager-secret-store.js'
-import { type IRealmSecretsHomeFactory, RealmSecretsHome } from '../realm-secrets-home.js'
+import { type IRealmSecretStore, type IRealmSecretsHomeFactory, RealmSecretsHome } from '../realm-secrets-home.js'
 import { RealmSecretName } from '../realm-secret-name.js'
 import { RealmSecretsOption } from '../realm-secrets-option.js'
 import { RealmSecretsSettingRule, RealmSecretsSettings, RealmSecretsSettingsError } from '../realm-secrets-settings.js'
@@ -24,19 +24,22 @@ class RecordingFactory implements IRealmSecretsHomeFactory
     {
     }
 
-    public Open(settings: RealmSecretsSettings, context: WorkloadContext): Promise<ISecretStore>
+    public Open(settings: RealmSecretsSettings, context: WorkloadContext): Promise<IRealmSecretStore>
     {
         this.Opened.push({ Settings: settings, Context: context })
-        return Promise.resolve(this.store)
+        return Promise.resolve(Object.assign(this.store, { Verify: () => Promise.resolve() }))
     }
 }
 
-const context = new WorkloadContext('acme', 'pragmatic-tenant-idp', '/nonexistent/token')
+class HomeCase
+{
+    public static readonly Context = new WorkloadContext('acme', 'pragmatic-tenant-idp', '/nonexistent/token')
+}
 
 test('an unknown option is refused naming the option', async () =>
 {
     const home = new RealmSecretsHome([new RecordingFactory(RealmSecretsOption.Gcp)])
-    await assert.rejects(home.For(RealmSecretsSettings.Of(RealmSecretsOption.Aws, {}), context), (error: Error) =>
+    await assert.rejects(home.For(RealmSecretsSettings.Of(RealmSecretsOption.Aws, {}), HomeCase.Context), (error: Error) =>
     {
         assert.ok(error instanceof RealmSecretsSettingsError)
         assert.match(error.message, /aws/)
@@ -50,7 +53,7 @@ test('the home opens the option\'s factory with validated settings and the workl
     const gcp = new RecordingFactory(RealmSecretsOption.Gcp)
     const home = new RealmSecretsHome([gcp, new RecordingFactory(RealmSecretsOption.Custom)])
     const settings = RealmSecretsSettings.FromEnvironment({ PRAGMATIC_REALM_SECRETS_OPTION: 'gcp', PRAGMATIC_REALM_SECRETS_PROJECT_ID: 'pragmatic-ops', OTHER: 'x' })!
-    await home.For(settings, context)
+    await home.For(settings, HomeCase.Context)
     assert.equal(gcp.Opened.length, 1)
     assert.equal(gcp.Opened[0]!.Settings.Get('projectId'), 'pragmatic-ops')
     assert.equal(gcp.Opened[0]!.Context.RealmId, 'acme')
