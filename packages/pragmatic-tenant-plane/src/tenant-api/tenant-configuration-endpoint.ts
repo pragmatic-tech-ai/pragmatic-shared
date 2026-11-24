@@ -1,7 +1,7 @@
 import { HttpMethod, HttpProblem, RouteAuth, type RequestContext, type RouteTable } from '@pragmatic-tech-ai/pragmatic-app-host'
 import { ConfigurationHeadMovedError, ConfigurationRejectedError, ConfigurationRequestError } from '@pragmatic-tech-ai/pragmatic-configuration'
 import { ConfigurationNoTargetError, ConfigurationNotFoundError, ConfigurationSecretNameError, type ConfigurationService } from '../configuration/configuration-service.js'
-import { ConfigurationApplyInProgressError, ConfigurationApplyUnavailableError, ConfigurationDescriptorMismatchError, ConfigurationSecretWriteError, DescriptorUnavailableError } from '../configuration/configuration-ports.js'
+import { ConfigurationApplyInProgressError, ConfigurationApplyUnavailableError, ConfigurationDescriptorMismatchError, ConfigurationReadsNoConfigurationError, ConfigurationSecretWriteError, DescriptorUnavailableError } from '../configuration/configuration-ports.js'
 import { TenantRoles } from '../tenant-auth/tenant-roles.js'
 import { TenantSessionClaims, type TenantSession } from '../tenant-auth/tenant-sessions.js'
 
@@ -215,6 +215,11 @@ export class TenantConfigurationEndpoint
         if (err instanceof ConfigurationDescriptorMismatchError)
         {
             ctx.WriteJson(C.StatusConflict, { [C.ErrorField]: err.message, [C.CodeField]: ConfigurationDescriptorMismatchError.Code, [C.SavedField]: err.Saved, [C.RunningField]: err.Running })
+            return
+        }
+        if (err instanceof ConfigurationReadsNoConfigurationError)
+        {
+            ctx.WriteJson(C.StatusConflict, { [C.ErrorField]: err.message, [C.CodeField]: ConfigurationReadsNoConfigurationError.Code })
             return
         }
         if (err instanceof ConfigurationApplyInProgressError)

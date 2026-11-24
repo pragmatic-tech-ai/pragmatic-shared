@@ -24,6 +24,7 @@ export {
     AppliedConfigurationKeys,
     CarriedDocument,
     DeclaredSourceSecrets,
+    ComponentReadyFile,
     ComponentStartConfiguration,
     ComponentStartReport,
     ConfigurationEnvironmentOverlay,

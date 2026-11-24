@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { ComponentReadyFile, ConfigurationEnvironmentOverlay } from '@pragmatic-tech-ai/pragmatic-configuration'
 import { ReleaseApp, UiArtifact } from '@pragmatic-tech-ai/pragmatic-release-toolkit'
 import { ComponentConfigurationMounts, WorkloadRoll } from './component-configuration-mounts.js'
 import { EnvConventions } from './seed/env-conventions.js'
@@ -142,6 +143,17 @@ export class K8sManifestBuilder
     private static readonly AgentHiveIdVar = 'PRAGMATIC_AGENT_HIVE_ID'
     private static readonly AgentTokenVar = 'PRAGMATIC_AGENT_TOKEN'
     public static readonly AgentTokenSecretKey = 'token'
+    /**
+     * The agent token reaches the agent and the console as a read-only file of the token Secret (its one key), named by
+     * the reader's `_FILE` variable (SecretVariable.Read), never as an environment value (visible in /proc/<pid>/environ).
+     */
+    private static readonly AgentTokenVolume = 'agent-token'
+    private static readonly AgentTokenMount = '/run/secrets/pragmatic-agent-token'
+    private static readonly AgentTokenFile = `${K8sManifestBuilder.AgentTokenMount}/${K8sManifestBuilder.AgentTokenSecretKey}`
+    /** How often the agent's ready file is tested: a surge roll's new pod counts as available soon after it starts. */
+    private static readonly AgentReadyPeriodSeconds = 2
+    private static readonly ExecKey = 'exec'
+    private static readonly PeriodSecondsKey = 'periodSeconds'
     /** Namespace hosting the per-hive agent's ServiceAccount + Deployment (cluster-scoped RBAC has none). The Namespace object itself is emitted by RenderHiveAgent. */
     public static readonly SystemNamespace = 'pragmatic-system'
     private static readonly HiveAgentNamespace = K8sManifestBuilder.SystemNamespace
@@ -749,21 +761,32 @@ export class K8sManifestBuilder
                             [K8sManifestBuilder.EnvKey]: [
                                 this.EnvLiteral(K8sManifestBuilder.AgentRegistryUrlVar, registryUrl),
                                 this.EnvLiteral(K8sManifestBuilder.AgentHiveIdVar, hiveId),
-                                {
-                                    [K8sManifestBuilder.NameKey]: K8sManifestBuilder.AgentTokenVar,
-                                    [K8sManifestBuilder.ValueFromKey]: {
-                                        [K8sManifestBuilder.SecretKeyRefKey]: {
-                                            [K8sManifestBuilder.NameKey]: tokenSecretName,
-                                            [K8sManifestBuilder.KeyKey]: K8sManifestBuilder.AgentTokenSecretKey,
-                                        },
-                                    },
-                                },
+                                this.EnvLiteral(ConfigurationEnvironmentOverlay.FileVariable(K8sManifestBuilder.AgentTokenVar), K8sManifestBuilder.AgentTokenFile),
                             ],
+                            [K8sManifestBuilder.VolumeMountsKey]: [K8sManifestBuilder.AgentTokenMountOf()],
+                            // The agent has no listener: it is ready once it has read its settings (it writes the file then),
+                            // so a configuration that stops it starting never counts as a finished surge roll.
+                            [K8sManifestBuilder.ReadinessProbeKey]: {
+                                [K8sManifestBuilder.ExecKey]: { [K8sManifestBuilder.CommandKey]: ComponentReadyFile.ProbeCommand() },
+                                [K8sManifestBuilder.PeriodSecondsKey]: K8sManifestBuilder.AgentReadyPeriodSeconds,
+                            },
                         }],
+                        [K8sManifestBuilder.VolumesKey]: [this.AgentTokenVolumeOf(tokenSecretName)],
                     },
                 },
             },
         }, [{ Container: K8sManifestBuilder.AgentContainerName, Component: ReleaseApp.HiveAgent }], WorkloadRoll.Surge)
+    }
+
+    /** The agent token Secret's one key, as a read-only file (for the agent and the console's rollout link). */
+    private AgentTokenVolumeOf(tokenSecretName: string): K8sObject
+    {
+        return this.SecretVolume(K8sManifestBuilder.AgentTokenVolume, tokenSecretName, [{ key: K8sManifestBuilder.AgentTokenSecretKey, path: K8sManifestBuilder.AgentTokenSecretKey }])
+    }
+
+    private static AgentTokenMountOf(): K8sObject
+    {
+        return { [K8sManifestBuilder.NameKey]: K8sManifestBuilder.AgentTokenVolume, [K8sManifestBuilder.MountPathKey]: K8sManifestBuilder.AgentTokenMount, [K8sManifestBuilder.ReadOnlyKey]: true }
     }
 
     public static IdpNameOf(tenantId: string): string
@@ -1661,6 +1684,7 @@ export class K8sManifestBuilder
                 },
                 this.SecretVolume(K8sManifestBuilder.TenantAdminSeedVolume, spec.seedSecretName),
                 { [K8sManifestBuilder.NameKey]: K8sManifestBuilder.TmpVolume, [K8sManifestBuilder.EmptyDirKey]: {} },
+                this.AgentTokenVolumeOf(spec.agentTokenSecretName),
                 ...this.TenantAdminIdpVolumes(spec),
                 ...this.TenantConsoleFingerprintVolumes(spec),
                 ...this.ConsolePostgresVolumes(spec),
@@ -1801,15 +1825,7 @@ export class K8sManifestBuilder
                 this.EnvLiteral(TenantAdminEnv.RolloutUrl, spec.rolloutUrl),
                 this.EnvLiteral(TenantAdminEnv.RolloutHiveId, spec.hiveId),
                 this.EnvLiteral(TenantAdminEnv.Deployment, K8sManifestBuilder.TenantAdminNameOf(spec.tenantId)),
-                {
-                    [K8sManifestBuilder.NameKey]: TenantAdminEnv.RolloutToken,
-                    [K8sManifestBuilder.ValueFromKey]: {
-                        [K8sManifestBuilder.SecretKeyRefKey]: {
-                            [K8sManifestBuilder.NameKey]: spec.agentTokenSecretName,
-                            [K8sManifestBuilder.KeyKey]: K8sManifestBuilder.AgentTokenSecretKey,
-                        },
-                    },
-                },
+                this.EnvLiteral(ConfigurationEnvironmentOverlay.FileVariable(TenantAdminEnv.RolloutToken), K8sManifestBuilder.AgentTokenFile),
                 ...this.TenantAdminIdpEnv(spec),
                 ...this.TenantConsoleEnv(spec),
                 ...this.ConsoleDatabaseEnv(spec),
@@ -1817,6 +1833,7 @@ export class K8sManifestBuilder
             [K8sManifestBuilder.VolumeMountsKey]: [
                 { [K8sManifestBuilder.NameKey]: K8sManifestBuilder.TenantAdminDataVolume, [K8sManifestBuilder.MountPathKey]: K8sManifestBuilder.TenantAdminDataMount },
                 { [K8sManifestBuilder.NameKey]: K8sManifestBuilder.TmpVolume, [K8sManifestBuilder.MountPathKey]: K8sManifestBuilder.TmpMount },
+                K8sManifestBuilder.AgentTokenMountOf(),
                 ...this.TenantAdminIdpMounts(spec),
                 ...this.TenantConsoleFingerprintMounts(spec),
                 ...this.ConsoleDatabaseMounts(spec),

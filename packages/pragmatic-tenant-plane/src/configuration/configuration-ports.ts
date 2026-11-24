@@ -2,8 +2,10 @@ import type { ComponentDescriptor, SecretReference } from '@pragmatic-tech-ai/pr
 import type { AppliedConfiguration, ApplyTarget } from '@pragmatic-tech-ai/pragmatic-configuration'
 
 /** One deployment that runs a component: the name the console shows it by (its environment, or its namespace for the
- *  hive's own components), where it is, and the descriptor its running image carries (undefined when it cannot be read:
- *  an image outside a reachable registry, such as a development image). */
+ *  hive's own components), where it is, the descriptor its running image carries (undefined when it cannot be read:
+ *  an image outside a reachable registry, such as a development image), and whether that image reads its applied
+ *  configuration at start (false for a known component version from before its start step: an apply there would roll
+ *  the pods and change nothing they run). */
 export class ConfigurationTarget
 {
     public constructor(
@@ -11,6 +13,7 @@ export class ConfigurationTarget
         public readonly Target: ApplyTarget,
         public readonly DescriptorDigest: string | undefined,
         public readonly ComponentVersion: string | undefined,
+        public readonly ReadsConfiguration: boolean = true,
     )
     {
         Object.freeze(this)
@@ -107,6 +110,27 @@ export class ConfigurationDescriptorMismatchError extends Error
     }
 }
 
+/** The target runs a component version that does not read its applied configuration at start (an image from before its
+ *  start step), so an apply there would be recorded applied while nothing reads it. */
+export class ConfigurationReadsNoConfigurationError extends Error
+{
+    public static readonly Code = 'component-reads-no-configuration'
+    private static readonly ErrorName = 'ConfigurationReadsNoConfigurationError'
+    private static readonly Prefix = 'The target runs'
+    private static readonly Tail = 'which does not read its configuration at start; update the component there first.'
+
+    public constructor(public readonly Component: string, public readonly ComponentVersion: string)
+    {
+        super(`${ConfigurationReadsNoConfigurationError.Prefix} ${Component} ${ComponentVersion}, ${ConfigurationReadsNoConfigurationError.Tail}`)
+        this.name = ConfigurationReadsNoConfigurationError.ErrorName
+    }
+
+    public get Code(): string
+    {
+        return ConfigurationReadsNoConfigurationError.Code
+    }
+}
+
 /** Another apply to the same target is still waiting for its roll. */
 export class ConfigurationApplyInProgressError extends Error
 {
@@ -176,11 +200,18 @@ export type ConfigurationPreparationDto = {
     reason: string
 }
 
+/** What a target's pods run when it is a prepared entry rather than the applied file: the repository version of that
+ *  entry, the component version it was prepared for, and the version of the applied file beside it. */
+export type ConfigurationRunsDto = { version: number; componentVersion: string; appliedVersion: number }
+
 /** Where the console reads how a component's configuration was prepared for new descriptors (the status it recorded on
- *  each target's `pragmatic-config-<component>` ConfigMap). */
+ *  each target's `pragmatic-config-<component>` ConfigMap), and which of those entries a target's pods run. */
 export interface IConfigurationPreparationSource
 {
     For(component: string, targets: readonly ConfigurationTarget[]): Promise<readonly ConfigurationPreparationDto[]>
+    /** The prepared entry the target's pods run (its running descriptor has one and the applied file is for another);
+     *  undefined when they run the applied file, nothing, or what they run is not known. */
+    Runs(component: string, target: ConfigurationTarget): Promise<ConfigurationRunsDto | undefined>
 }
 
 /** A console that prepares nothing (outside a cluster): no preparations to list. */
@@ -189,5 +220,10 @@ export class NoConfigurationPreparations implements IConfigurationPreparationSou
     public async For(): Promise<readonly ConfigurationPreparationDto[]>
     {
         return []
+    }
+
+    public async Runs(): Promise<ConfigurationRunsDto | undefined>
+    {
+        return undefined
     }
 }

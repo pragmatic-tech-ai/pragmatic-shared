@@ -22,4 +22,5 @@ export { SecretVariable } from './runtime/secret-variable.js';
 export { MountedSecretStore } from './runtime/mounted-secret-store.js';
 export { ConfigurationEnvironmentOverlay } from './runtime/configuration-environment-overlay.js';
 export { ComponentStartConfiguration, ComponentStartReport } from './runtime/component-start-configuration.js';
+export { ComponentReadyFile } from './runtime/component-ready-file.js';
 export type { ComponentStartOptions, IStartProcess } from './runtime/component-start-configuration.js';

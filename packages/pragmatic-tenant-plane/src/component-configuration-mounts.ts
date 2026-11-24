@@ -24,8 +24,13 @@ export enum WorkloadRoll
  *   store `file`) at `/run/secrets/pragmatic/<component>`, and a memory-backed `emptyDir` at `/run/pragmatic/secrets` where
  *   the start step writes resolved secrets (per container, so no component reads another's);
  * - the roll: `RollingUpdate` with `maxUnavailable: 0, maxSurge: 1` for a stateless workload, so the old pod serves
- *   until the new one is ready; `Recreate` for one with a single-writer volume (an embedded Postgres, a data volume),
- *   because a surge pod would start a second writer on the same ReadWriteOnce data while the old one runs.
+ *   until the new one is ready, and `minReadySeconds` (SurgeMinReadySeconds), so a pod ready for a moment before it
+ *   exits is not counted available (the old one would be scaled away and the watch would read ready); `Recreate` for one
+ *   with a single-writer volume (an embedded Postgres, a data volume), because a surge pod would start a second writer on
+ *   the same ReadWriteOnce data while the old one runs.
+ *
+ * Attaching is idempotent: a volume, mount or label already there is not added twice (the platform's installer attaches
+ * the configuration to a running Deployment it holds on its own pod template).
  */
 export class ComponentConfigurationMounts
 {
@@ -55,6 +60,9 @@ export class ComponentConfigurationMounts
     private static readonly SecretFileMode = 0o440
     /** Above the largest Secret (1 MiB of values) the console can write, with room for the file system. */
     private static readonly RuntimeSecretsSizeLimit = '4Mi'
+    /** How long a surge-rolled pod stays ready before it counts as available. */
+    public static readonly SurgeMinReadySeconds = 10
+    private static readonly MinReadySecondsKey = 'minReadySeconds'
 
     private static readonly NameKey = 'name'
     private static readonly ConfigMapKey = 'configMap'
@@ -209,6 +217,7 @@ export class ComponentConfigurationMounts
         metadata[M.LabelsKey] = { ...(metadata[M.LabelsKey] as Record<string, string> | undefined), ...labels }
         const spec = deployment[M.SpecKey] as K8sObject
         spec[M.StrategyKey] = M.Strategy(roll)
+        if (roll === WorkloadRoll.Surge) spec[M.MinReadySecondsKey] = M.SurgeMinReadySeconds
         const template = spec[M.TemplateKey] as K8sObject
         const templateMetadata = template[M.MetadataKey] as K8sObject
         templateMetadata[M.LabelsKey] = { ...(templateMetadata[M.LabelsKey] as Record<string, string> | undefined), ...labels }
@@ -219,8 +228,9 @@ export class ComponentConfigurationMounts
         {
             const container = containers.find(candidate => candidate[M.NameKey] === entry.Container)
             if (container === undefined) throw new Error(`${M.NoContainer} ${entry.Container}`)
-            container[M.VolumeMountsKey] = [...(container[M.VolumeMountsKey] as K8sObject[] | undefined ?? []), ...M.Mounts(entry.Component)]
-            volumes.push(...M.Volumes(entry.Component))
+            const mounts = container[M.VolumeMountsKey] as K8sObject[] | undefined ?? []
+            container[M.VolumeMountsKey] = [...mounts, ...M.Mounts(entry.Component).filter(m => !mounts.some(existing => existing[M.NameKey] === m[M.NameKey]))]
+            volumes.push(...M.Volumes(entry.Component).filter(v => !volumes.some(existing => existing[M.NameKey] === v[M.NameKey])))
         }
         pod[M.VolumesKey] = volumes
         return deployment

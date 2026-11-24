@@ -1,6 +1,6 @@
 {
   "name": "@pragmatic-tech-ai/pragmatic-tenant-plane",
-  "version": "0.18.7",
+  "version": "0.18.8",
   "license": "Apache-2.0",
   "description": "Transitional: the tenant plane the tenant admin console and the platform admin console's co-hosted tenant plane share (tenant API and sign-in, environments, the hive layer they drive, configuration, records, the environment seed and its data); folded back into pragmatic-tenant-admin by C5.3.",
   "repository": {
@@ -33,16 +33,16 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@pragmatic-tech-ai/pragmatic-app-host": "0.18.7",
-    "@pragmatic-tech-ai/pragmatic-component": "0.18.7",
-    "@pragmatic-tech-ai/pragmatic-configuration": "0.18.7",
-    "@pragmatic-tech-ai/pragmatic-identity": "0.18.7",
-    "@pragmatic-tech-ai/pragmatic-identity-source-oidc": "0.18.7",
-    "@pragmatic-tech-ai/pragmatic-kube": "0.18.7",
-    "@pragmatic-tech-ai/pragmatic-platform-link": "0.18.7",
+    "@pragmatic-tech-ai/pragmatic-app-host": "0.18.8",
+    "@pragmatic-tech-ai/pragmatic-component": "0.18.8",
+    "@pragmatic-tech-ai/pragmatic-configuration": "0.18.8",
+    "@pragmatic-tech-ai/pragmatic-identity": "0.18.8",
+    "@pragmatic-tech-ai/pragmatic-identity-source-oidc": "0.18.8",
+    "@pragmatic-tech-ai/pragmatic-kube": "0.18.8",
+    "@pragmatic-tech-ai/pragmatic-platform-link": "0.18.8",
     "@pragmatic-tech-ai/pragmatic-protocol": "^0.14.0",
-    "@pragmatic-tech-ai/pragmatic-realm-adapters": "0.18.7",
-    "@pragmatic-tech-ai/pragmatic-release-toolkit": "0.18.7",
+    "@pragmatic-tech-ai/pragmatic-realm-adapters": "0.18.8",
+    "@pragmatic-tech-ai/pragmatic-release-toolkit": "0.18.8",
     "ws": "^8.18.0"
   },
   "peerDependencies": {

@@ -280,3 +280,69 @@ describe('K8sManifestBuilder realm sign-in service container', () =>
         assert.equal(idp?.terminationMessagePolicy, 'FallbackToLogsOnError')
     })
 })
+
+describe('K8sManifestBuilder hive agent readiness and platform tokens', () =>
+{
+    it('the surge-rolled agent is ready only once it has started (an exec probe on its ready file) and counts as available after 10 s', () =>
+    {
+        const F = ConfigurationFixture
+        const [agent] = F.Deployments()
+        assert.equal(agent.Deployment.spec.minReadySeconds, 10)
+        const container = F.Container(agent.Deployment, 'agent')
+        assert.deepEqual(container.readinessProbe.exec.command, ['test', '-f', '/tmp/pragmatic-ready'])
+        assert.ok(container.readinessProbe.periodSeconds <= 5)
+        for (const { Deployment } of F.Deployments().slice(1))
+        {
+            assert.equal(Deployment.spec.strategy.type, 'Recreate')
+            assert.equal(Deployment.spec.minReadySeconds, undefined, 'a recreated workload is down while it starts: no wait added')
+        }
+    })
+
+    it('surge-rolled workloads wait minReadySeconds before a new pod counts as available', () =>
+    {
+        const deployment: Obj = { metadata: {}, spec: { template: { metadata: {}, spec: { containers: [{ name: 'c' }] } } } }
+        ComponentConfigurationMounts.Attach(deployment, [{ Container: 'c', Component: 'pragmatic-x' }], WorkloadRoll.Surge)
+        assert.equal(deployment.spec.minReadySeconds, 10)
+        assert.equal(ComponentConfigurationMounts.SurgeMinReadySeconds, 10)
+        const recreated: Obj = { metadata: {}, spec: { template: { metadata: {}, spec: { containers: [{ name: 'c' }] } } } }
+        ComponentConfigurationMounts.Attach(recreated, [{ Container: 'c', Component: 'pragmatic-x' }], WorkloadRoll.Recreate)
+        assert.equal(recreated.spec.minReadySeconds, undefined)
+    })
+
+    it('attaching the configuration to a Deployment that already carries it adds nothing twice (the installer holds a live agent)', () =>
+    {
+        const deployment: Obj = { metadata: {}, spec: { template: { metadata: {}, spec: { containers: [{ name: 'c' }] } } } }
+        ComponentConfigurationMounts.Attach(deployment, [{ Container: 'c', Component: 'pragmatic-x' }], WorkloadRoll.Surge)
+        const once = JSON.stringify(deployment)
+        ComponentConfigurationMounts.Attach(deployment, [{ Container: 'c', Component: 'pragmatic-x' }], WorkloadRoll.Surge)
+        assert.equal(JSON.stringify(deployment), once)
+    })
+
+    it('the agent token reaches the agent and the console as a mounted file, never in a process environment', () =>
+    {
+        const F = ConfigurationFixture
+        const builder = new K8sManifestBuilder()
+        const agentItems = F.Items(builder.RenderHiveAgent(F.HiveId, 'http://channel.example:7000', 'agent-token-secret', 'pragmatic-hive-agent:dev'))
+        const consoleItems = F.Items(builder.RenderTenantAdmin(F.TenantAdmin()))
+        const cases: Array<[Obj, string, string]> = [
+            [agentItems.find(i => i.kind === 'Deployment') as Obj, 'agent', 'PRAGMATIC_AGENT_TOKEN'],
+            [consoleItems.find(i => i.kind === 'Deployment') as Obj, 'tenant-admin', 'PRAGMATIC_TENANT_ADMIN_ROLLOUT_TOKEN'],
+        ]
+        for (const [deployment, name, variable] of cases)
+        {
+            const container = F.Container(deployment, name)
+            const env: Obj[] = container.env
+            assert.equal(env.find(e => e.name === variable), undefined, `${variable} is not in the environment`)
+            assert.equal(env.filter(e => e.valueFrom?.secretKeyRef?.name === 'agent-token-secret').length, 0, 'no secretKeyRef to the token')
+            const file = env.find(e => e.name === `${variable}_FILE`)
+            assert.ok(file, `${variable}_FILE is set`)
+            const mount = (container.volumeMounts as Obj[]).find(m => file.value.startsWith(m.mountPath + '/'))
+            assert.ok(mount, 'the file is under a mount')
+            assert.equal(mount.readOnly, true)
+            const volume = F.VolumeOf(deployment, mount)
+            assert.equal(volume.secret.secretName, 'agent-token-secret')
+            assert.deepEqual(volume.secret.items, [{ key: 'token', path: 'token' }])
+            assert.equal(file.value, mount.mountPath + '/token')
+        }
+    })
+})

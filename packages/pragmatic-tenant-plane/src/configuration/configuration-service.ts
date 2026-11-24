@@ -16,8 +16,10 @@ import {
     ConfigurationApplyUnavailableError,
     ConfigurationSecretWriteError,
     ConfigurationDescriptorMismatchError,
+    ConfigurationReadsNoConfigurationError,
     NoConfigurationPreparations,
     type ConfigurationPreparationDto,
+    type ConfigurationRunsDto,
     type ConfigurationTarget,
     type IConfigurationPreparationSource,
     type IComponentDescriptorSource,
@@ -26,8 +28,9 @@ import {
     type IConfigurationTargetSource,
 } from './configuration-ports.js'
 
-/** One target of a component as the console lists it: its name (environment or namespace), where it is, and what runs there. */
-export type ConfigurationTargetDto = { environment: string; hive: string; namespace: string; deployment: string; componentVersion: string | null; descriptorDigest: string | null }
+/** One target of a component as the console lists it: its name (environment or namespace), where it is, what runs there
+ *  and whether that reads its configuration at start. */
+export type ConfigurationTargetDto = { environment: string; hive: string; namespace: string; deployment: string; componentVersion: string | null; descriptorDigest: string | null; readsConfiguration: boolean }
 
 /** One saved version as the console lists it (no document). */
 export type ConfigurationVersionSummaryDto = { version: number; componentVersion: string; descriptorDigest: string; author: string; createdAt: string; comment: string }
@@ -42,7 +45,7 @@ export type ConfigurationApplyDto = { id: number; version: number; environment: 
 export type ConfigurationSettingDto = { name: string; type: string; description: string; required: boolean; secret: boolean; default?: unknown }
 
 /** A component in the list: its descriptor, its newest version and where it can be applied (with what runs there). */
-export type ConfigurationComponentSummaryDto = { component: string; componentVersion: string; descriptorDigest: string; head: number | null; targets: (ConfigurationTargetDto & { applied: number | null })[] }
+export type ConfigurationComponentSummaryDto = { component: string; componentVersion: string; descriptorDigest: string; head: number | null; targets: (ConfigurationTargetDto & { applied: number | null; runs: ConfigurationRunsDto | null })[] }
 
 /** A component's page: its options, its versions, its applies and how its configuration was prepared for the
  *  descriptors a new release brings. */
@@ -123,6 +126,7 @@ export class ConfigurationService
      *  start check compared the descriptors. */
     public static readonly UnverifiedTargetDetail = 'unverified-target'
     private static readonly NoDetail = ''
+    private static readonly UnknownVersion = '(unknown version)'
     private static readonly SecretNamePattern = /^[A-Za-z0-9_-][A-Za-z0-9._-]{0,252}$/
 
     // The targets an apply is waiting on (one console process serves a tenant): a second apply there is refused.
@@ -151,7 +155,8 @@ export class ConfigurationService
             for (const t of await this.targets.For(name, tenantId))
             {
                 const applied = await this.repository.Applied(scope, t.Target)
-                targets.push({ ...ConfigurationService.TargetDto(t), applied: applied === null ? null : applied.Version })
+                const runs = await this.preparations.Runs(name, t).catch(() => undefined)
+                targets.push({ ...ConfigurationService.TargetDto(t), applied: applied === null ? null : applied.Version, runs: runs ?? null })
             }
             out.push({ component: name, componentVersion: descriptor.Version, descriptorDigest: descriptor.ContentDigest(), head: head === null ? null : head.Number, targets })
         }
@@ -207,7 +212,8 @@ export class ConfigurationService
      * pending, written and watched, then completed applied or failed (a fixed detail; the cluster's own text is not kept).
      * Refused before anything is recorded when the version is unknown, the console cannot reach its cluster
      * (ConfigurationApplyUnavailableError), the target is unknown (ConfigurationNotFoundError, ConfigurationNoTargetError), or the target's image
-     * runs another descriptor than the version's (ConfigurationDescriptorMismatchError, naming both digests).
+     * runs another descriptor than the version's (ConfigurationDescriptorMismatchError, naming both digests), or a component
+     * version that reads no configuration at start (ConfigurationReadsNoConfigurationError, naming it).
      */
     public async Apply(tenantId: string, component: string, version: number, target: string, requestedBy: string): Promise<ConfigurationApplyDto>
     {
@@ -227,6 +233,7 @@ export class ConfigurationService
         {
             throw new ConfigurationNotFoundError(ConfigurationNotFoundError.EnvironmentMessage)
         }
+        ConfigurationService.RefuseNonReader(component, found)
         if (found.DescriptorDigest !== undefined && found.DescriptorDigest !== saved.DescriptorDigest)
         {
             throw new ConfigurationDescriptorMismatchError(saved.DescriptorDigest, found.DescriptorDigest)
@@ -280,6 +287,7 @@ export class ConfigurationService
         {
             throw new ConfigurationNotFoundError(ConfigurationNotFoundError.EnvironmentMessage)
         }
+        ConfigurationService.RefuseNonReader(component, found)
         let reference: SecretReference
         try
         {
@@ -323,6 +331,16 @@ export class ConfigurationService
         }
     }
 
+    // A component version known not to read its configuration at start (an image from before its start step) is refused:
+    // the roll would succeed and the apply read applied while nothing reads the file.
+    private static RefuseNonReader(component: string, target: ConfigurationTarget): void
+    {
+        if (!target.ReadsConfiguration)
+        {
+            throw new ConfigurationReadsNoConfigurationError(component, target.ComponentVersion ?? ConfigurationService.UnknownVersion)
+        }
+    }
+
     private CurrentOf(component: string): ComponentDescriptor
     {
         const descriptor = this.components.Current(component)
@@ -359,7 +377,7 @@ export class ConfigurationService
     {
         return {
             environment: t.Name, hive: t.Target.Hive, namespace: t.Target.Namespace, deployment: t.Target.Deployment,
-            componentVersion: t.ComponentVersion ?? null, descriptorDigest: t.DescriptorDigest ?? null,
+            componentVersion: t.ComponentVersion ?? null, descriptorDigest: t.DescriptorDigest ?? null, readsConfiguration: t.ReadsConfiguration,
         }
     }
 

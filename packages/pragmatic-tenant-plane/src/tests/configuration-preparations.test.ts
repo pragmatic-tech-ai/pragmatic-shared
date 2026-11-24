@@ -5,7 +5,7 @@ import { ApplyTarget, InMemoryConfigurationRepository } from '@pragmatic-tech-ai
 import { ConfigurationService } from '../configuration/configuration-service.js'
 import {
     ConfigurationPreparationOutcome, ConfigurationTarget, UnavailableComponentSecretWriter, UnavailableConfigurationApplier,
-    type ConfigurationPreparationDto, type IComponentDescriptorSource, type IConfigurationPreparationSource, type IConfigurationTargetSource,
+    type ConfigurationPreparationDto, type ConfigurationRunsDto, type IComponentDescriptorSource, type IConfigurationPreparationSource, type IConfigurationTargetSource,
 } from '../configuration/configuration-ports.js'
 
 class PreparationCase
@@ -58,6 +58,11 @@ class RecordedPreparations implements IConfigurationPreparationSource
     {
         this.Asked.push({ component, targets: targets.length })
         return [{ environment: 'pragmatic-idp-t1', componentVersion: '0.2.4', descriptorDigest: `sha256:${'b'.repeat(64)}`, outcome: ConfigurationPreparationOutcome.Refused, settings: ['core.databaseUrl'], reason: 'core.databaseUrl is not a setting of this option' }]
+    }
+
+    public async Runs(): Promise<ConfigurationRunsDto | undefined>
+    {
+        return undefined
     }
 }
 
