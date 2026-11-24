@@ -42,7 +42,7 @@ export type ConfigurationVersionDto = ConfigurationVersionSummaryDto & { documen
 export type ConfigurationApplyDto = { id: number; version: number; environment: string; outcome: string; requestedBy: string; requestedAt: string; completedAt: string | null; detail: string }
 
 /** One setting of a component's option, as the editor shows it (a secret setting takes a secret reference). */
-export type ConfigurationSettingDto = { name: string; type: string; description: string; required: boolean; secret: boolean; default?: unknown }
+export type ConfigurationSettingDto = { name: string; type: string; description: string; required: boolean; secret: boolean; default?: unknown; minimum?: number; maximum?: number }
 
 /** A component in the list: its descriptor, its newest version and where it can be applied (with what runs there). */
 export type ConfigurationComponentSummaryDto = { component: string; componentVersion: string; descriptorDigest: string; head: number | null; targets: (ConfigurationTargetDto & { applied: number | null; runs: ConfigurationRunsDto | null })[] }
@@ -395,12 +395,20 @@ export class ConfigurationService
         }
     }
 
-    private static SettingDto(s: { Name: string; Type: string; Description: string; Required: boolean; Secret: boolean; Default: unknown }): ConfigurationSettingDto
+    private static SettingDto(s: { Name: string; Type: string; Description: string; Required: boolean; Secret: boolean; Default: unknown; Minimum: number | undefined; Maximum: number | undefined }): ConfigurationSettingDto
     {
         const dto: ConfigurationSettingDto = { name: s.Name, type: s.Type, description: s.Description, required: s.Required, secret: s.Secret }
         if (s.Default !== undefined)
         {
             dto.default = s.Default
+        }
+        if (s.Minimum !== undefined)
+        {
+            dto.minimum = s.Minimum
+        }
+        if (s.Maximum !== undefined)
+        {
+            dto.maximum = s.Maximum
         }
         return dto
     }

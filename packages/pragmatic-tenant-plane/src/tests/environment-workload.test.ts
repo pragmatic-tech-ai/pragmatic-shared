@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
+import { ComponentTermination } from '@pragmatic-tech-ai/pragmatic-configuration'
 import { OciRegistryClient } from '@pragmatic-tech-ai/pragmatic-release-toolkit'
 import { EnvironmentDatabaseSecret, EnvironmentWorkloadFactory } from '../environment-workload.js'
 import { K8sManifestBuilder } from '../k8s-manifest-builder.js'
@@ -270,5 +271,12 @@ describe('the env server database', () =>
     {
         const deployment = ServerDatabaseFixture.Deployment(ServerDatabaseFixture.Items())
         assert.deepEqual(deployment.spec.strategy, { type: 'Recreate' })
+    })
+
+    it('the environment deployment renders the termination grace period its drain limit is taken from (one constant)', () =>
+    {
+        const deployment = ServerDatabaseFixture.Deployment(ServerDatabaseFixture.Items())
+        assert.equal(deployment.spec.template.spec.terminationGracePeriodSeconds, ComponentTermination.GracePeriodSeconds)
+        assert.ok(ComponentTermination.LongestDrainMs < ComponentTermination.GracePeriodSeconds * 1000)
     })
 })

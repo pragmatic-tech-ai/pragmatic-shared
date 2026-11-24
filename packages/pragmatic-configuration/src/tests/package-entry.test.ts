@@ -10,7 +10,7 @@ test('the package entry exports the repository, the applied object and the runti
         'ConfigurationRejectedError', 'AppliedConfiguration', 'AppliedConfigurationCodec', 'AppliedConfigurationKeys',
         'ConfigurationRuntimeReader', 'ConfigurationStartError', 'RuntimeConfiguration', 'SecretStoreDirectory', 'SecretValue',
         'SettingValueEncoding', 'SecretVariable', 'MountedSecretStore', 'ConfigurationEnvironmentOverlay', 'ComponentStartConfiguration', 'ComponentStartReport',
-        'AppliedConfigurationEntries', 'ConfigurationPreparationRefusal', 'ConfigurationPreparationStatus', 'AppliedDocumentCarryOver', 'CarriedDocument', 'DeclaredSourceSecrets', 'ComponentReadyFile',
+        'AppliedConfigurationEntries', 'ConfigurationPreparationRefusal', 'ConfigurationPreparationStatus', 'AppliedDocumentCarryOver', 'CarriedDocument', 'DeclaredSourceSecrets', 'ComponentReadyFile', 'ComponentTermination',
     ])
     {
         assert.ok(name in entry, name);

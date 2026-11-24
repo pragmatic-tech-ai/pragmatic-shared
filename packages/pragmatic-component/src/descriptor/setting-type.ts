@@ -25,6 +25,12 @@ export class SettingValues
         return SettingValues.Types.has(type);
     }
 
+    /** Whether a value is a number within the inclusive bounds (an absent bound does not limit). */
+    public static Within(value: unknown, minimum: number | undefined, maximum: number | undefined): boolean
+    {
+        return typeof value === 'number' && (minimum === undefined || value >= minimum) && (maximum === undefined || value <= maximum);
+    }
+
     public static Accepts(type: SettingType, value: unknown): boolean
     {
         switch (type)

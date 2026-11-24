@@ -14,6 +14,9 @@ export class DescriptorKeys
     public static readonly Required = 'required';
     public static readonly Secret = 'secret';
     public static readonly Default = 'default';
+    /** Optional, integer settings only; absent from every descriptor that declares none, so its JSON and digest are unchanged. */
+    public static readonly Minimum = 'minimum';
+    public static readonly Maximum = 'maximum';
     public static readonly Roles = 'roles';
     public static readonly Storage = 'storage';
     public static readonly Postgres = 'postgres';

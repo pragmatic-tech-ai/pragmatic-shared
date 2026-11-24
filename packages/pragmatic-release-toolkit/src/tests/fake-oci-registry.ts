@@ -17,8 +17,9 @@ interface StoredManifest
 
 /**
  * An in-memory OCI distribution registry behind the OciFetch seam, shared by the OCI client tests and the release tooling tests.
- * Optional behaviours: tag-list pagination (relative or absolute Link), a Bearer challenge with a known user name + token,
- * altered blob bytes, and distribution-style Accept enforcement on manifest reads.
+ * Optional behaviours: tag-list pagination (relative or absolute Link), a Bearer challenge with a known user name + token
+ * (and, like GHCR for a public image, a bearer issued to an anonymous token request), altered blob bytes, and
+ * distribution-style Accept enforcement on manifest reads.
  */
 export class FakeOciRegistry
 {
@@ -78,6 +79,7 @@ export class FakeOciRegistry
     private absoluteLinks = false
     private enforceAccept = false
     private credential: { username: string; token: string } | undefined
+    private anonymous = false
     private tamper = false
     private uploadCounter = 0
     private readonly issuedBearer: string
@@ -107,6 +109,12 @@ export class FakeOciRegistry
     public RequireBearer(username: string, token: string): void
     {
         this.credential = { username, token }
+    }
+
+    /** Also issues the bearer to a token request without any credential, as GHCR does for a public image's pull scope. */
+    public AllowAnonymousPull(): void
+    {
+        this.anonymous = true
     }
 
     /** Lists tags in pages of `size` linked through `Link: rel="next"`; 0 disables pagination. */
@@ -201,7 +209,8 @@ export class FakeOciRegistry
         const expected = this.credential === undefined
             ? undefined
             : S.BasicPrefix + Buffer.from(this.credential.username + S.UserTokenSeparator + this.credential.token).toString(S.Base64)
-        if (expected === undefined || authorization !== expected)
+        const anonymous = this.anonymous && authorization === undefined
+        if (!anonymous && (expected === undefined || authorization !== expected))
         {
             return new Response(null, { status: S.StatusUnauthorized })
         }

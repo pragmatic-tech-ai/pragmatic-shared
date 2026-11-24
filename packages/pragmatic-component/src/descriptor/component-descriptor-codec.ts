@@ -92,7 +92,7 @@ export class ComponentDescriptorCodec
 {
     private static readonly RootKeys = [DescriptorKeys.Schema, DescriptorKeys.Component, DescriptorKeys.Version, DescriptorKeys.Options, DescriptorKeys.Roles, DescriptorKeys.Storage, DescriptorKeys.Endpoints];
     private static readonly OptionKeys = [DescriptorKeys.Name, DescriptorKeys.Description, DescriptorKeys.Settings];
-    private static readonly SettingKeys = [DescriptorKeys.Name, DescriptorKeys.Type, DescriptorKeys.Required, DescriptorKeys.Secret, DescriptorKeys.Default, DescriptorKeys.Description];
+    private static readonly SettingKeys = [DescriptorKeys.Name, DescriptorKeys.Type, DescriptorKeys.Required, DescriptorKeys.Secret, DescriptorKeys.Default, DescriptorKeys.Description, DescriptorKeys.Minimum, DescriptorKeys.Maximum];
     private static readonly RoleKeys = [DescriptorKeys.Name, DescriptorKeys.Description];
     private static readonly StorageKeys = [DescriptorKeys.Postgres];
     private static readonly EndpointKeys = [DescriptorKeys.Ports, DescriptorKeys.Health];
@@ -153,11 +153,15 @@ export class ComponentDescriptorCodec
             const required = setting.Boolean(DescriptorKeys.Required);
             const secret = setting.Boolean(DescriptorKeys.Secret);
             const description = setting.String(DescriptorKeys.Description);
+            const minimum = setting.Has(DescriptorKeys.Minimum) ? setting.Number(DescriptorKeys.Minimum) : undefined;
+            const maximum = setting.Has(DescriptorKeys.Maximum) ? setting.Number(DescriptorKeys.Maximum) : undefined;
             option.Setting(setting.String(DescriptorKeys.Name), setting.String(DescriptorKeys.Type) as SettingType, (declared: SettingBuilder) =>
             {
                 if (required) declared.Required();
                 if (secret) declared.Secret();
                 if (setting.Has(DescriptorKeys.Default)) declared.Default(setting.Raw(DescriptorKeys.Default) as JsonValue);
+                if (minimum !== undefined) declared.Minimum(minimum);
+                if (maximum !== undefined) declared.Maximum(maximum);
                 return declared.Description(description);
             });
         }

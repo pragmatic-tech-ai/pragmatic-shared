@@ -45,8 +45,8 @@ class JsonPointer
 /**
  * Validates configuration documents (`{ "options": { "<option>": { "<setting>": <value> } } }`) against the descriptor
  * of the component version they will run with. An option present in `options` is enabled. It reports unknown members,
- * options and settings, missing required settings of enabled options, values of the wrong type, and any literal value
- * in a secret setting (only a `SecretReference` is accepted there); a valid document resolves with defaults filled in.
+ * options and settings, missing required settings of enabled options, values of the wrong type, integers outside the
+ * setting's declared minimum or maximum, and any literal value in a secret setting (only a `SecretReference` is accepted there); a valid document resolves with defaults filled in.
  * Driven by the descriptor directly; `ConfigurationSchema` states the same rules as JSON Schema for other tools.
  */
 export class ConfigurationValidator
@@ -158,6 +158,16 @@ export class ConfigurationValidator
         if (!SettingValues.Accepts(setting.Type, value))
         {
             errors.push(new ConfigurationError(path, ConfigurationErrorCode.WrongType));
+            return undefined;
+        }
+        if (setting.Minimum !== undefined && !SettingValues.Within(value, setting.Minimum, undefined))
+        {
+            errors.push(new ConfigurationError(path, ConfigurationErrorCode.BelowMinimum));
+            return undefined;
+        }
+        if (setting.Maximum !== undefined && !SettingValues.Within(value, undefined, setting.Maximum))
+        {
+            errors.push(new ConfigurationError(path, ConfigurationErrorCode.AboveMaximum));
             return undefined;
         }
         return Array.isArray(value) ? Object.freeze([...value as string[]]) : value as SettingValue;

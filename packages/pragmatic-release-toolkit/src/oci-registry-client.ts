@@ -97,8 +97,10 @@ class OciHttp
 }
 
 /**
- * Answers a registry's `WWW-Authenticate: Bearer` challenge: exchanges the Basic credential at the challenge realm for a bearer,
- * caches it per scope, and retries the request once. Never echoes the credential, a Basic header or a bearer into an error.
+ * Answers a registry's `WWW-Authenticate: Bearer` challenge: exchanges the Basic credential at the challenge realm for a bearer
+ * (without a credential, asks the realm for an anonymous one: GHCR challenges every read, a public image's too, and issues a
+ * pull bearer to an anonymous token request), caches it per scope, and retries the request once. A realm that refuses is a
+ * 401 `OciResponseError`. Never echoes the credential, a Basic header or a bearer into an error.
  */
 class RegistryBearerAuth
 {
@@ -141,7 +143,7 @@ class RegistryBearerAuth
         }
         const challenge = first.headers.get(S.ChallengeHeader)
         await OciHttp.Drain(first)
-        if (this.credential === undefined || challenge === null || !S.BearerScheme.test(challenge))
+        if (challenge === null || !S.BearerScheme.test(challenge))
         {
             throw new OciResponseError(S.UnauthorizedStatus, S.RefusedMessage)
         }
@@ -197,7 +199,7 @@ class RegistryBearerAuth
         }
     }
 
-    /** The realm as a URL the Basic credential may be sent to: well-formed, and https unless it is the registry's own host. */
+    /** The realm as a URL a token request (with its Basic credential, if any) may go to: well-formed, and https unless it is the registry's own host. */
     private RealmUrl(realm: string | undefined): URL
     {
         const S = RegistryBearerAuth
@@ -217,7 +219,7 @@ class RegistryBearerAuth
         return target
     }
 
-    private async IssueBearer(params: Map<string, string>, scope: string, credential: RegistryCredential): Promise<string>
+    private async IssueBearer(params: Map<string, string>, scope: string, credential: RegistryCredential | undefined): Promise<string>
     {
         const S = RegistryBearerAuth
         const target = this.RealmUrl(params.get(S.RealmParam))
@@ -230,11 +232,11 @@ class RegistryBearerAuth
         {
             target.searchParams.set(S.ScopeParam, scope)
         }
-        const basic = Buffer.from(credential.username + S.Separator + credential.token, S.Utf8).toString(S.Base64)
+        const headers: Record<string, string> = credential === undefined ? {} : { [S.AuthorizationHeader]: S.BasicPrefix + S.BasicOf(credential) }
         let response: Response
         try
         {
-            response = await this.fetchFn(target.toString(), { method: OciHttp.MethodGet, headers: { [S.AuthorizationHeader]: S.BasicPrefix + basic } })
+            response = await this.fetchFn(target.toString(), { method: OciHttp.MethodGet, headers })
         }
         catch
         {
@@ -251,6 +253,12 @@ class RegistryBearerAuth
             throw new OciResponseError(S.UnauthorizedStatus, S.RefusedMessage)
         }
         return issued
+    }
+
+    private static BasicOf(credential: RegistryCredential): string
+    {
+        const S = RegistryBearerAuth
+        return Buffer.from(credential.username + S.Separator + credential.token, S.Utf8).toString(S.Base64)
     }
 
     private async ReadToken(response: Response): Promise<string | undefined>

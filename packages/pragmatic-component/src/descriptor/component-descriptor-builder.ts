@@ -15,6 +15,8 @@ export class SettingBuilder
     private secret = false;
     private defaultValue: JsonValue | undefined;
     private description = '';
+    private minimum: number | undefined;
+    private maximum: number | undefined;
 
     public constructor(
         public readonly Name: string,
@@ -48,9 +50,23 @@ export class SettingBuilder
         return this;
     }
 
+    /** The smallest value an integer setting accepts (inclusive). */
+    public Minimum(value: number): this
+    {
+        this.minimum = value;
+        return this;
+    }
+
+    /** The largest value an integer setting accepts (inclusive). */
+    public Maximum(value: number): this
+    {
+        this.maximum = value;
+        return this;
+    }
+
     public Build(): SettingDescriptor
     {
-        return new SettingDescriptor(this.Name, this.Type, this.required, this.secret, SettingBuilder.Frozen(this.defaultValue), this.description);
+        return new SettingDescriptor(this.Name, this.Type, this.required, this.secret, SettingBuilder.Frozen(this.defaultValue), this.description, this.minimum, this.maximum);
     }
 
     private static Frozen(value: JsonValue | undefined): JsonValue | undefined
@@ -88,7 +104,8 @@ export class OptionBuilder
 /**
  * Fluent declaration of a `ComponentDescriptor`. `Build` enforces the rules: well-formed names and version, unique
  * option, setting, role and port names, no default on a secret or required setting, secret settings are strings,
- * defaults of the setting's type, ports in range and a health endpoint on a declared port.
+ * defaults of the setting's type, bounds only on integer settings (safe integers, the minimum at most the maximum, the
+ * default between them), ports in range and a health endpoint on a declared port.
  */
 export class ComponentDescriptorBuilder
 {
@@ -119,6 +136,11 @@ export class ComponentDescriptorBuilder
     private static readonly SecretNotString = "secret setting '{0}' must be of type string";
     private static readonly RequiredDefault = "required setting '{0}' cannot have a default";
     private static readonly InvalidDefault = "default of setting '{0}' is not a valid {1}";
+    private static readonly BoundOnNonInteger = "setting '{0}' is not an integer: it cannot have a minimum or maximum";
+    private static readonly MinimumNotSafe = "minimum of setting '{0}' is not a safe integer";
+    private static readonly MaximumNotSafe = "maximum of setting '{0}' is not a safe integer";
+    private static readonly MinimumAboveMaximum = "setting '{0}' has a minimum above its maximum";
+    private static readonly DefaultOutOfBounds = "default of setting '{0}' is outside its minimum and maximum";
     private static readonly UnknownHealthPort = "health endpoint port '{0}' is not a declared port";
     private static readonly InvalidHealthPath = "invalid health path '{0}' (an absolute path expected)";
 
@@ -212,7 +234,19 @@ export class ComponentDescriptorBuilder
                 ComponentDescriptorBuilder.Check(!setting.Required, ComponentDescriptorBuilder.RequiredDefault, path);
                 ComponentDescriptorBuilder.Check(SettingValues.Accepts(setting.Type, setting.Default), ComponentDescriptorBuilder.InvalidDefault, path, setting.Type);
             }
+            ComponentDescriptorBuilder.CheckBounds(setting, path);
         }
+    }
+
+    private static CheckBounds(setting: SettingDescriptor, path: string): void
+    {
+        const B = ComponentDescriptorBuilder;
+        if (setting.Minimum === undefined && setting.Maximum === undefined) return;
+        B.Check(setting.Type === SettingType.Integer, B.BoundOnNonInteger, path);
+        B.Check(setting.Minimum === undefined || Number.isSafeInteger(setting.Minimum), B.MinimumNotSafe, path);
+        B.Check(setting.Maximum === undefined || Number.isSafeInteger(setting.Maximum), B.MaximumNotSafe, path);
+        B.Check(setting.Minimum === undefined || setting.Maximum === undefined || setting.Minimum <= setting.Maximum, B.MinimumAboveMaximum, path);
+        B.Check(setting.Default === undefined || SettingValues.Within(setting.Default, setting.Minimum, setting.Maximum), B.DefaultOutOfBounds, path);
     }
 
     private CheckRoles(): void

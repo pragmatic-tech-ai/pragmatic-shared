@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { OciProtocolError, OciProtocolFault, OciRegistryClient, OciResponseError, type OciFetch } from '../oci-registry-client.js'
 import { FakeOciRegistry } from './fake-oci-registry.js'
+import { FakeImageLayout, FakeReleaseImage } from './fake-release-image.js'
+import { ComponentImageLabel } from '../release/component-image-label.js'
 
 const Base = 'https://registry.test'
 const User = 'napryaglo'
@@ -131,10 +133,53 @@ test('a second 401 after the bearer retry is refused, without looping', async ()
     assert.equal(calls, 3)
 })
 
-test('a 401 without any credential is refused', async () =>
+test('a 401 without any credential is refused when the realm issues no anonymous token', async () =>
 {
-    const client = new OciRegistryClient(Base, Fixtures.Bearered().Fetch)
+    const fake = Fixtures.Bearered()
+    const client = new OciRegistryClient(Base, fake.Fetch)
     await assert.rejects(client.ListTags('pragmatic-release'), (e: unknown) => e instanceof OciResponseError && e.status === 401)
+    const tokenCall = fake.Requests.find(r => r.url.startsWith(Base + '/token'))
+    assert.ok(tokenCall !== undefined, 'the anonymous token was asked for')
+    assert.equal(tokenCall.headers.Authorization, undefined)
+})
+
+test('without a credential a Bearer challenge is answered with an anonymous token request (a public GHCR image), then retried with that bearer', async () =>
+{
+    const fake = Fixtures.Bearered()
+    fake.AllowAnonymousPull()
+    const bytes = new TextEncoder().encode('{"schemaVersion":2,"manifests":[]}')
+    const digest = fake.PutManifest('pragmatic-tenant-idp', 'v', bytes, IndexType)
+    const client = new OciRegistryClient(Base, fake.Fetch)
+
+    assert.deepEqual(Array.from(await client.PullManifest('pragmatic-tenant-idp', digest)), Array.from(bytes))
+
+    const tokenCalls = fake.Requests.filter(r => r.url.startsWith(Base + '/token'))
+    assert.equal(tokenCalls.length, 1)
+    assert.equal(tokenCalls[0]!.headers.Authorization, undefined, 'no credential is sent: there is none')
+    assert.match(tokenCalls[0]!.url, /scope=repository%3Apragmatic-tenant-idp%3Apull/)
+    const reads = fake.Requests.filter(r => r.url.includes('/manifests/'))
+    assert.deepEqual(reads.map(r => r.headers.Authorization), [undefined, 'Bearer ' + fake.IssuedBearer])
+    await client.PullManifest('pragmatic-tenant-idp', digest)
+    assert.equal(fake.Requests.filter(r => r.url.startsWith(Base + '/token')).length, 1, 'the anonymous bearer is cached per scope')
+})
+
+test('a public image index answers its component label without a credential (the tenant console reading what a target runs)', async () =>
+{
+    const fake = Fixtures.Bearered()
+    fake.AllowAnonymousPull()
+    const component = FakeReleaseImage.ComponentDigestOf('pragmatic-tenant-idp')
+    const digest = new FakeReleaseImage(fake).Put('pragmatic-tech-ai/pragmatic-tenant-idp', '0.2.6', 'idp 0.2.6', FakeImageLayout.Index, component)
+
+    assert.equal(await ComponentImageLabel.Read(new OciRegistryClient(Base, fake.Fetch), 'pragmatic-tech-ai/pragmatic-tenant-idp', digest), component)
+})
+
+test('an anonymous token request never goes to a non-https realm on another host', async () =>
+{
+    const stub = new ChallengeStub('Bearer realm="http://evil.test/token",service="s"')
+    const client = new OciRegistryClient(Base, stub.Fetch)
+
+    await assert.rejects(client.ListTags('r'), (e: unknown) => e instanceof OciResponseError && e.status === 401)
+    assert.ok(!stub.Urls.some(u => u.includes('evil.test')))
 })
 
 class ChallengeStub

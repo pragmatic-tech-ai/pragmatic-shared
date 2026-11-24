@@ -36,6 +36,8 @@ export class ConfigurationSchema
     private static readonly RequiredKey = 'required';
     private static readonly DescriptionKey = 'description';
     private static readonly DefaultKey = 'default';
+    private static readonly MinimumKey = 'minimum';
+    private static readonly MaximumKey = 'maximum';
     private static readonly FormatKey = 'format';
     private static readonly PatternKey = 'pattern';
     private static readonly ItemsKey = 'items';
@@ -120,6 +122,8 @@ export class ConfigurationSchema
             ? { [ConfigurationSchema.RefKey]: ConfigurationSchema.SecretReferencePointer }
             : ConfigurationSchema.TypeSchema(setting.Type);
         if (setting.Default !== undefined) schema[ConfigurationSchema.DefaultKey] = setting.Default;
+        if (setting.Minimum !== undefined) schema[ConfigurationSchema.MinimumKey] = setting.Minimum;
+        if (setting.Maximum !== undefined) schema[ConfigurationSchema.MaximumKey] = setting.Maximum;
         ConfigurationSchema.Describe(schema, setting.Description);
         return schema;
     }

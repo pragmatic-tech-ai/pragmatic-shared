@@ -25,6 +25,7 @@ export {
     CarriedDocument,
     DeclaredSourceSecrets,
     ComponentReadyFile,
+    ComponentTermination,
     ComponentStartConfiguration,
     ComponentStartReport,
     ConfigurationEnvironmentOverlay,

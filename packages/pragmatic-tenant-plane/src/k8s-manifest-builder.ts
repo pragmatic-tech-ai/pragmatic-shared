@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { ComponentReadyFile, ConfigurationEnvironmentOverlay } from '@pragmatic-tech-ai/pragmatic-configuration'
+import { ComponentReadyFile, ComponentTermination, ConfigurationEnvironmentOverlay } from '@pragmatic-tech-ai/pragmatic-configuration'
 import { ReleaseApp, UiArtifact } from '@pragmatic-tech-ai/pragmatic-release-toolkit'
 import { ComponentConfigurationMounts, WorkloadRoll } from './component-configuration-mounts.js'
 import { EnvConventions } from './seed/env-conventions.js'
@@ -45,6 +45,7 @@ export class K8sManifestBuilder
     private static readonly SecretKeyRefKey = 'secretKeyRef'
     private static readonly KeyKey = 'key'
     private static readonly ReadinessProbeKey = 'readinessProbe'
+    private static readonly TerminationGracePeriodKey = 'terminationGracePeriodSeconds'
     private static readonly HttpGetKey = 'httpGet'
     private static readonly PathKey = 'path'
     private static readonly TypeKey = 'type'
@@ -2097,6 +2098,8 @@ export class K8sManifestBuilder
                     [K8sManifestBuilder.MetadataKey]: { [K8sManifestBuilder.LabelsKey]: this.Selector(name) },
                     [K8sManifestBuilder.SpecKey]: {
                         [K8sManifestBuilder.SecurityContextKey]: { [K8sManifestBuilder.FsGroupKey]: K8sManifestBuilder.ServerUid },
+                        // The env server's longest configurable drain is declared from the same constant (ComponentTermination).
+                        [K8sManifestBuilder.TerminationGracePeriodKey]: ComponentTermination.GracePeriodSeconds,
                         [K8sManifestBuilder.InitContainersKey]: initContainers,
                         [K8sManifestBuilder.ContainersKey]: [{
                             [K8sManifestBuilder.NameKey]: K8sManifestBuilder.ServerContainerName,

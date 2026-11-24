@@ -14,6 +14,9 @@ export type SettingDeclaration = {
     required?: boolean
     secret?: boolean
     default?: JsonValue
+    /** The smallest and largest value an integer setting accepts (inclusive), checked at save time and at start. */
+    minimum?: number
+    maximum?: number
 }
 
 export type OptionDeclaration = { name: string; description: string; settings: readonly SettingDeclaration[] }
@@ -95,6 +98,14 @@ export class ComponentDeclarations
         if (setting.default !== undefined)
         {
             builder.Default(setting.default)
+        }
+        if (setting.minimum !== undefined)
+        {
+            builder.Minimum(setting.minimum)
+        }
+        if (setting.maximum !== undefined)
+        {
+            builder.Maximum(setting.maximum)
         }
         return builder
     }

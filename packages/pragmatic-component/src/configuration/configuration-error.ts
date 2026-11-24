@@ -9,6 +9,8 @@ export enum ConfigurationErrorCode
     WrongType = 'wrong-type',
     LiteralSecret = 'literal-secret',
     InvalidSecretReference = 'invalid-secret-reference',
+    BelowMinimum = 'below-minimum',
+    AboveMaximum = 'above-maximum',
 }
 
 /** One problem in a configuration document: where (a JSON pointer), what (a code) and a fixed message for the code. */
@@ -23,6 +25,8 @@ export class ConfigurationError
         [ConfigurationErrorCode.WrongType]: 'is not a value of the setting type',
         [ConfigurationErrorCode.LiteralSecret]: 'is a secret setting: give a secret reference (secret:<store>/<name>[@<version>]), never the value',
         [ConfigurationErrorCode.InvalidSecretReference]: 'is not a well-formed secret reference (secret:<store>/<name>[@<version>])',
+        [ConfigurationErrorCode.BelowMinimum]: 'is below the smallest value this setting accepts',
+        [ConfigurationErrorCode.AboveMaximum]: 'is above the largest value this setting accepts',
     };
 
     public readonly Message: string;
