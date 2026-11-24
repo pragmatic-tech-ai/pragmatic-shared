@@ -242,7 +242,7 @@ export class ConfigurationService
         const scope = new ConfigurationScope(tenantId, component)
         // The Deployment alone: components that share one (the env server and the UI unpacker) share its roll.
         const key = found.Target.Key()
-        if (this.applying.has(key))
+        if (this.applying.has(key) || this.applier.Busy?.(found.Target) === true)
         {
             throw new ConfigurationApplyInProgressError()
         }

@@ -52,6 +52,9 @@ export interface IConfigurationApplier
     /** Whether this console can write to its cluster at all (it runs in a pod). */
     readonly Available: boolean
     Apply(applied: AppliedConfiguration, target: ApplyTarget): Promise<ConfigurationApplyResult>
+    /** Whether an apply to `target` is still being proven outside this service's own in-flight applies (the console's own
+     *  apply, proven by the console it restarted); such a target takes no new apply until it is settled. */
+    Busy?(target: ApplyTarget): boolean
 }
 
 /** Writes a component's secret values where its secret store `file` reads them; answers the reference, never the value. */

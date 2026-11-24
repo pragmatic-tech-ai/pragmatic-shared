@@ -4,7 +4,7 @@ import { ComponentDeclarations, SettingType, type ComponentDescriptor } from '@p
 import { ApplyTarget, InMemoryConfigurationRepository, type AppliedConfiguration } from '@pragmatic-tech-ai/pragmatic-configuration'
 import { ConfigurationService } from '../configuration/configuration-service.js'
 import {
-    ConfigurationApplyResult, ConfigurationReadsNoConfigurationError, ConfigurationTarget, NoConfigurationPreparations, UnavailableComponentSecretWriter,
+    ConfigurationApplyInProgressError, ConfigurationApplyResult, ConfigurationReadsNoConfigurationError, ConfigurationTarget, NoConfigurationPreparations, UnavailableComponentSecretWriter,
     type ConfigurationPreparationDto, type ConfigurationRunsDto, type IComponentDescriptorSource, type IConfigurationApplier, type IConfigurationPreparationSource,
     type IConfigurationTargetSource,
 } from '../configuration/configuration-ports.js'
@@ -62,6 +62,12 @@ class FixedTargets implements IConfigurationTargetSource
 class CountingApplier implements IConfigurationApplier
 {
     public Applied = 0
+    public BusyTargets: ApplyTarget[] = []
+
+    public Busy(target: ApplyTarget): boolean
+    {
+        return this.BusyTargets.some(t => t.Equals(target))
+    }
 
     public get Available(): boolean
     {
@@ -133,4 +139,19 @@ test('the list says what a target runs when its pods run a prepared entry, not t
     assert.deepEqual(summary.targets[0].runs, { version: 2, componentVersion: '0.2.5', appliedVersion: 3 })
     const plain = new ConfigurationService(new InMemoryConfigurationRepository(), new OldDescriptor(), new FixedTargets(ReadingCase.Target(true)), new CountingApplier(), new UnavailableComponentSecretWriter(), new NoConfigurationPreparations())
     assert.equal((await plain.List(ReadingCase.Tenant))[0].targets[0].runs, null)
+})
+
+test('an apply to a target the applier is still proving (the console restarted by its own apply) is refused before anything is recorded', async () =>
+{
+    const applier = new CountingApplier()
+    const target = ReadingCase.Target(true)
+    applier.BusyTargets.push(target.Target)
+    const service = new ConfigurationService(new InMemoryConfigurationRepository(), new OldDescriptor(), new FixedTargets(target), applier, new UnavailableComponentSecretWriter())
+    const saved = await service.Save(ReadingCase.Tenant, ReadingCase.Component, 0, { options: { core: { drainMs: 5 } } }, 'admin', 'c')
+    await assert.rejects(service.Apply(ReadingCase.Tenant, ReadingCase.Component, saved.version, 'dev1', 'admin'), ConfigurationApplyInProgressError)
+    assert.equal(applier.Applied, 0)
+    assert.deepEqual((await service.Component(ReadingCase.Tenant, ReadingCase.Component)).applies, [])
+    applier.BusyTargets = []
+    await service.Apply(ReadingCase.Tenant, ReadingCase.Component, saved.version, 'dev1', 'admin')
+    assert.equal(applier.Applied, 1)
 })
