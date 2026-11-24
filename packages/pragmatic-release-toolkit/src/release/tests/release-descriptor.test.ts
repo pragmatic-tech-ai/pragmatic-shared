@@ -9,7 +9,7 @@ class DescriptorFixture
     public static Make(): ReleaseDescriptor
     {
         const images: Partial<Record<ReleaseApp, { repository: string; digest: string; signature: string; componentDigest: string }>> = {}
-        for (const app of ReleaseApps.All)
+        for (const app of ReleaseDescriptorCodec.AppsOf(ReleaseDescriptorCodec.CurrentSchema))
         {
             images[app] = { repository: `ghcr.io/pragmatic-tech-ai/${app}`, digest: `sha256:${'a'.repeat(64)}`, signature: 'c2ln', componentDigest: DescriptorFixture.ComponentDigest }
         }
@@ -90,15 +90,31 @@ describe('ReleaseDescriptorCodec', () =>
 
     it('rejects an unknown schema', () =>
     {
-        const d = { ...DescriptorFixture.Make(), schema: 3 }
+        const d = { ...DescriptorFixture.Make(), schema: 5 }
         assert.throws(() => ReleaseDescriptorCodec.Decode(DescriptorFixture.Bytes(d)), ReleaseDescriptorInvalidError)
     })
 
-    it('writes schema 2, which carries every app including pragmatic-postgres', () =>
+    it('writes schema 2, which carries the nine apps up to pragmatic-postgres (pinned, never the host agent)', () =>
     {
         assert.equal(ReleaseDescriptorCodec.CurrentSchema, 2)
-        assert.ok(ReleaseApps.All.includes(ReleaseApp.Postgres))
-        assert.deepEqual(ReleaseDescriptorCodec.AppsOf(2), ReleaseApps.All)
+        assert.deepEqual(ReleaseDescriptorCodec.AppsOf(2), ReleaseApps.Schema2Apps)
+        assert.deepEqual(ReleaseDescriptorCodec.AppsOf(2), [
+            ReleaseApp.PlatformAdmin, ReleaseApp.PlatformEdge, ReleaseApp.EnvServer, ReleaseApp.EnvGateway, ReleaseApp.HiveAgent,
+            ReleaseApp.TenantAdmin, ReleaseApp.TenantIdp, ReleaseApp.UiUnpack, ReleaseApp.Postgres,
+        ])
+        assert.deepEqual(ReleaseDescriptorCodec.AppsOf(3), ReleaseApps.Schema2Apps)
+        assert.deepEqual(ReleaseDescriptorCodec.AppsOf(1), ReleaseApps.Schema2Apps.filter(app => app !== ReleaseApp.Postgres))
+        assert.deepEqual(ReleaseDescriptorCodec.AppsOf(4), [...ReleaseApps.Schema2Apps, ReleaseApp.HostAgent])
+        assert.deepEqual(ReleaseDescriptorCodec.AppsOf(4), ReleaseApps.All)
+    })
+
+    it('a schema-2 descriptor ignores a host agent image (it never carried one)', () =>
+    {
+        const d = DescriptorFixture.Make() as unknown as { images: Record<string, unknown> }
+        d.images[ReleaseApp.HostAgent] = { repository: 'x', digest: 'sha256:' + 'a'.repeat(64), signature: 'c2ln', componentDigest: DescriptorFixture.ComponentDigest }
+        const decoded = ReleaseDescriptorCodec.Decode(DescriptorFixture.Bytes(d))
+        assert.equal(decoded.images[ReleaseApp.HostAgent], undefined)
+        assert.ok(!ReleaseDescriptorCodec.ImagesOf(decoded).some(([app]) => app === ReleaseApp.HostAgent))
     })
 
     it('a schema-2 descriptor without the pragmatic-postgres image is rejected naming it', () =>
@@ -116,7 +132,7 @@ describe('ReleaseDescriptorCodec', () =>
         const decoded = ReleaseDescriptorCodec.Decode(DescriptorFixture.Bytes(d))
         assert.equal(decoded.schema, 1)
         assert.equal(decoded.images[ReleaseApp.Postgres], undefined)
-        assert.deepEqual(ReleaseDescriptorCodec.ImagesOf(decoded).map(([app]) => app), ReleaseApps.All.filter(app => app !== ReleaseApp.Postgres))
+        assert.deepEqual(ReleaseDescriptorCodec.ImagesOf(decoded).map(([app]) => app), ReleaseApps.Schema1Apps)
         assert.deepEqual(ReleaseDescriptorCodec.Decode(ReleaseDescriptorCodec.Encode(decoded)), decoded)
     })
 
@@ -158,7 +174,7 @@ describe('ReleaseDescriptorCodec', () =>
     it('ImagesOf lists the images of a schema-2 descriptor in ReleaseApps.All order', () =>
     {
         const d = DescriptorFixture.Make()
-        assert.deepEqual(ReleaseDescriptorCodec.ImagesOf(d).map(([app]) => app), ReleaseApps.All)
+        assert.deepEqual(ReleaseDescriptorCodec.ImagesOf(d).map(([app]) => app), ReleaseApps.Schema2Apps)
     })
 
     it('rejects a malformed commit', () =>

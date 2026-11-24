@@ -8,12 +8,13 @@ The platform release toolkit, lifted from pragmatic-server by the container spli
   `release-keys` under the working directory). The publish chain imports only node built-ins, so it runs from a
   checkout without `npm install`.
 - platform releases from a manifest (pragmatic-platform-release's `release.json`: schema 1, the release version, all
-  nine apps each as `{ repository, version, digest }`): `ReleaseManifest.Parse` / `Check` / `Inspect` (each image
+  ten apps each as `{ repository, version, digest }`; the tenth, `pragmatic-host-agent`, is required from 0.21.3 on): `ReleaseManifest.Parse` / `Check` / `Inspect` (each image
   exists at its digest and carries a component label equal to the digest of the `component.json` its repository's
   release `v<version>` attached, its `<version>` and `git-<commit of v<version>>` tags name that digest, and
   `release-<version>` is free or names the same digest), the `IComponentAssetSource` seam and
   `GitHubComponentAssetSource` (GitHub REST; the token goes to the API origin only), `ReleasePublisher.Assemble`
-  (check only) and `PublishManifest` (schema-2 descriptor: the manifest's digests, the labelled component digests,
+  (check only) and `PublishManifest` (schema-2 descriptor of the nine pre-host-agent images, or with a chart digest a
+  schema-4 descriptor of all ten images and the engine chart: the manifest's digests, the labelled component digests,
   `siblingCommits` = each container repository's tag commit, `serverCommit` = the release repository's commit; every
   image is tagged `release-<version>` (`ReleaseManifest.ImageTagOf`, apart from a container release's `<version>`
   tags), the component descriptors the images carry (the repositories' `component.json` assets) are pushed as

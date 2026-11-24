@@ -9,15 +9,20 @@ import { ReleaseApp, ReleaseApps } from './release-tag.js'
  */
 export type ReleaseImage = { repository: string; digest: string; signature: string; componentDigest?: string }
 
-/** Every app's image; a schema-1 descriptor (published before pragmatic-postgres existed) has none for it. */
-export type ReleaseImages = Omit<Record<ReleaseApp, ReleaseImage>, ReleaseApp.Postgres> & { [ReleaseApp.Postgres]?: ReleaseImage }
+/**
+ * Every app's image; a schema-1 descriptor (published before pragmatic-postgres existed) has none for it, and only a
+ * schema-4 descriptor has one for pragmatic-host-agent.
+ */
+export type ReleaseImages = Omit<Record<ReleaseApp, ReleaseImage>, ReleaseApp.Postgres | ReleaseApp.HostAgent>
+    & { [ReleaseApp.Postgres]?: ReleaseImage; [ReleaseApp.HostAgent]?: ReleaseImage }
 
 /**
- * Schema 1: the eight Node apps (ReleaseApps.NodeApps). Schema 2: every app (ReleaseApps.All), adding pragmatic-postgres, and
+ * Schema 1: the eight Node apps (ReleaseApps.Schema1Apps). Schema 2: ReleaseApps.Schema2Apps, adding pragmatic-postgres, and
  * per image the component descriptor digest. Schema 3: schema 2 plus the management engine chart (`chart`), whose manifest
- * digest the descriptor signature then binds with the images.
+ * digest the descriptor signature then binds with the images. Schema 4: schema 3 plus the pragmatic-host-agent image
+ * (ReleaseApps.All, ten images).
  */
-export type ReleaseDescriptorSchema = 1 | 2 | 3
+export type ReleaseDescriptorSchema = 1 | 2 | 3 | 4
 
 /**
  * The management engine Helm chart of a release (C3.2): `oci://<reference>` at `version` (the release version), whose OCI
@@ -34,7 +39,7 @@ export type ReleaseDescriptor = {
     builtAt: string
     signingKeyId: string
     images: ReleaseImages
-    /** Schema 3 only: the engine chart. */
+    /** Schemas 3 and 4 only: the engine chart. */
     chart?: ReleaseChart
 }
 
@@ -57,23 +62,25 @@ export class ReleaseDescriptorCodec
     /** The schema the publisher writes for a release without a chart (the tag-mode publish). */
     public static readonly CurrentSchema: ReleaseDescriptorSchema = 2
     /** The schema of a release that carries the engine chart (`publish --manifest --chart-digest`). */
-    public static readonly ChartSchema: ReleaseDescriptorSchema = 3
+    public static readonly ChartSchema: ReleaseDescriptorSchema = 4
     /** The engine chart's repository under a release namespace. */
     public static readonly ChartRepository = 'charts/pragmatic-engine'
     /** Where the published releases' engine chart lives (`oci://` + this): the default registry and namespace. */
     public static readonly ChartReference = 'ghcr.io/pragmatic-tech-ai/charts/pragmatic-engine'
     private static readonly ReferenceSeparator = '/'
-    private static readonly SchemaApps = new Map<unknown, readonly ReleaseApp[]>([[1, ReleaseApps.NodeApps], [2, ReleaseApps.All], [3, ReleaseApps.All]])
+    private static readonly SchemaApps = new Map<unknown, readonly ReleaseApp[]>([
+        [1, ReleaseApps.Schema1Apps], [2, ReleaseApps.Schema2Apps], [3, ReleaseApps.Schema2Apps], [4, ReleaseApps.All],
+    ])
     private static readonly DigestPattern = /^sha256:[0-9a-f]{64}$/
     private static readonly CommitPattern = /^[0-9a-f]{40}$/
     /** A plain repository name: no separators, never a dot segment (`.`, `..`) nor `__proto__`. */
     private static readonly RepoNamePattern = /^(?!__proto__$)(?!\.{1,2}$)[A-Za-z0-9._-]+$/
     private static readonly NotObject = 'not an object'
     private static readonly NotJson = 'not valid JSON'
-    private static readonly BadSchema = 'schema must be 1, 2 or 3'
+    private static readonly BadSchema = 'schema must be 1, 2, 3 or 4'
     private static readonly BadChart = 'chart must name its reference, the release version and a sha256 digest'
-    private static readonly UnexpectedChart = 'only a schema-3 descriptor carries a chart'
-    private static readonly ChartSchemas: ReadonlySet<unknown> = new Set([3])
+    private static readonly UnexpectedChart = 'only a schema-3 or schema-4 descriptor carries a chart'
+    private static readonly ChartSchemas: ReadonlySet<unknown> = new Set([3, 4])
     private static readonly FieldChart = 'chart'
     private static readonly BadChannel = 'channel is not a known channel'
     private static readonly BadServerCommit = 'serverCommit is not a 40-hex commit'
@@ -84,7 +91,7 @@ export class ReleaseDescriptorCodec
     private static readonly BadDigestPrefix = 'bad digest for image: '
     private static readonly BadComponentDigestPrefix = 'bad component digest for image: '
     /** The schemas whose images carry a component descriptor digest. */
-    private static readonly ComponentSchemas: ReadonlySet<unknown> = new Set([2, 3])
+    private static readonly ComponentSchemas: ReadonlySet<unknown> = new Set([2, 3, 4])
     private static readonly FieldVersion = 'version'
     private static readonly FieldBuiltAt = 'builtAt'
     private static readonly FieldSigningKeyId = 'signingKeyId'
@@ -131,7 +138,7 @@ export class ReleaseDescriptorCodec
         return registryHost + C.ReferenceSeparator + namespace + C.ReferenceSeparator + C.ChartRepository
     }
 
-    /** The engine chart a schema-3 descriptor binds; undefined for schemas 1 and 2. */
+    /** The engine chart a schema-3 or schema-4 descriptor binds; undefined for schemas 1 and 2. */
     public static ChartOf(d: ReleaseDescriptor): ReleaseChart | undefined
     {
         return d.chart === undefined ? undefined : { ...d.chart }
@@ -197,7 +204,7 @@ export class ReleaseDescriptorCodec
         return descriptor
     }
 
-    /** A schema-3 chart: a non-empty reference, the descriptor's own version and a sha256 digest. */
+    /** A schema-3 or schema-4 chart: a non-empty reference, the descriptor's own version and a sha256 digest. */
     private static decodeChart(value: unknown, version: string): ReleaseChart
     {
         const C = ReleaseDescriptorCodec

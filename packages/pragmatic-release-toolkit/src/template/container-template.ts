@@ -111,8 +111,12 @@ export class ContainerTemplate
     private static readonly EnvSnippet = 'snippets/env.Dockerfile'
     private static readonly ExposeSnippet = 'snippets/expose.Dockerfile'
     private static readonly HealthcheckSnippet = 'snippets/healthcheck.Dockerfile'
-    private static readonly ToolsStageSnippet = 'snippets/platform-admin-tools-stage.Dockerfile'
-    private static readonly ToolsCopySnippet = 'snippets/platform-admin-tools-copy.Dockerfile'
+    private static readonly ToolsStageSnippet = 'snippets/provisioning-tools-stage.Dockerfile'
+    private static readonly ToolsCopySnippet = 'snippets/provisioning-tools-copy.Dockerfile'
+    private static readonly HelmArgsSnippet = 'snippets/provisioning-tools-helm-args.Dockerfile'
+    private static readonly HelmFetchSnippet = 'snippets/provisioning-tools-helm-fetch.Dockerfile'
+    private static readonly HelmCopySnippet = 'snippets/provisioning-tools-helm-copy.Dockerfile'
+    private static readonly HelmBinary = ' helm'
     private static readonly WritableDirsSnippet = 'snippets/writable-dirs.Dockerfile'
     private static readonly WorkspaceRoot = '/workspace/'
 
@@ -183,7 +187,7 @@ export class ContainerTemplate
             ClosureCheckStep: profile.ClosureCheck ? T.Snippet(T.ClosureCheckSnippet, {}) : '',
             Prune: T.Snippet(T.PruneSnippet, {}),
             ModuleDirs: workspaces.length === 0 ? '' : T.Snippet(T.ModuleDirsSnippet, { Dirs: workspaces.map(path => path + T.Slash + T.NodeModules).join(T.Space) }),
-            ToolsStage: profile.ProvisioningTools ? T.Snippet(T.ToolsStageSnippet, {}) : '',
+            ToolsStage: profile.ProvisioningTools ? T.ToolsStage(profile) : '',
             RuntimeSetup: T.RuntimeSetup(profile),
             Copies: T.Copies(options, layout).map(path => T.Snippet(T.CopySnippet, { App: options.App, Path: path })).join(T.Newline),
             WritableDirs: T.WritableDirs(options),
@@ -347,8 +351,24 @@ export class ContainerTemplate
         if (profile.ProvisioningTools)
         {
             lines.push(T.Snippet(T.ToolsCopySnippet, {}))
+            if (profile.Helm === true)
+            {
+                lines.push(T.Snippet(T.HelmCopySnippet, {}))
+            }
         }
         return lines.join(T.Newline)
+    }
+
+    /** The pinned provisioning tools stage; with the profile's Helm, helm 3 is fetched, checked and kept beside the others. */
+    private static ToolsStage(profile: IContainerProfile): string
+    {
+        const T = ContainerTemplate
+        const helm = profile.Helm === true
+        return T.Snippet(T.ToolsStageSnippet, {
+            HelmArgs: helm ? T.Snippet(T.HelmArgsSnippet, {}) : '',
+            HelmFetch: helm ? T.Snippet(T.HelmFetchSnippet, {}) : '',
+            HelmBinary: helm ? T.HelmBinary : '',
+        })
     }
 
     private static Healthcheck(check: IContainerHealthcheck): string

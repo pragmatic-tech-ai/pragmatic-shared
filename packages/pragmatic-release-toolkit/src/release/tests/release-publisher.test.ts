@@ -246,7 +246,7 @@ describe('ReleasePublisher', () =>
         assert.deepEqual(decoded, descriptor)
         assert.equal(decoded.signingKeyId, PublisherFixture.KeyId)
         assert.equal(decoded.schema, 2)
-        assert.deepEqual(ReleaseDescriptorCodec.ImagesOf(decoded).map(([app]) => app), ReleaseApps.All)
+        assert.deepEqual(ReleaseDescriptorCodec.ImagesOf(decoded).map(([app]) => app), ReleaseApps.Schema2Apps)
         for (const [app, image] of ReleaseDescriptorCodec.ImagesOf(decoded))
         {
             assert.equal(image.repository, PublisherFixture.Repo(app))
@@ -404,7 +404,7 @@ describe('ReleasePublishCli', () =>
             assert.equal(code, 0)
             const stdout = cli.Lines.join('\n')
             assert.ok(stdout.includes(PublisherFixture.Version))
-            assert.equal(cli.Lines.length, ReleaseApps.All.length + 2)
+            assert.equal(cli.Lines.length, ReleaseApps.Schema2Apps.length + 2)
             assert.ok(!stdout.includes(PublisherFixture.Token))
             assert.ok(!PublisherFixture.Pem.test(stdout))
             assert.ok(!stdout.includes(f.Key.Private.split('\n')[1]))

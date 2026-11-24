@@ -36,8 +36,8 @@ export type ReleaseManifestPublishInput = {
     TrustedPublicKeyPem: string
     /**
      * The engine chart pushed for this release (`oci://ReleaseDescriptorCodec.ChartReference:<version>`) and its manifest digest:
-     * the publisher checks the registry holds that chart at that digest, then writes a schema-3 descriptor binding it.
-     * Omitted: a schema-2 release without a chart.
+     * the publisher checks the registry holds that chart at that digest, then writes a schema-4 descriptor binding it and
+     * every image of the manifest. Omitted: a schema-2 release without a chart (its nine images; the host agent is only tagged).
      */
     ChartDigest?: string
 }
@@ -197,7 +197,7 @@ export class ReleasePublisher
         const version = input.tag.Version
         await this.CheckVersionFree(version)
         const images: Partial<Record<ReleaseApp, ReleaseImage>> = {}
-        for (const app of ReleaseApps.All)
+        for (const app of ReleaseDescriptorCodec.AppsOf(ReleaseDescriptorCodec.CurrentSchema))
         {
             const repository = this.repo(app)
             const digest = await this.registry.HeadManifest(repository, version)
@@ -249,8 +249,10 @@ export class ReleasePublisher
         {
             throw new ReleaseManifestProblemsError(inspection.Problems)
         }
+        const chart = input.ChartDigest === undefined ? undefined : await this.ChartOf(tag.Version, input.ChartDigest)
+        const schema = chart === undefined ? ReleaseDescriptorCodec.CurrentSchema : ReleaseDescriptorCodec.ChartSchema
         const images: Partial<Record<ReleaseApp, ReleaseImage>> = {}
-        for (const app of ReleaseApps.All)
+        for (const app of ReleaseDescriptorCodec.AppsOf(schema))
         {
             const digest = input.Manifest.components[app].digest
             const componentDigest = inspection.ComponentDigests.get(app)
@@ -260,9 +262,8 @@ export class ReleasePublisher
             }
             images[app] = { repository: this.repo(app), digest, signature: ReleaseSignature.Sign(digest, input.PrivateKeyPem), componentDigest }
         }
-        const chart = input.ChartDigest === undefined ? undefined : await this.ChartOf(tag.Version, input.ChartDigest)
         const descriptor: ReleaseDescriptor = {
-            schema: chart === undefined ? ReleaseDescriptorCodec.CurrentSchema : ReleaseDescriptorCodec.ChartSchema,
+            schema,
             version: tag.Version,
             channel: tag.Channel,
             serverCommit: input.ReleaseCommit,
@@ -289,7 +290,7 @@ export class ReleasePublisher
         // The descriptors the release carries (ReleaseComponentsArtifact), before the descriptor: its existence means they
         // are there too. Each layer is the component.json whose digest the descriptor signs as the image's componentDigest.
         await this.registry.PushLayeredArtifact(this.repo(S.DescriptorRepository), ReleaseComponentsArtifact.TagOf(tag.Version),
-            ReleaseComponentsArtifact.ArtifactType, ReleaseComponentsArtifact.Layers(inspection.ComponentAssets, ReleaseApps.All),
+            ReleaseComponentsArtifact.ArtifactType, ReleaseComponentsArtifact.Layers(inspection.ComponentAssets, ReleaseDescriptorCodec.AppsOf(schema)),
             { [ReleaseComponentsArtifact.VersionAnnotation]: tag.Version })
         // Again just before the push. A rival publish that pushes its descriptor between this check and the push below
         // can still overwrite it: the registry offers no conditional put, so two runs must not publish one version at

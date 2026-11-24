@@ -7,7 +7,7 @@ import { ReleaseDescriptorCodec, ReleaseDescriptorInvalidError, type ReleaseDesc
 import { ReleaseManifest } from '../release-manifest.js'
 import { ReleaseChartMismatchError, ReleasePublisher } from '../release-publisher.js'
 import { ReleaseSignature } from '../release-signature.js'
-import { ReleaseApps } from '../release-tag.js'
+import { ReleaseApp, ReleaseApps } from '../release-tag.js'
 import { ReleaseWorld } from './release-manifest-fixture.js'
 
 class Schema3Fixture
@@ -25,10 +25,10 @@ class Schema3Fixture
         return { Private: pair.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(), Public: pair.publicKey.export({ type: 'spki', format: 'pem' }).toString() }
     }
 
-    public static Descriptor(schema: 2 | 3, privateKey: string): ReleaseDescriptor
+    public static Descriptor(schema: 2 | 3 | 4, privateKey: string): ReleaseDescriptor
     {
         const images: Record<string, ReleaseImage> = {}
-        for (const app of ReleaseApps.All)
+        for (const app of ReleaseDescriptorCodec.AppsOf(schema))
         {
             images[app] = { repository: 'pragmatic-tech-ai/' + app, digest: Schema3Fixture.Digest, signature: ReleaseSignature.Sign(Schema3Fixture.Digest, privateKey), componentDigest: Schema3Fixture.Digest }
         }
@@ -36,7 +36,7 @@ class Schema3Fixture
             schema, version: '0.1.0-early.16', channel: Channel.EarlyAccess, serverCommit: Schema3Fixture.Commit, siblingCommits: {},
             builtAt: '2026-11-24T00:00:00.000Z', signingKeyId: Schema3Fixture.KeyId, images: images as ReleaseDescriptor['images'],
         }
-        if (schema === 3)
+        if (schema !== 2)
         {
             descriptor.chart = { reference: ReleaseDescriptorCodec.ChartReference, version: '0.1.0-early.16', digest: Schema3Fixture.Digest }
         }
@@ -101,7 +101,49 @@ describe('release descriptor schema 3', () =>
         assert.throws(() => ReleaseDescriptorCodec.Decode(encode({ ...three, chart: undefined })), ReleaseDescriptorInvalidError)
         assert.throws(() => ReleaseDescriptorCodec.Decode(encode({ ...three, chart: { ...three.chart, version: '0.1.0-early.15' } })), /chart must name/)
         assert.throws(() => ReleaseDescriptorCodec.Decode(encode({ ...three, chart: { ...three.chart, digest: 'sha256:short' } })), /chart must name/)
-        assert.throws(() => ReleaseDescriptorCodec.Decode(encode({ ...Schema3Fixture.Descriptor(2, keys.Private), chart: three.chart })), /only a schema-3 descriptor carries a chart/)
+        assert.throws(() => ReleaseDescriptorCodec.Decode(encode({ ...Schema3Fixture.Descriptor(2, keys.Private), chart: three.chart })), /only a schema-3 or schema-4 descriptor carries a chart/)
+    })
+})
+
+describe('release descriptor schema 4', () =>
+{
+    it('schema 4 round-trips with the chart and the ten images, the host agent included, all signed', () =>
+    {
+        const keys = Schema3Fixture.Keys()
+        const descriptor = Schema3Fixture.Descriptor(4, keys.Private)
+        const bytes = ReleaseDescriptorCodec.Encode(descriptor)
+        const decoded = ReleaseDescriptorCodec.Decode(bytes)
+        assert.deepEqual(decoded, descriptor)
+        assert.deepEqual(ReleaseDescriptorCodec.ImagesOf(decoded).map(([app]) => app), ReleaseApps.All)
+        assert.equal(ReleaseDescriptorCodec.ImagesOf(decoded).length, 10)
+        assert.ok(decoded.images[ReleaseApp.HostAgent] !== undefined)
+        assert.deepEqual(ReleaseDescriptorCodec.ChartOf(decoded), descriptor.chart)
+        const signature = ReleaseSignature.Sign(OciRegistryClient.DigestOf(bytes), keys.Private)
+        assert.ok(Schema3Fixture.Verifies(bytes, signature, keys.Public))
+    })
+
+    it('a schema-4 descriptor without the host agent image, or without a chart, is refused', () =>
+    {
+        const keys = Schema3Fixture.Keys()
+        const four = Schema3Fixture.Descriptor(4, keys.Private) as unknown as { images: Record<string, unknown>; chart?: unknown }
+        const encode = (value: unknown): Uint8Array => new TextEncoder().encode(JSON.stringify(value))
+        const images = { ...four.images }
+        delete images[ReleaseApp.HostAgent]
+        assert.throws(() => ReleaseDescriptorCodec.Decode(encode({ ...four, images })),
+            (error: unknown) => error instanceof ReleaseDescriptorInvalidError && error.Reason === 'missing image: pragmatic-host-agent')
+        assert.throws(() => ReleaseDescriptorCodec.Decode(encode({ ...four, chart: undefined })), /chart must name/)
+    })
+
+    it('schema 3 releases (nine images, no host agent) still verify', () =>
+    {
+        const keys = Schema3Fixture.Keys()
+        const descriptor = Schema3Fixture.Descriptor(3, keys.Private)
+        assert.equal(descriptor.images[ReleaseApp.HostAgent], undefined)
+        const bytes = ReleaseDescriptorCodec.Encode(descriptor)
+        const decoded = ReleaseDescriptorCodec.Decode(bytes)
+        assert.deepEqual(decoded, descriptor)
+        assert.deepEqual(ReleaseDescriptorCodec.ImagesOf(decoded).map(([app]) => app), ReleaseApps.Schema2Apps)
+        assert.ok(Schema3Fixture.Verifies(bytes, ReleaseSignature.Sign(OciRegistryClient.DigestOf(bytes), keys.Private), keys.Public))
     })
 })
 
@@ -131,12 +173,15 @@ describe('ReleasePublisher with the engine chart', () =>
         }
     }
 
-    it('publishes schema 3 binding the chart the registry holds at the release version', async () =>
+    it('publishes schema 4 binding the chart the registry holds at the release version and all ten images', async () =>
     {
         const f = new Publishing()
         const digest = Schema3Fixture.PushChart(f.World, ReleaseWorld.ReleaseVersion)
         const { descriptor } = await f.Publisher().PublishManifest(f.Input(digest))
-        assert.equal(descriptor.schema, 3)
+        assert.equal(descriptor.schema, 4)
+        assert.equal(ReleaseDescriptorCodec.ChartSchema, 4)
+        assert.deepEqual(ReleaseDescriptorCodec.ImagesOf(descriptor).map(([app]) => app), ReleaseApps.All)
+        assert.equal(descriptor.images[ReleaseApp.HostAgent]?.digest, f.Input().Manifest.components[ReleaseApp.HostAgent].digest)
         const host = new URL(f.World.Registry.Origin).host
         assert.deepEqual(descriptor.chart, { reference: host + '/pragmatic-tech-ai/charts/pragmatic-engine', version: ReleaseWorld.ReleaseVersion, digest })
         assert.equal(ReleaseDescriptorCodec.ChartReferenceOf('ghcr.io', 'pragmatic-tech-ai'), ReleaseDescriptorCodec.ChartReference)
@@ -158,5 +203,6 @@ describe('ReleasePublisher with the engine chart', () =>
         const { descriptor } = await f.Publisher().PublishManifest(f.Input())
         assert.equal(descriptor.schema, 2)
         assert.equal(descriptor.chart, undefined)
+        assert.deepEqual(ReleaseDescriptorCodec.ImagesOf(descriptor).map(([app]) => app), ReleaseApps.Schema2Apps)
     })
 })

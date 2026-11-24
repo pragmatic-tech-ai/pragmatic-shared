@@ -105,7 +105,7 @@ export type ReleaseManifestInspection = {
 }
 
 /**
- * The platform release manifest: parsed strictly (`Parse`: schema 1, a release version, all nine apps and nothing else,
+ * The platform release manifest: parsed strictly (`Parse`: schema 1, a release version, all ten apps and nothing else,
  * each a repository, a version and a digest) and checked against what the registry and the container repositories'
  * releases hold (`Check`): each image exists at its digest, carries a component label, and that label is the digest of
  * the `component.json` the repository's release `v<version>` attached (whose `component` and `version` are the app's);

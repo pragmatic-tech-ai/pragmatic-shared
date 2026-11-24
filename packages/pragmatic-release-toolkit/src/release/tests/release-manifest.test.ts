@@ -33,14 +33,14 @@ class Edit
 
 describe('ReleaseManifest.Parse', () =>
 {
-    it('parses a nine-app manifest', () =>
+    it('parses a ten-app manifest', () =>
     {
         const world = new ReleaseWorld()
         const doc = ReleaseManifest.Parse(world.ManifestText())
         assert.equal(doc.schema, 1)
         assert.equal(doc.version, ReleaseWorld.ReleaseVersion)
         assert.deepEqual(Object.keys(doc.components).sort(), [...ReleaseApps.All].sort())
-        assert.equal(ReleaseApps.All.length, 9)
+        assert.equal(ReleaseApps.All.length, 10)
         for (const app of ReleaseApps.All)
         {
             assert.deepEqual(doc.components[app], {
@@ -56,6 +56,13 @@ describe('ReleaseManifest.Parse', () =>
         const text = Edit.Text(new ReleaseWorld(), doc => { delete doc.components[ReleaseApp.Postgres] })
         assert.throws(() => ReleaseManifest.Parse(text), (error: unknown) =>
             error instanceof ReleaseManifestMissingAppError && error.App === ReleaseApp.Postgres && error.message.includes(ReleaseApp.Postgres))
+    })
+
+    it('requires the host agent from this version on', () =>
+    {
+        const text = Edit.Text(new ReleaseWorld(), doc => { delete doc.components[ReleaseApp.HostAgent] })
+        assert.throws(() => ReleaseManifest.Parse(text), (error: unknown) =>
+            error instanceof ReleaseManifestMissingAppError && error.App === ReleaseApp.HostAgent && error.message.includes(ReleaseApp.HostAgent))
     })
 
     it('refuses an unknown app, echoing its name only when it has a plain name shape', () =>

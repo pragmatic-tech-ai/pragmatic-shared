@@ -343,7 +343,7 @@ export class OciRegistryClient
     private static readonly ManifestAccept = OciRegistryClient.ManifestMediaTypes.join(OciRegistryClient.AcceptSeparator)
     private static readonly ManifestSchemaVersion = 2
     private static readonly MaxTagPages = 1000
-    /** The most layers, and the largest layer, PullArtifactLayers accepts (a release carries nine small descriptors). */
+    /** The most layers, and the largest layer, PullArtifactLayers accepts (a release carries ten small descriptors). */
     public static readonly MaxArtifactLayers = 64
     public static readonly MaxArtifactLayerBytes = 1024 * 1024
     private static readonly ContentLengthHeader = 'content-length'

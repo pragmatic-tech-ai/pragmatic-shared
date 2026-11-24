@@ -357,7 +357,7 @@ describe('ReleasePublishCli with a release manifest', () =>
         await ManifestCli.With(new AssembleFixture(), async cli =>
         {
             assert.equal(await cli.Run(...cli.PublishArgs()), 0, cli.Errors.join('\n'))
-            assert.equal(cli.Lines.length, ReleaseApps.All.length + 2)
+            assert.equal(cli.Lines.length, ReleaseApps.Schema2Apps.length + 2)
             assert.equal(cli.Lines[0], 'published ' + ReleaseWorld.ReleaseVersion)
             const stdout = cli.Lines.join('\n')
             for (const secret of [ManifestCli.Token, ManifestCli.GitHubToken, cli.Base.Key.Private.split('\n')[1]])

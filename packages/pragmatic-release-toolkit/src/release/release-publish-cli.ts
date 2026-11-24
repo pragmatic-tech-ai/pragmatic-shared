@@ -20,7 +20,7 @@ class ReleaseCliUsageError extends Error
  * (the images tagged with the release version), and from a release manifest (pragmatic-platform-release's `release.json`):
  * `assemble --manifest <path>` (checks only: prints each problem, exit 1 on any) and `publish --manifest <path> --key-id <id>
  * [--trust-dir <dir>] [--release-commit <sha>] [--chart-digest <digest>]` (the release commit defaults to GITHUB_SHA; with
- * `--chart-digest` the engine chart pushed at the release version must hold that digest, and the descriptor is schema 3). Secrets come from the
+ * `--chart-digest` the engine chart pushed at the release version must hold that digest, and the descriptor is schema 4). Secrets come from the
  * environment (key file path, registry credential, the optional GITHUB_TOKEN the component assets are read with); only
  * the version and digests are printed, failures print the error sentence. Before anything is pushed, publish verifies
  * every signature against the trusted public key `<trust dir>/<key id>.pub.pem` (default: `release-keys` under the

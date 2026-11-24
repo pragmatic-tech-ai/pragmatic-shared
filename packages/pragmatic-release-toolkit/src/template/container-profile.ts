@@ -32,8 +32,10 @@ export interface IContainerProfile
     /** Also built for linux/arm64 (on native runners): CI's arm64 job and the release's per-arch bake. */
     MultiArch: boolean
     AptPackages: readonly string[]
-    /** The pinned kubectl, kind and docker CLI stage (the platform admin console until C5.3). */
+    /** The pinned kubectl, kind and docker CLI stage (the platform admin console until C5.3; the host agent). */
     ProvisioningTools: boolean
+    /** With ProvisioningTools: also the pinned helm 3 (the host agent installs the engine chart with it). */
+    Helm?: boolean
     Env: ReadonlyArray<readonly [string, string]>
     Ports: readonly number[]
     Healthcheck?: IContainerHealthcheck
@@ -83,6 +85,8 @@ export class ContainerProfiles
     private static readonly IdpPortVariable = 'PRAGMATIC_IDP_PORT'
     /** With no configuration the platform admin console stops on its missing database setting. */
     private static readonly PlatformAdminRefusal = 'PRAGMATIC_ADMIN_DATABASE_URL_FILE must name'
+    /** With no configuration the host agent stops naming the settings it misses. */
+    private static readonly HostAgentRefusal = 'the host agent is not configured'
     /** The edge stops on its missing admin URL. */
     private static readonly PlatformEdgeRefusal = 'PRAGMATIC_EDGE_ADMIN_URL must be'
     /** The gateway stops on its missing TLS files. */
@@ -188,6 +192,14 @@ export class ContainerProfiles
         [ReleaseApp.UiUnpack, {
             Kind: ContainerKind.Node, MultiArch: false, AptPackages: ContainerProfiles.None, ProvisioningTools: false, Env: [], Ports: [],
             ImageTest: false, StartSmoke: true, HelmChart: ContainerProfiles.NoChart, ClosureCheck: true, VersionManifest: ContainerProfiles.RootManifest,
+        }],
+        // The host agent (C5.1) runs on a hosting machine with host networking, the Docker socket and its state directory
+        // mounted: it drives kind, helm and kubectl from its image and listens on no port. amd64 only (no arm64 host yet).
+        [ReleaseApp.HostAgent, {
+            Kind: ContainerKind.Node, MultiArch: false, AptPackages: ContainerProfiles.None, ProvisioningTools: true, Helm: true,
+            Env: [], Ports: [],
+            ImageTest: false, StartSmoke: true, HelmChart: ContainerProfiles.NoChart, ClosureCheck: true, VersionManifest: ContainerProfiles.RootManifest,
+            StartSmokeRefusal: ContainerProfiles.HostAgentRefusal,
         }],
         [ReleaseApp.Postgres, {
             Kind: ContainerKind.ExternalDockerfile, MultiArch: true, AptPackages: ContainerProfiles.None, ProvisioningTools: false, Env: [], Ports: [],

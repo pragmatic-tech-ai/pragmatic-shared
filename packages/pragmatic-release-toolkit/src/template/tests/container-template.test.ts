@@ -75,6 +75,7 @@ class TemplateFixture
         [ReleaseApp.Postgres, { App: ReleaseApp.Postgres, Entry: 'docker/postgres/Dockerfile', UiDirs: [], ExtraCopies: [] }],
         [ReleaseApp.UiUnpack, { App: ReleaseApp.UiUnpack, Entry: 'src/bin/pragmatic-ui-unpack.ts', UiDirs: [], ExtraCopies: [] }],
         [ReleaseApp.HiveAgent, { App: ReleaseApp.HiveAgent, Entry: 'src/bin/pragmatic-agentd.ts', UiDirs: [], ExtraCopies: [] }],
+        [ReleaseApp.HostAgent, { App: ReleaseApp.HostAgent, Entry: 'src/bin/pragmatic-host-agentd.ts', UiDirs: [], ExtraCopies: ['vendor'] }],
         [ReleaseApp.EnvGateway, { App: ReleaseApp.EnvGateway, Entry: 'src/bin/pragmatic-gatewayd.ts', UiDirs: [], ExtraCopies: [] }],
         [ReleaseApp.TenantIdp, { App: ReleaseApp.TenantIdp, Entry: 'src/bin/pragmatic-idpd.ts', UiDirs: ['idp-login'], ExtraCopies: ['idp-login/dist'], WritableDirs: ['dist/data'] }],
         [ReleaseApp.EnvServer, { App: ReleaseApp.EnvServer, Entry: 'server/src/bin/pragmatic-serverd.ts', UiDirs: [], ExtraCopies: [], Workspaces: TemplateFixture.EnvServerWorkspaces,
@@ -320,15 +321,47 @@ describe('ContainerTemplate', () =>
     it('the platform admin image keeps its pinned provisioning tools and its role', () =>
     {
         const dockerfile = TemplateFixture.Dockerfile(ReleaseApp.PlatformAdmin)
-        assert.ok(dockerfile.Stage('platform-admin-tools').some(line => line.includes('sha256sum -c -')))
+        assert.ok(dockerfile.Stage('provisioning-tools').some(line => line.includes('sha256sum -c -')))
+        assert.ok(!dockerfile.Stage('provisioning-tools').some(line => line.includes('HELM')), 'the admin carries no helm')
         const image = dockerfile.Stage('pragmatic-platform-admin')
         for (const tool of ['kubectl', 'kind', 'docker'])
         {
-            assert.ok(image.some(line => line.startsWith('COPY --from=platform-admin-tools ') && line.endsWith('/usr/local/bin/' + tool)))
+            assert.ok(image.some(line => line.startsWith('COPY --from=provisioning-tools ') && line.endsWith('/usr/local/bin/' + tool)))
         }
+        assert.ok(!image.some(line => line.endsWith('/usr/local/bin/helm')))
         assert.ok(image.includes('ENV PRAGMATIC_CONTROL_PLANE_ROLE=admin'))
         assert.ok(image.includes('EXPOSE 7000 7001'))
         assert.equal(image[image.length - 1], 'ENTRYPOINT ["node", "dist/server.js"]')
+    })
+
+    it('the host agent image carries pinned kubectl, kind, the docker CLI and helm 3, amd64 only, with no port', () =>
+    {
+        const files = TemplateFixture.Render(ReleaseApp.HostAgent)
+        const dockerfile = RenderedDockerfile.Parse(TemplateFixture.File(files, 'Dockerfile'))
+        const tools = dockerfile.Stage('provisioning-tools')
+        const text = tools.join('\n')
+        assert.ok(tools.includes('ARG HELM_VERSION=v3.22.1'))
+        assert.ok(tools.includes('ARG HELM_SHA256_AMD64=896cf63684a42a723d61c980369d6e588330927deb13676ca0d85006dd6da0ea'))
+        assert.ok(tools.includes('ARG HELM_SHA256_ARM64=4c29e286b279d170fa048ddfc3e4e83dcd069ca9c52102766ba672d7149e694d'))
+        assert.ok(text.includes('https://get.helm.sh/helm-${HELM_VERSION}-linux-${TARGETARCH}.tar.gz'))
+        assert.ok(text.includes('echo "$H  helm.tgz" | sha256sum -c -'))
+        assert.ok(text.includes('chmod 0755 kubectl kind docker-cli helm'))
+        for (const pinned of ['ARG KUBECTL_VERSION=', 'ARG KIND_VERSION=', 'ARG DOCKER_VERSION='])
+        {
+            assert.ok(tools.some(line => line.startsWith(pinned)), pinned)
+        }
+        const image = dockerfile.Stage('pragmatic-host-agent')
+        for (const tool of ['kubectl', 'kind', 'docker', 'helm'])
+        {
+            assert.ok(image.some(line => line.startsWith('COPY --from=provisioning-tools ') && line.endsWith('/usr/local/bin/' + tool)), tool)
+        }
+        assert.ok(!image.some(line => line.startsWith('EXPOSE')))
+        assert.ok(!image.some(line => line.startsWith('HEALTHCHECK')))
+        assert.equal(image[image.length - 1], 'ENTRYPOINT ["node", "dist/bin/pragmatic-host-agentd.js"]')
+        const profile = ContainerProfiles.Of(ReleaseApp.HostAgent)
+        assert.equal(profile?.MultiArch, false)
+        assert.equal(profile?.Helm, true)
+        assert.ok(TemplateFixture.File(files, '.github/workflows/ci.yml').includes('arm64: false'))
     })
 
     it('the image stage reads as the closure check reads it', () =>
@@ -535,6 +568,7 @@ describe('ContainerTemplate', () =>
             [ReleaseApp.PlatformAdmin, 'PRAGMATIC_ADMIN_DATABASE_URL_FILE must name'],
             [ReleaseApp.PlatformEdge, 'PRAGMATIC_EDGE_ADMIN_URL must be'],
             [ReleaseApp.EnvGateway, 'are required for the gateway'],
+            [ReleaseApp.HostAgent, 'the host agent is not configured'],
         ])
         for (const app of ReleaseApps.All)
         {

@@ -75,7 +75,7 @@ describe('ReleaseComponentDescriptors: the descriptors a platform release carrie
         const { descriptor } = await r.Publish()
         const set = await r.Reader().Descriptors(ReleaseWorld.ReleaseVersion)
         assert.equal(set.All().length, 9)
-        assert.equal(ReleaseApps.All.length, 9)
+        assert.equal(ReleaseApps.All.length, 10)
         for (const [app, image] of ReleaseDescriptorCodec.ImagesOf(descriptor))
         {
             const carried = set.Get(app)
@@ -98,7 +98,7 @@ describe('ReleaseComponentDescriptors: the descriptors a platform release carrie
         assert.equal(tag, 'components-0.1.0-early.6')
         const artifact = await client.PullArtifactLayers(PublishedRelease.DescriptorRepo, tag)
         assert.ok(artifact !== undefined)
-        assert.deepEqual(artifact.layers.map(l => l.annotations['org.opencontainers.image.title']), ReleaseApps.All.map(app => app + '.json'))
+        assert.deepEqual(artifact.layers.map(l => l.annotations['org.opencontainers.image.title']), ReleaseApps.Schema2Apps.map(app => app + '.json'))
         assert.ok(artifact.layers.every(l => l.mediaType === 'application/vnd.pragmatic.component.v1+json'))
         const manifestPuts = r.World.Registry.Requests.filter(q => q.method === PublishedRelease.MethodPut && q.url.includes(PublishedRelease.DescriptorRepo + '/manifests/'))
         assert.deepEqual(manifestPuts.map(q => q.url.slice(q.url.lastIndexOf('/') + 1)), [tag, ReleaseWorld.ReleaseVersion])

@@ -11,15 +11,13 @@ export enum ReleaseApp
     TenantIdp = 'pragmatic-tenant-idp',
     UiUnpack = 'pragmatic-ui-unpack',
     Postgres = 'pragmatic-postgres',
+    HostAgent = 'pragmatic-host-agent',
 }
 
 export class ReleaseApps
 {
-    /**
-     * The Node apps, each a target of docker/images/Dockerfile with an entry in closure.json (what the closure check
-     * measures). They are also the eight images a schema-1 release descriptor carries.
-     */
-    public static readonly NodeApps: readonly ReleaseApp[] = [
+    /** The eight Node apps a schema-1 release descriptor carries (pinned: later apps never join schema 1). */
+    public static readonly Schema1Apps: readonly ReleaseApp[] = [
         ReleaseApp.PlatformAdmin,
         ReleaseApp.PlatformEdge,
         ReleaseApp.EnvServer,
@@ -30,11 +28,21 @@ export class ReleaseApps
         ReleaseApp.UiUnpack,
     ]
 
+    /** The nine images a schema-2 or schema-3 release descriptor carries: schema 1 plus `pragmatic-postgres` (pinned). */
+    public static readonly Schema2Apps: readonly ReleaseApp[] = [...ReleaseApps.Schema1Apps, ReleaseApp.Postgres]
+
     /**
-     * Every image a release ships: the Node apps plus `pragmatic-postgres` (docker/postgres/Dockerfile, the Postgres a
-     * hive or the platform host runs; one database and role per application).
+     * The Node apps, each a container repository whose image the closure check measures: schema 1's eight plus
+     * `pragmatic-host-agent` (C5.1, the agent on a hosting machine that places Hosted hives).
      */
-    public static readonly All: readonly ReleaseApp[] = [...ReleaseApps.NodeApps, ReleaseApp.Postgres]
+    public static readonly NodeApps: readonly ReleaseApp[] = [...ReleaseApps.Schema1Apps, ReleaseApp.HostAgent]
+
+    /**
+     * Every image a release ships (release.json requires each, a schema-4 descriptor carries each): the schema-2 nine
+     * (`pragmatic-postgres` is docker/postgres/Dockerfile, the Postgres a hive or the platform host runs) plus
+     * `pragmatic-host-agent`.
+     */
+    public static readonly All: readonly ReleaseApp[] = [...ReleaseApps.Schema2Apps, ReleaseApp.HostAgent]
 }
 
 export class ReleaseTagInvalidError extends Error
