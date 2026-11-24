@@ -58,8 +58,11 @@ export class ReleaseDescriptorCodec
     public static readonly CurrentSchema: ReleaseDescriptorSchema = 2
     /** The schema of a release that carries the engine chart (`publish --manifest --chart-digest`). */
     public static readonly ChartSchema: ReleaseDescriptorSchema = 3
-    /** Where every release's engine chart lives (`oci://` + this). */
+    /** The engine chart's repository under a release namespace. */
+    public static readonly ChartRepository = 'charts/pragmatic-engine'
+    /** Where the published releases' engine chart lives (`oci://` + this): the default registry and namespace. */
     public static readonly ChartReference = 'ghcr.io/pragmatic-tech-ai/charts/pragmatic-engine'
+    private static readonly ReferenceSeparator = '/'
     private static readonly SchemaApps = new Map<unknown, readonly ReleaseApp[]>([[1, ReleaseApps.NodeApps], [2, ReleaseApps.All], [3, ReleaseApps.All]])
     private static readonly DigestPattern = /^sha256:[0-9a-f]{64}$/
     private static readonly CommitPattern = /^[0-9a-f]{40}$/
@@ -119,6 +122,13 @@ export class ReleaseDescriptorCodec
             }
         }
         return result
+    }
+
+    /** `<registry host>/<namespace>/charts/pragmatic-engine`: the chart reference of a release published under `namespace`. */
+    public static ChartReferenceOf(registryHost: string, namespace: string): string
+    {
+        const C = ReleaseDescriptorCodec
+        return registryHost + C.ReferenceSeparator + namespace + C.ReferenceSeparator + C.ChartRepository
     }
 
     /** The engine chart a schema-3 descriptor binds; undefined for schemas 1 and 2. */

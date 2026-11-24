@@ -144,6 +144,25 @@ describe('an engine environment', () =>
         assert.equal(items.some(i => i.kind === 'ConfigMap' && i.metadata.name === 'sales-eu-postgres'), false, 'no sidecar applications file')
     })
 
+    it('names the chart IngressClass on a federated environment, or none for the default class; the push path keeps nginx', () =>
+    {
+        const federated = { ...EngineFixture.Env(), idpBaseDomain: 'acme.example' }
+        const ingressOf = (engine: EngineEnvironment | undefined) =>
+        {
+            const w = EnvironmentWorkloadFactory.From(federated, EngineFixture.Hive(), undefined, undefined, engine)
+            return (JSON.parse(new K8sManifestBuilder().Render(w)).items as any[]).find(i => i.kind === 'Ingress')
+        }
+        assert.equal(ingressOf({ ...EngineFixture.Engine, IngressClass: 'traefik' }).spec.ingressClassName, 'traefik')
+        assert.equal('ingressClassName' in ingressOf(EngineFixture.Engine).spec, false, 'the default class')
+        assert.equal('ingressClassName' in ingressOf({ ...EngineFixture.Engine, IngressClass: '' }).spec, false)
+        assert.equal(ingressOf(undefined).spec.ingressClassName, 'nginx')
+    })
+
+    it('one URL form for every role on the hive Postgres', () =>
+    {
+        assert.equal(EnvironmentHiveDatabase.UrlFor('tenant_admin', 'tenant_admin', 'a/b'), 'postgres://tenant_admin:a%2Fb@pragmatic-postgres.pragmatic-system.svc:5432/tenant_admin')
+    })
+
     it('names its database and role env_<name>, refusing a name that makes no identifier', () =>
     {
         assert.equal(EnvironmentHiveDatabase.NameOf('sales-eu'), 'env_sales_eu')

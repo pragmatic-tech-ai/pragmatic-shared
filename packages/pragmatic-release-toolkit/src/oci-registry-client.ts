@@ -381,6 +381,12 @@ export class OciRegistryClient
         this.auth = new RegistryBearerAuth(baseUrl, fetchFn, credential)
     }
 
+    /** The registry API base URL this client addresses (no trailing slash). */
+    public get BaseUrl(): string
+    {
+        return this.baseUrl
+    }
+
     public static DigestOf(bytes: Uint8Array): string
     {
         return OciRegistryClient.DigestPrefix + createHash(OciRegistryClient.HashAlgorithm).update(bytes).digest(OciRegistryClient.Hex)

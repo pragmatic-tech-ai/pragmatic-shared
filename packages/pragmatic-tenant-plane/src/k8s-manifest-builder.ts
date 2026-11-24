@@ -2317,7 +2317,22 @@ export class K8sManifestBuilder
         const meta = this.Meta(workload, name)
         // TLS section (no secretName without an Ingress TLS choice -> controller default cert) makes nginx terminate TLS for the host.
         const secretName = tls === undefined ? undefined : IngressTlsPolicy.SecretNameFor(tls, name)
-        return this.TerminatingIngress(meta, host, name, workload.serverPort, tls, secretName)
+        const ingress = this.TerminatingIngress(meta, host, name, workload.serverPort, tls, secretName)
+        const choice = workload.federation?.ingressClass
+        if (choice !== undefined)
+        {
+            // A chart-installed engine names the chart's IngressClass, or none so the cluster's default class serves it.
+            const spec = ingress[K8sManifestBuilder.SpecKey] as K8sObject
+            if (choice.Name === undefined)
+            {
+                delete spec[K8sManifestBuilder.IngressClassNameKey]
+            }
+            else
+            {
+                spec[K8sManifestBuilder.IngressClassNameKey] = choice.Name
+            }
+        }
+        return ingress
     }
 
     /** Browser-facing hostname <environmentId>.<baseDomain> of a federated in-cluster environment. */

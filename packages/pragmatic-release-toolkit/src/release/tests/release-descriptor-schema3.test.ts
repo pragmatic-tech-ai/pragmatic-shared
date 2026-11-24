@@ -137,7 +137,9 @@ describe('ReleasePublisher with the engine chart', () =>
         const digest = Schema3Fixture.PushChart(f.World, ReleaseWorld.ReleaseVersion)
         const { descriptor } = await f.Publisher().PublishManifest(f.Input(digest))
         assert.equal(descriptor.schema, 3)
-        assert.deepEqual(descriptor.chart, { reference: 'ghcr.io/pragmatic-tech-ai/charts/pragmatic-engine', version: ReleaseWorld.ReleaseVersion, digest })
+        const host = new URL(f.World.Registry.Origin).host
+        assert.deepEqual(descriptor.chart, { reference: host + '/pragmatic-tech-ai/charts/pragmatic-engine', version: ReleaseWorld.ReleaseVersion, digest })
+        assert.equal(ReleaseDescriptorCodec.ChartReferenceOf('ghcr.io', 'pragmatic-tech-ai'), ReleaseDescriptorCodec.ChartReference)
     })
 
     it('refuses a chart digest the registry does not hold, publishing nothing', async () =>

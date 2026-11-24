@@ -39,10 +39,12 @@ export type WorkloadHiveDatabase = {
 /** Where the env server stores: its own sidecar (the push path, until C5.3) or the hive's Postgres (the engine chart). */
 export type WorkloadServerDatabase = WorkloadSidecarDatabase | WorkloadHiveDatabase
 
-/** What a chart-installed engine runs every environment with: the release's server and unpacker images, by digest. */
+/** What a chart-installed engine runs every environment with: the release's server and unpacker images, by digest, and its IngressClass. */
 export type EngineEnvironment = {
     ServerImage: string
     UiUnpackImage: string
+    /** The chart's `ingress.className`; undefined: the cluster's default class. */
+    IngressClass?: string
 }
 
 /** Narrows a WorkloadServerDatabase. */
@@ -67,6 +69,7 @@ export class EnvironmentHiveDatabase
 {
     public static readonly PasswordKey = 'password'
     public static readonly UrlKey = 'database-url'
+    /** The hive Postgres Service of a chart-installed engine (the chart's `pragmatic-postgres` in `pragmatic-system`): its one home. */
     public static readonly ServiceHost = 'pragmatic-postgres.pragmatic-system.svc'
     public static readonly Port = 5432
     /** PostgreSQL identifiers: at most 63 bytes, starting with a letter or underscore. */
@@ -108,9 +111,15 @@ export class EnvironmentHiveDatabase
     /** The env server's URL for the role password, on the hive Postgres Service. */
     public static UrlOf(environmentName: string, password: string): string
     {
+        const name = EnvironmentHiveDatabase.NameOf(environmentName)
+        return EnvironmentHiveDatabase.UrlFor(name, name, password)
+    }
+
+    /** Any role's URL on the hive Postgres Service (the engine's applications and the superuser use it too): one URL form. */
+    public static UrlFor(role: string, database: string, password: string): string
+    {
         const E = EnvironmentHiveDatabase
-        const name = E.NameOf(environmentName)
-        return E.UrlScheme + name + E.UserSeparator + encodeURIComponent(password) + E.HostSeparator + E.ServiceHost + E.UserSeparator + String(E.Port) + E.PathSeparator + name
+        return E.UrlScheme + encodeURIComponent(role) + E.UserSeparator + encodeURIComponent(password) + E.HostSeparator + E.ServiceHost + E.UserSeparator + String(E.Port) + E.PathSeparator + encodeURIComponent(database)
     }
 
     /** A random role password (URL-safe). */
@@ -183,6 +192,9 @@ export class EnvironmentDatabaseSecret
     }
 }
 
+/** The IngressClass an environment's Ingress names: `Name`, or none (the cluster's default class) when Name is undefined. */
+export type IngressClassChoice = { Name: string | undefined }
+
 /** In-cluster OIDC federation of a served environment: its browser host base domain and the ca.crt-only Secret it trusts the IdP through. */
 export type WorkloadFederation = {
     baseDomain: string
@@ -190,6 +202,8 @@ export type WorkloadFederation = {
     caSecretName: string
     /** The console's Ingress TLS choice; absent -> the controller's default certificate. */
     ingressTls?: IngressTls
+    /** The engine chart's IngressClass choice; absent: `nginx`, as the push-installed hive's console always named it. */
+    ingressClass?: IngressClassChoice
 }
 
 /** The app artifact an environment's pod pulls and verifies: registry coordinates, pinned digest, and the trust Secret/key it verifies against. */
@@ -275,6 +289,10 @@ export class EnvironmentWorkloadFactory
         if (record.idpBaseDomain !== undefined)
         {
             workload.federation = { baseDomain: record.idpBaseDomain, caSecretName: EnvServerSeedSource.IdpCaSecretNameOf(record.name) }
+            if (engine !== undefined)
+            {
+                workload.federation.ingressClass = { Name: engine.IngressClass === '' ? undefined : engine.IngressClass }
+            }
             if (ingressTls !== undefined)
             {
                 workload.federation.ingressTls = ingressTls

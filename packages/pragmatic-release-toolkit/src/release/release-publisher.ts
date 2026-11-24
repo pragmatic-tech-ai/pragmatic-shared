@@ -172,7 +172,7 @@ export class ReleasePublisher
     public static readonly SignatureAnnotation = 'org.pragmatic.release.signature'
     public static readonly KeyAnnotation = 'org.pragmatic.release.key'
     /** The engine chart's repository under the release namespace (ghcr.io/<namespace>/charts/pragmatic-engine). */
-    public static readonly ChartRepository = 'charts/pragmatic-engine'
+    public static readonly ChartRepository = ReleaseDescriptorCodec.ChartRepository
 
     public constructor(
         private readonly registry: OciRegistryClient,
@@ -311,7 +311,7 @@ export class ReleasePublisher
         {
             throw new ReleaseChartMismatchError(version)
         }
-        return { reference: ReleaseDescriptorCodec.ChartReference, version, digest }
+        return { reference: ReleaseDescriptorCodec.ChartReferenceOf(ReleaseRegistry.HostOf(this.registry.BaseUrl), this.namespace), version, digest }
     }
 
     /** Every image's `release-<version>` tag is free or already names the manifest digest (a re-run); else nothing is tagged. */
