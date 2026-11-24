@@ -58,5 +58,10 @@ export { CloseStream, OpenStream, StreamCloseReason, StreamOpened, TunnelFields,
 export type { TunnelFrame } from './tunnel/tunnel.js'
 
 export type { IAgentChannel } from './channel/agent-channel.js'
+export { AgentExchangeLink, AgentExchangeRefusal } from './channel/agent-exchange-link.js'
+export type { AgentExchangeRefusalJson } from './channel/agent-exchange-link.js'
+export { AgentInternalLink, HiveEnrolmentCall, HiveEnrolmentRefusal, HiveEnrolmentStatus } from './channel/agent-internal-link.js'
+export type { HiveEnrolmentStatusJson } from './channel/agent-internal-link.js'
+export { AgentChannelFailure, AgentChannelUnavailableError, HttpAgentChannel } from './channel/http-agent-channel.js'
 export { EnrolmentHandshake, EnrolmentMismatch, EnrolmentMismatchError } from './channel/enrolment-handshake.js'
 export type { EnrolmentHandshakeOptions } from './channel/enrolment-handshake.js'

@@ -11,6 +11,8 @@ test('the package entry exports the codecs, keys, envelope, messages and verifie
         'ProtocolVerificationError', 'HiveLevel', 'ConsoleAddress', 'HiveEnrolmentRequest', 'HiveEnrolmentResponse', 'Intent', 'IntentActions',
         'IntentAdmission', 'IntentDecision', 'RealmSubject', 'Pull', 'PullBatch', 'HiveReport', 'HostEnrolmentRequest', 'HostEnrolmentResponse',
         'HostReport', 'PlacementRequest', 'PlacementResult', 'ClusterCredentialHandover', 'TunnelHello', 'TunnelFrames', 'EnrolmentHandshake',
+        'AgentExchangeLink', 'AgentExchangeRefusal', 'HttpAgentChannel', 'AgentChannelUnavailableError', 'AgentChannelFailure',
+        'AgentInternalLink', 'HiveEnrolmentCall', 'HiveEnrolmentRefusal', 'HiveEnrolmentStatus',
     ])
     {
         assert.ok(name in entry, name)

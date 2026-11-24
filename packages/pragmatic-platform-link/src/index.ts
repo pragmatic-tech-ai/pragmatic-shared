@@ -1,5 +1,5 @@
 export { InternalApiRoutes } from './internal-api-routes.js';
-export { InternalApiUnavailableError, InternalApiClient } from './internal-api-client.js';
+export { InternalApiUnavailableError, InternalApiClient, InternalApiRelayReply } from './internal-api-client.js';
 export { InternalApiLinkError, InternalApiLink } from './internal-api-link.js';
 export { AgentChannelOperation, AgentChannelReplies } from './agent-channel-backend.js';
 export type { AgentChannelRequest, AgentChannelReply, IAgentChannelBackend } from './agent-channel-backend.js';

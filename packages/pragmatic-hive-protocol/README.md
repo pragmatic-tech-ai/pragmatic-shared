@@ -25,4 +25,9 @@ No dependencies beyond `node:crypto`.
   a `SealedBlob` for the platform's sealing key).
 - **Tunnel control.** `TunnelHello` (signed, SNI names) and the unsigned `TunnelFrames` (ready, open-stream,
   stream-opened, close-stream). The data plane is the implementation's.
+- **Transport.** `AgentExchangeLink` (the edge's `POST /agent/v2/exchange`, 1 MiB, 200 envelope / 204 / refusal
+  `{ error, code }` with an `AgentExchangeRefusal` code) and `HttpAgentChannel` (the agent's `IAgentChannel` over
+  `fetch`, 30-second deadline, `AgentChannelUnavailableError` with status and code). `AgentInternalLink`,
+  `HiveEnrolmentCall`, `HiveEnrolmentStatus`, `HiveEnrolmentRefusal`: the hive agent's cluster-internal enrolment API
+  the engine's console calls (port 7210, TokenReview audience `pragmatic-hive-agent`).
 - **Testing** (`./testing`): `FakeClock`, `FakePlatform`, `FakeAgentChannel`, `FakeHiveAgent`, `FakeHostAgent`.
