@@ -32,7 +32,7 @@ export { HiveEnrolmentRequest, HiveEnrolmentResponse } from './hive/hive-enrolme
 export type { HiveEnrolmentRequestJson, HiveEnrolmentRequestOptions, HiveEnrolmentResponseJson, HiveEnrolmentResponseOptions } from './hive/hive-enrolment.js'
 
 export {
-    ComponentAtVersion, ConfigurationReference, CreateEnvironment, DeleteEnvironment, IntentActionFields, IntentActionKind, IntentActions,
+    ComponentAtVersion, ConfigurationReference, CreateEnvironment, DeleteEnvironment, EnvironmentPurpose, IntentActionFields, IntentActionKind, IntentActions,
     Repair, RepairScope, Rotate, RotationSubject, UpdateEnvironment,
 } from './intent/intent-action.js'
 export type { IIntentAction, IntentAction } from './intent/intent-action.js'
@@ -41,10 +41,12 @@ export type { IntentJson } from './intent/intent.js'
 export { IntentDecision, IntentDecisionKind, RealmSubject } from './intent/intent-decision.js'
 export type { IntentDecisionJson, RealmSubjectJson } from './intent/intent-decision.js'
 export { Pull, PullBatch } from './intent/pull.js'
+export { HiveKeyRotation, HiveKeyRotationAck } from './intent/hive-key-rotation.js'
+export type { HiveKeyRotationJson } from './intent/hive-key-rotation.js'
 
 export { ServiceAccountKey, ServiceAccountKeys, ServiceAccountKeyType } from './identity/service-account-keys.js'
 export type { ServiceAccountKeyJson, ServiceAccountKeysJson, ServiceAccountKeysOptions } from './identity/service-account-keys.js'
-export { ComponentReport, ComponentState, EnvironmentReadiness, EnvironmentStatus, HiveReport, IntentProgress, IntentStatus } from './report/hive-report.js'
+export { ComponentReport, ComponentState, EnvironmentReadiness, EnvironmentStatus, HiveReport, IntentFailure, IntentProgress, IntentStatus } from './report/hive-report.js'
 export type { ComponentReportJson, EnvironmentStatusJson, HiveReportJson, HiveReportOptions, IntentStatusJson } from './report/hive-report.js'
 
 export { ClusterKind, HostEnrolmentRequest, HostEnrolmentResponse } from './host/host-enrolment.js'
@@ -65,3 +67,8 @@ export type { HiveEnrolmentStatusJson } from './channel/agent-internal-link.js'
 export { AgentChannelFailure, AgentChannelUnavailableError, HttpAgentChannel } from './channel/http-agent-channel.js'
 export { EnrolmentHandshake, EnrolmentMismatch, EnrolmentMismatchError } from './channel/enrolment-handshake.js'
 export type { EnrolmentHandshakeOptions } from './channel/enrolment-handshake.js'
+export {
+    ConsoleIntentCall, ConsoleIntentLink, ConsoleIntentOutcome, ConsoleIntentRefusal, IntentChoice, IntentDecisionCall, IntentDecisionRefusal, IntentInternalLink,
+    KeptIntentListing, KeptIntentView,
+} from './channel/intent-internal-link.js'
+export type { KeptIntentViewJson } from './channel/intent-internal-link.js'

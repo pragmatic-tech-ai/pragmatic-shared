@@ -17,6 +17,7 @@ import type { HostReport } from '../host/host-report.js'
 import { ClusterCredentialHandover, PlacementRequest, type PlacementResult } from '../host/placement.js'
 import { Intent, IntentAdmission, type IntentApplyMode } from '../intent/intent.js'
 import { IntentDecision, type IntentDecisionKind, type RealmSubject } from '../intent/intent-decision.js'
+import { HiveKeyRotation, HiveKeyRotationAck } from '../intent/hive-key-rotation.js'
 import { Pull, PullBatch } from '../intent/pull.js'
 import type { HiveReport } from '../report/hive-report.js'
 import type { ServiceAccountKeys } from '../identity/service-account-keys.js'
@@ -55,8 +56,8 @@ export class FakeAgentNoReplyError extends Error
 export abstract class FakeAgent
 {
     public static readonly DefaultVersion = '0.10.0'
-    public readonly Key = SigningKeyPair.Generate()
     public readonly Nonces: InMemoryNonceLedger
+    protected key = SigningKeyPair.Generate()
     protected signer: EnvelopeSigner
     protected verifier: EnvelopeVerifier | undefined
     private cursor = 0
@@ -64,7 +65,13 @@ export abstract class FakeAgent
     protected constructor(protected readonly channel: IAgentChannel, protected readonly clock: IProtocolClock, private readonly role: ParticipantRole.Hive | ParticipantRole.Host, protected readonly pinnedTrustRoot: SigningPublicKey | undefined)
     {
         this.Nonces = new InMemoryNonceLedger(clock)
-        this.signer = EnvelopeSigner.SelfSigned(this.Key, role, clock)
+        this.signer = EnvelopeSigner.SelfSigned(this.key, role, clock)
+    }
+
+    /** The agent's identity key (a new one after a hive key rotation the platform acknowledged). */
+    public get Key(): SigningKeyPair
+    {
+        return this.key
     }
 
     /** Who the agent signs as: its key id before enrolment, its id after. */
@@ -102,7 +109,7 @@ export abstract class FakeAgent
     protected Adopt(id: string, trustRoot: SigningPublicKey): void
     {
         const self = Participant.Of(this.role, id)
-        this.signer = new EnvelopeSigner(this.Key, self, this.clock)
+        this.signer = new EnvelopeSigner(this.key, self, this.clock)
         this.verifier = new EnvelopeVerifier({ Self: self, Keys: new KeyDirectory().Add(Participant.Platform, trustRoot), Nonces: this.Nonces, Clock: this.clock })
     }
 
@@ -184,6 +191,28 @@ export class FakeHiveAgent extends FakeAgent
     public async Report(report: HiveReport): Promise<void>
     {
         await this.Send(MessageKind.HiveReport, report)
+    }
+
+    /**
+     * Rotates the hive key: announces a new key signed by the current one (with the new key's proof), and switches to
+     * it only after the platform's verified acknowledgement names it.
+     */
+    public async RotateKey(): Promise<HiveKeyRotationAck>
+    {
+        const next = SigningKeyPair.Generate()
+        const reply = await this.Send(MessageKind.HiveKeyRotation, HiveKeyRotation.Create(this.Self.Id, this.key.KeyId, next))
+        if (reply === null)
+        {
+            throw new FakeAgentNoReplyError()
+        }
+        const ack = (await this.Verifier().Verify(reply, MessageKind.HiveKeyRotationAck, HiveKeyRotationAck)).Body
+        if (ack.HiveId !== this.Self.Id || ack.KeyId !== next.KeyId)
+        {
+            throw new FakeAgentNoReplyError()
+        }
+        this.key = next
+        this.signer = new EnvelopeSigner(next, this.Self, this.clock)
+        return ack
     }
 
     /** Tells the platform its cluster's service-account issuer and public keys. */

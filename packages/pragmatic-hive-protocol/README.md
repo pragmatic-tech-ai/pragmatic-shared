@@ -30,4 +30,11 @@ No dependencies beyond `node:crypto`.
   `fetch`, 30-second deadline, `AgentChannelUnavailableError` with status and code). `AgentInternalLink`,
   `HiveEnrolmentCall`, `HiveEnrolmentStatus`, `HiveEnrolmentRefusal`: the hive agent's cluster-internal enrolment API
   the engine's console calls (port 7210, TokenReview audience `pragmatic-hive-agent`).
+- **Pull-only management (C3.4).** `HiveKeyRotation` (a new hive key announced under the current one, proved by the
+  new key) and the platform's `HiveKeyRotationAck`; `IntentFailure` (the code a failed `IntentStatus` carries);
+  `EnvironmentPurpose` on `CreateEnvironment`. `IntentInternalLink`, `IntentDecisionCall`, `KeptIntentView`,
+  `KeptIntentListing`, `IntentDecisionRefusal`: the agent's internal intent routes the console calls (list, approve or
+  reject by digest and realm subject). `ConsoleIntentLink`, `ConsoleIntentCall`, `ConsoleIntentOutcome`,
+  `ConsoleIntentRefusal`: the console's internal endpoint (port 7211, audience `pragmatic-tenant-admin`) the agent
+  forwards environment intents and the ingress-certificate rotation to.
 - **Testing** (`./testing`): `FakeClock`, `FakePlatform`, `FakeAgentChannel`, `FakeHiveAgent`, `FakeHostAgent`.

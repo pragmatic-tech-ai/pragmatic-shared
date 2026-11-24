@@ -3,8 +3,8 @@ import { CustomerApiLink, CustomerOperation } from '../customer-api-link.js'
 import { CustomerApiError, CustomerErrorCode, CustomerErrorCodes } from '../errors/customer-api-error.js'
 import { TenantList, TenantView } from '../dto/tenant.js'
 import type { CreateTenantRequest, ListTenantsRequest } from '../dto/tenant.js'
-import { EnrolmentStart, HiveList, HiveView } from '../dto/hive.js'
-import type { ListHivesRequest, LeaveHiveRequest, StartEnrolmentRequest } from '../dto/hive.js'
+import { EnrolmentStart, EnvironmentRequest, HiveList, HiveView } from '../dto/hive.js'
+import type { ListHivesRequest, LeaveHiveRequest, RequestEnvironmentRequest, StartEnrolmentRequest } from '../dto/hive.js'
 import { DomainVerification } from '../dto/domain.js'
 import type { DomainVerificationRequest } from '../dto/domain.js'
 
@@ -61,6 +61,11 @@ export class CustomerApiClient
     public LeaveHive(customerToken: string, request: LeaveHiveRequest): Promise<HiveView>
     {
         return this.Call(CustomerOperation.LeaveHive, customerToken, request.ToJson(), body => HiveView.Parse(body))
+    }
+
+    public RequestEnvironment(customerToken: string, request: RequestEnvironmentRequest): Promise<EnvironmentRequest>
+    {
+        return this.Call(CustomerOperation.RequestEnvironment, customerToken, request.ToJson(), body => EnvironmentRequest.Parse(body))
     }
 
     private async Call<T>(operation: CustomerOperation, customerToken: string, body: unknown, parse: (body: unknown) => T): Promise<T>

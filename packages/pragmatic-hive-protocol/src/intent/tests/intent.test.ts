@@ -4,7 +4,7 @@ import { SigningKeyPair } from '../../crypto/signing-key.js'
 import { ProtocolDecodeError } from '../../wire/protocol-decode-error.js'
 import { HiveLevel } from '../../hive/hive-level.js'
 import {
-    ComponentAtVersion, ConfigurationReference, CreateEnvironment, DeleteEnvironment, IntentActionKind, IntentActions, Repair, RepairScope, Rotate,
+    ComponentAtVersion, ConfigurationReference, CreateEnvironment, DeleteEnvironment, EnvironmentPurpose, IntentActionKind, IntentActions, Repair, RepairScope, Rotate,
     RotationSubject, UpdateEnvironment,
 } from '../intent-action.js'
 import { Intent, IntentAdmission, IntentApplyMode, IntentNotAcceptedError } from '../intent.js'
@@ -29,8 +29,8 @@ describe('IntentActions', () =>
         const actions = [
             Samples.Component(),
             new ComponentAtVersion('pragmatic-postgres', '16.4.0', Samples.Digest, Samples.Descriptor, null),
-            new CreateEnvironment('staging', null),
-            new CreateEnvironment('prod', '1.2.0'),
+            new CreateEnvironment('staging', EnvironmentPurpose.Development, null),
+            new CreateEnvironment('prod', EnvironmentPurpose.Runtime, '1.2.0'),
             new UpdateEnvironment('prod', '1.3.0'),
             new DeleteEnvironment('staging'),
             new Rotate(RotationSubject.HiveKey, null),

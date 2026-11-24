@@ -4,8 +4,8 @@ export { CustomerApiError, CustomerErrorCode, CustomerErrorCodes, NotEntitledRea
 export { CustomerIds } from './dto/customer-ids.js'
 export { CreateTenantRequest, ListTenantsRequest, TenantView, TenantList } from './dto/tenant.js'
 export type { TenantViewJson } from './dto/tenant.js'
-export { HiveLevel, HiveHealth, HiveLevels, StartEnrolmentRequest, EnrolmentStart, ListHivesRequest, EnvironmentReport, HiveView, HiveList, LeaveHiveRequest } from './dto/hive.js'
-export type { EnrolmentStartJson, EnvironmentReportJson, HiveViewJson } from './dto/hive.js'
+export { HiveLevel, HiveHealth, HiveLevels, StartEnrolmentRequest, EnrolmentStart, ListHivesRequest, EnvironmentReport, HiveView, HiveList, LeaveHiveRequest, RequestEnvironmentRequest, RequestedEnvironmentPurpose, EnvironmentRequest } from './dto/hive.js'
+export type { EnrolmentStartJson, EnvironmentReportJson, EnvironmentRequestJson, HiveViewJson } from './dto/hive.js'
 export { DomainVerificationRequest, DomainVerification, DomainVerificationState, DomainRecordType, EmailDomain } from './dto/domain.js'
 export type { DomainVerificationJson } from './dto/domain.js'
 

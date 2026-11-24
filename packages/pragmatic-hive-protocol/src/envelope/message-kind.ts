@@ -18,6 +18,8 @@ export enum MessageKind
     ClusterCredentialHandover = 'host.cluster-credential',
     TunnelHello = 'agent.tunnel-hello',
     ServiceAccountKeys = 'hive.service-account-keys',
+    HiveKeyRotation = 'hive.key-rotation',
+    HiveKeyRotationAck = 'platform.hive-key-rotation-ack',
 }
 
 /** How long a kind of message may be valid, and how much clock skew between the two parties is tolerated. */
@@ -72,6 +74,8 @@ export class MessageKinds
         [MessageKind.ClusterCredentialHandover, new MessageKindRule(MessageKinds.Host, MessageKinds.Platform, false, FreshnessPolicy.Exchange)],
         [MessageKind.TunnelHello, new MessageKindRule(MessageKinds.Agents, MessageKinds.Platform, false, FreshnessPolicy.Exchange)],
         [MessageKind.ServiceAccountKeys, new MessageKindRule(MessageKinds.Hive, MessageKinds.Platform, false, FreshnessPolicy.Exchange)],
+        [MessageKind.HiveKeyRotation, new MessageKindRule(MessageKinds.Hive, MessageKinds.Platform, false, FreshnessPolicy.Exchange)],
+        [MessageKind.HiveKeyRotationAck, new MessageKindRule(MessageKinds.Platform, MessageKinds.Hive, false, FreshnessPolicy.Exchange)],
     ])
 
     public static Rule(kind: MessageKind): MessageKindRule

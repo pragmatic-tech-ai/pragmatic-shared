@@ -287,6 +287,82 @@ export class HiveList
     }
 }
 
+/** What a requested environment is for (the hive protocol's EnvironmentPurpose wire values). */
+export enum RequestedEnvironmentPurpose
+{
+    Development = 'development',
+    Runtime = 'runtime',
+}
+
+/**
+ * `request-environment` (C3.4): the customer admin asks the platform for an environment on one of the client's
+ * Enrolled or Delegated hives. The platform records it as a signed create-environment intent the hive pulls; an
+ * Enrolled hive applies it after an admin approves it in the engine's console, a Delegated one at once.
+ */
+export class RequestEnvironmentRequest
+{
+    public static readonly EnvironmentPattern = /^[a-z](?:[a-z0-9-]{0,30}[a-z0-9])?$/
+    public static readonly Purposes: readonly RequestedEnvironmentPurpose[] = Object.values(RequestedEnvironmentPurpose)
+    private static readonly Field = { ClientId: CustomerIds.ClientIdField, HiveId: CustomerIds.HiveIdField, Environment: 'Environment', Purpose: 'Purpose' } as const
+    private static readonly Members: readonly string[] = Object.values(RequestEnvironmentRequest.Field)
+
+    public constructor(public readonly ClientId: string, public readonly HiveId: string, public readonly Environment: string, public readonly Purpose: RequestedEnvironmentPurpose)
+    {
+    }
+
+    public static Parse(value: unknown): RequestEnvironmentRequest
+    {
+        const F = RequestEnvironmentRequest.Field
+        const fields = JsonFields.Of(value).OnlyKnown(RequestEnvironmentRequest.Members)
+        return new RequestEnvironmentRequest(
+            CustomerIds.ClientId(fields),
+            fields.String(F.HiveId, { Pattern: CustomerIds.HiveIdPattern }),
+            fields.String(F.Environment, { Pattern: RequestEnvironmentRequest.EnvironmentPattern }),
+            fields.Enum(F.Purpose, RequestEnvironmentRequest.Purposes))
+    }
+
+    public ToJson(): { ClientId: string, HiveId: string, Environment: string, Purpose: RequestedEnvironmentPurpose }
+    {
+        return { ClientId: this.ClientId, HiveId: this.HiveId, Environment: this.Environment, Purpose: this.Purpose }
+    }
+}
+
+export interface EnvironmentRequestJson
+{
+    IntentId: string
+    HiveId: string
+    Level: HiveLevel
+    ExpiresAt: string
+}
+
+/** `request-environment` answer: the intent recorded for the hive, the level it was issued under, its expiry. */
+export class EnvironmentRequest
+{
+    public static readonly IntentIdPattern = /^in[a-z2-7]{12}$/
+    private static readonly Field = { IntentId: 'IntentId', HiveId: CustomerIds.HiveIdField, Level: CustomerIds.LevelField, ExpiresAt: 'ExpiresAt' } as const
+    private static readonly Members: readonly string[] = Object.values(EnvironmentRequest.Field)
+
+    public constructor(public readonly IntentId: string, public readonly HiveId: string, public readonly Level: HiveLevel, public readonly ExpiresAt: Date)
+    {
+    }
+
+    public static Parse(value: unknown): EnvironmentRequest
+    {
+        const F = EnvironmentRequest.Field
+        const fields = JsonFields.Of(value).OnlyKnown(EnvironmentRequest.Members)
+        return new EnvironmentRequest(
+            fields.String(F.IntentId, { Pattern: EnvironmentRequest.IntentIdPattern }),
+            fields.String(F.HiveId, { Pattern: CustomerIds.HiveIdPattern }),
+            fields.Enum(F.Level, HiveLevels.All),
+            fields.Timestamp(F.ExpiresAt))
+    }
+
+    public ToJson(): EnvironmentRequestJson
+    {
+        return { IntentId: this.IntentId, HiveId: this.HiveId, Level: this.Level, ExpiresAt: this.ExpiresAt.toISOString() }
+    }
+}
+
 /** `leave-hive`: the customer uninstalled; the platform marks the hive gone and releases its domains. */
 export class LeaveHiveRequest
 {

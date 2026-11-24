@@ -9,7 +9,7 @@ import { HiveLevel } from '../../hive/hive-level.js'
 import { ClusterKind } from '../../host/host-enrolment.js'
 import { HostHealth, HostReport, Resources } from '../../host/host-report.js'
 import { ApiServerAddress, PlacementRequest, PlacementResult } from '../../host/placement.js'
-import { ComponentAtVersion, CreateEnvironment } from '../../intent/intent-action.js'
+import { ComponentAtVersion, CreateEnvironment, EnvironmentPurpose } from '../../intent/intent-action.js'
 import { Intent, IntentApplyMode } from '../../intent/intent.js'
 import { IntentDecision, IntentDecisionKind, RealmSubject } from '../../intent/intent-decision.js'
 import { ComponentReport, ComponentState, EnvironmentReadiness, EnvironmentStatus, HiveReport, IntentProgress, IntentStatus } from '../../report/hive-report.js'
@@ -116,8 +116,8 @@ describe('intents over the fake channel', () =>
     {
         const world = new World()
         const hive = await world.EnrolledHive(HiveLevel.Delegated)
-        world.Platform.PublishIntent(hive.Self.Id, new CreateEnvironment('staging', null))
-        world.Platform.PublishIntent(hive.Self.Id, new CreateEnvironment('prod', null), { Level: HiveLevel.Enrolled })
+        world.Platform.PublishIntent(hive.Self.Id, new CreateEnvironment('staging', EnvironmentPurpose.Development, null))
+        world.Platform.PublishIntent(hive.Self.Id, new CreateEnvironment('prod', EnvironmentPurpose.Runtime, null), { Level: HiveLevel.Enrolled })
         const [delegated, enrolled] = await hive.PullIntents()
         assert.equal(hive.ModeFor(delegated!), IntentApplyMode.ApplyDirectly)
         assert.equal(hive.ModeFor(enrolled!), IntentApplyMode.AwaitApproval)
@@ -168,7 +168,7 @@ describe('reports over the fake channel', () =>
             EngineVersion: '0.10.0',
             Components: [new ComponentReport('hive-agent', ComponentState.Ready, '0.10.0')],
             Environments: [new EnvironmentStatus('prod', EnvironmentReadiness.Ready, '1.3.0')],
-            Intents: [new IntentStatus('intent-1', IntentProgress.Applied)],
+            Intents: [IntentStatus.Of('intent-1', IntentProgress.Applied)],
         })
         await hive.Report(report)
         assert.deepEqual(world.Platform.ReceivedOf<HiveReport>(MessageKind.HiveReport)[0]?.ToJson(), report.ToJson())

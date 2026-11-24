@@ -1,6 +1,6 @@
 import type { CentralLoginSubject } from '@pragmatic-tech-ai/pragmatic-entitlements-contract'
 import type { CreateTenantRequest, ListTenantsRequest, TenantView } from '../dto/tenant.js'
-import type { StartEnrolmentRequest, EnrolmentStart, ListHivesRequest, HiveView, LeaveHiveRequest } from '../dto/hive.js'
+import type { StartEnrolmentRequest, EnrolmentStart, ListHivesRequest, HiveView, LeaveHiveRequest, RequestEnvironmentRequest, EnvironmentRequest } from '../dto/hive.js'
 import type { DomainVerificationRequest, DomainVerification } from '../dto/domain.js'
 
 /**
@@ -17,4 +17,6 @@ export interface ICustomerApiService
     StartDomainVerification(customer: CentralLoginSubject, request: DomainVerificationRequest): Promise<DomainVerification>
     CheckDomainVerification(customer: CentralLoginSubject, request: DomainVerificationRequest): Promise<DomainVerification>
     LeaveHive(customer: CentralLoginSubject, request: LeaveHiveRequest): Promise<HiveView>
+    /** An environment on an Enrolled or Delegated hive, recorded as a create-environment intent (C3.4). */
+    RequestEnvironment(customer: CentralLoginSubject, request: RequestEnvironmentRequest): Promise<EnvironmentRequest>
 }

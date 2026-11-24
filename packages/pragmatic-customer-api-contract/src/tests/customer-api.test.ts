@@ -11,7 +11,10 @@ import type { ICustomerApiService } from '../transport/customer-api-service.js'
 import { CustomerApiGate } from '../gate/customer-api-gate.js'
 import { CustomerApiError, CustomerErrorCode, NotEntitledReason } from '../errors/customer-api-error.js'
 import { CreateTenantRequest, ListTenantsRequest, TenantView } from '../dto/tenant.js'
-import { EnrolmentStart, EnvironmentReport, HiveHealth, HiveLevel, HiveLevels, HiveView, LeaveHiveRequest, ListHivesRequest, StartEnrolmentRequest } from '../dto/hive.js'
+import {
+    EnrolmentStart, EnvironmentReport, EnvironmentRequest, HiveHealth, HiveLevel, HiveLevels, HiveView, LeaveHiveRequest, ListHivesRequest, RequestedEnvironmentPurpose,
+    RequestEnvironmentRequest, StartEnrolmentRequest,
+} from '../dto/hive.js'
 import { DomainVerification, DomainVerificationRequest, DomainVerificationState } from '../dto/domain.js'
 import { ContractHost } from './support/contract-host.js'
 
@@ -97,6 +100,21 @@ class MemoryPlatform implements ICustomerApiService
             throw new CustomerApiError(CustomerErrorCode.UnknownHive)
         }
         return new HiveView(hive.HiveId, hive.TenantId, hive.Level, hive.Home, HiveHealth.Gone, hive.LastReportAt, [])
+    }
+
+    public async RequestEnvironment(customer: CentralLoginSubject, request: RequestEnvironmentRequest): Promise<EnvironmentRequest>
+    {
+        CustomerApiGate.RequireAdmin(request.ClientId, this.Statements.get(request.ClientId), customer)
+        const hive = this.Hives.find(candidate => candidate.HiveId === request.HiveId)
+        if (hive === undefined)
+        {
+            throw new CustomerApiError(CustomerErrorCode.UnknownHive)
+        }
+        if (hive.Level !== HiveLevel.Enrolled && hive.Level !== HiveLevel.Delegated)
+        {
+            throw new CustomerApiError(CustomerErrorCode.HiveTakesNoIntents)
+        }
+        return new EnvironmentRequest('inabcdefghijkl', hive.HiveId, hive.Level, new Date('2026-12-01T00:00:00.000Z'))
     }
 }
 
@@ -207,6 +225,9 @@ describe('customer API: cabinet -> edge -> platform admin console', () =>
     {
         const [hive] = await cabinet.ListHives('alice-token', new ListHivesRequest('acme', 'acme-main'))
         assert.deepEqual(hive?.Environments.map(environment => environment.ToJson()), [{ Name: 'prod', Ready: true, Version: '1.2.3' }])
+        const requested = await cabinet.RequestEnvironment('alice-token', new RequestEnvironmentRequest('acme', 'hive-1', 'prod', RequestedEnvironmentPurpose.Runtime))
+        assert.equal(requested.IntentId, 'inabcdefghijkl')
+        await Refused.With(cabinet.RequestEnvironment('alice-token', new RequestEnvironmentRequest('acme', 'hive-9', 'prod', RequestedEnvironmentPurpose.Runtime)), CustomerErrorCode.UnknownHive)
         const left = await cabinet.LeaveHive('alice-token', new LeaveHiveRequest('acme', 'hive-1'))
         assert.equal(left.Health, HiveHealth.Gone)
         await Refused.With(cabinet.LeaveHive('alice-token', new LeaveHiveRequest('acme', 'hive-9')), CustomerErrorCode.UnknownHive)

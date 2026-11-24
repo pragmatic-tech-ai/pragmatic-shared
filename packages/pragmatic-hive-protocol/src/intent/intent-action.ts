@@ -33,6 +33,13 @@ export enum RepairScope
     Environment = 'environment',
 }
 
+/** What a created environment is for: development (a blank workspace) or runtime (an application with its database). */
+export enum EnvironmentPurpose
+{
+    Development = 'development',
+    Runtime = 'runtime',
+}
+
 /** The configuration version a component runs with (pragmatic-configuration: realm and version of its scope). */
 export class ConfigurationReference
 {
@@ -108,24 +115,29 @@ export class ComponentAtVersion implements IIntentAction
     }
 }
 
-/** "Create environment E", at an application version or empty. */
+/** "Create environment E" for a purpose, at the engine's version (null) or a stated one the hive must run. */
 export class CreateEnvironment implements IIntentAction
 {
     public readonly Kind = IntentActionKind.CreateEnvironment
-    public static readonly Members: readonly string[] = [IntentActionFields.Kind, IntentActionFields.Environment, IntentActionFields.Version]
+    public static readonly PurposeField = 'Purpose'
+    public static readonly Purposes: readonly EnvironmentPurpose[] = Object.values(EnvironmentPurpose)
+    public static readonly Members: readonly string[] = [IntentActionFields.Kind, IntentActionFields.Environment, CreateEnvironment.PurposeField, IntentActionFields.Version]
 
-    public constructor(public readonly Environment: string, public readonly Version: string | null)
+    public constructor(public readonly Environment: string, public readonly Purpose: EnvironmentPurpose, public readonly Version: string | null)
     {
     }
 
     public static Read(fields: StrictFields): CreateEnvironment
     {
-        return new CreateEnvironment(IntentActionFields.ReadEnvironment(fields), fields.NullableString(IntentActionFields.Version, { Pattern: ProtocolNames.Version }))
+        return new CreateEnvironment(
+            IntentActionFields.ReadEnvironment(fields),
+            fields.Enum(CreateEnvironment.PurposeField, CreateEnvironment.Purposes),
+            fields.NullableString(IntentActionFields.Version, { Pattern: ProtocolNames.Version }))
     }
 
     public ToJson(): Record<string, unknown>
     {
-        return { Kind: this.Kind, Environment: this.Environment, Version: this.Version }
+        return { Kind: this.Kind, Environment: this.Environment, Purpose: this.Purpose, Version: this.Version }
     }
 }
 

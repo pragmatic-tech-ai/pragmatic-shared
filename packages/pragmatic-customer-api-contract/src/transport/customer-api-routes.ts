@@ -5,7 +5,7 @@ import type { CentralLoginSubject, CustomerCallAuthenticator } from '@pragmatic-
 import { CustomerApiLink, CustomerOperation } from '../customer-api-link.js'
 import { CustomerApiError, CustomerErrorCode } from '../errors/customer-api-error.js'
 import { CreateTenantRequest, ListTenantsRequest, TenantList } from '../dto/tenant.js'
-import { HiveList, LeaveHiveRequest, ListHivesRequest, StartEnrolmentRequest } from '../dto/hive.js'
+import { HiveList, LeaveHiveRequest, ListHivesRequest, RequestEnvironmentRequest, StartEnrolmentRequest } from '../dto/hive.js'
 import { DomainVerificationRequest } from '../dto/domain.js'
 import type { ICustomerApiService } from './customer-api-service.js'
 
@@ -80,6 +80,8 @@ export class CustomerApiRoutes
                 return (await service.CheckDomainVerification(customer, DomainVerificationRequest.Parse(body))).ToJson()
             case CustomerOperation.LeaveHive:
                 return (await service.LeaveHive(customer, LeaveHiveRequest.Parse(body))).ToJson()
+            case CustomerOperation.RequestEnvironment:
+                return (await service.RequestEnvironment(customer, RequestEnvironmentRequest.Parse(body))).ToJson()
         }
     }
 }

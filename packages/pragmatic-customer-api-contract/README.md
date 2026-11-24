@@ -13,6 +13,7 @@ console). Design: `dev-kit/docs/superpowers/specs/2026-11-20-d2-contracts-design
 | `start-domain-verification` | `DomainVerificationRequest` | `DomainVerification` (TXT record) | `verify-email-domain` |
 | `check-domain-verification` | `DomainVerificationRequest` | `DomainVerification` | admin only |
 | `leave-hive` | `LeaveHiveRequest` | `HiveView` (health gone) | admin only |
+| `request-environment` | `RequestEnvironmentRequest` (hive, environment, purpose) | `EnvironmentRequest` (the create-environment intent recorded for an Enrolled or Delegated hive; `hive-takes-no-intents` otherwise) | admin only |
 
 Public paths `/api/customer/v1/<operation>` (edge), internal `/internal/customer/v1/<operation>` (console).
 

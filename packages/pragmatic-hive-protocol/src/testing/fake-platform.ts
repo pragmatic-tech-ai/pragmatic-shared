@@ -15,6 +15,7 @@ import { ClusterCredentialHandover, PlacementRequest, PlacementResult } from '..
 import { Intent } from '../intent/intent.js'
 import type { IntentAction } from '../intent/intent-action.js'
 import { IntentDecision } from '../intent/intent-decision.js'
+import { HiveKeyRotation, HiveKeyRotationAck } from '../intent/hive-key-rotation.js'
 import { Pull, PullBatch } from '../intent/pull.js'
 import { HiveReport } from '../report/hive-report.js'
 import { ServiceAccountKeys } from '../identity/service-account-keys.js'
@@ -27,6 +28,7 @@ export enum FakePlatformRefusal
     UnknownCode = 'The enrolment code is unknown or used.',
     CodeMismatch = 'The enrolment code was issued for another tenant, level or kind of agent.',
     UnknownIntent = 'The decision answers no intent issued to this hive.',
+    RotationRefused = 'The key rotation names another hive or key, or its new key did not prove itself.',
     UnhandledKind = 'The fake platform does not take this kind of message.',
 }
 
@@ -179,6 +181,8 @@ export class FakePlatform
             case MessageKind.ServiceAccountKeys:
                 await this.Take(envelope, ServiceAccountKeys)
                 return null
+            case MessageKind.HiveKeyRotation:
+                return this.RotateHiveKey(envelope)
             case MessageKind.ClusterCredentialHandover:
                 await this.TakeCredential(envelope)
                 return null
@@ -227,6 +231,21 @@ export class FakePlatform
             throw new FakePlatformRefusalError(FakePlatformRefusal.UnknownIntent)
         }
         this.Received.push(verified)
+    }
+
+    /** Switches the hive's key in one step (the old key is refused from then on) and acknowledges the new key id. */
+    private async RotateHiveKey(envelope: SignedEnvelope): Promise<SignedEnvelope>
+    {
+        const verified = await this.verifier.Verify(envelope, MessageKind.HiveKeyRotation, HiveKeyRotation)
+        const rotation = verified.Body
+        const record = this.records.get(envelope.Issuer.Key)
+        if (record === undefined || rotation.HiveId !== envelope.Issuer.Id || rotation.PreviousKeyId !== envelope.KeyId || !rotation.Proven)
+        {
+            throw new FakePlatformRefusalError(FakePlatformRefusal.RotationRefused)
+        }
+        this.Enrol(new FakeAgentRecord(record.Participant, rotation.NewPublicKey, record.Tenant, record.Level))
+        this.Received.push(verified)
+        return this.signer.Sign(MessageKind.HiveKeyRotationAck, envelope.Issuer, HiveKeyRotationAck.Create(rotation.HiveId, rotation.NewPublicKey.KeyId))
     }
 
     private async TakeCredential(envelope: SignedEnvelope): Promise<void>

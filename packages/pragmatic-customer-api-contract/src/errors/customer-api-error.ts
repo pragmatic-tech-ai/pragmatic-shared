@@ -14,6 +14,8 @@ export enum CustomerErrorCode
     UnknownHive = 'unknown-hive',
     TenantTaken = 'tenant-taken',
     DomainTaken = 'domain-taken',
+    /** The hive is not managed by intents (Standalone, Hosted, a hive the platform installed by push, or one that left). */
+    HiveTakesNoIntents = 'hive-takes-no-intents',
     Unavailable = 'unavailable',
     /** The platform edge's own refusals: not an operation it carries, a body over the limit, too many calls. */
     NotFound = 'not-found',
@@ -45,6 +47,7 @@ export class CustomerErrorCodes
         [CustomerErrorCode.UnknownHive, [404, 'No such hive']],
         [CustomerErrorCode.TenantTaken, [409, 'That tenant id is taken']],
         [CustomerErrorCode.DomainTaken, [409, 'That domain is verified by another tenant']],
+        [CustomerErrorCode.HiveTakesNoIntents, [409, 'This hive does not take requests from the platform']],
         [CustomerErrorCode.Unavailable, [503, 'The platform is unavailable']],
         [CustomerErrorCode.NotFound, [404, 'No such operation']],
         [CustomerErrorCode.TooLarge, [413, 'The request is too large']],

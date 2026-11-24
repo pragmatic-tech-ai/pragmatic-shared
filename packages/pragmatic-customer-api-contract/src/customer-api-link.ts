@@ -10,6 +10,7 @@ export enum CustomerOperation
     StartDomainVerification = 'start-domain-verification',
     CheckDomainVerification = 'check-domain-verification',
     LeaveHive = 'leave-hive',
+    RequestEnvironment = 'request-environment',
 }
 
 /**
