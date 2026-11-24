@@ -1,6 +1,6 @@
 {
   "name": "@pragmatic-tech-ai/pragmatic-realm-gcp",
-  "version": "0.18.12",
+  "version": "0.18.13",
   "license": "Apache-2.0",
   "description": "Adapters for the GCP realm option.",
   "repository": {
@@ -37,8 +37,8 @@
     "@google-cloud/cloud-sql-connector": "1.12.1",
     "@google-cloud/secret-manager": "7.2.0",
     "@google-cloud/storage": "8.4.0",
-    "@pragmatic-tech-ai/pragmatic-identity": "0.18.12",
-    "@pragmatic-tech-ai/pragmatic-realm-adapters": "0.18.12",
+    "@pragmatic-tech-ai/pragmatic-identity": "0.18.13",
+    "@pragmatic-tech-ai/pragmatic-realm-adapters": "0.18.13",
     "pg": "8.23.1"
   },
   "peerDependencies": {

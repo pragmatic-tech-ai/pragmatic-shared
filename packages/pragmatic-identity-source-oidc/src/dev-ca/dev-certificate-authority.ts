@@ -82,8 +82,6 @@ export class DevCa
     private static readonly CaKeyUsage = 'keyUsage=critical,keyCertSign,cRLSign'
     private static readonly NameConstraintsPrefix = 'nameConstraints=critical,'
     private static readonly PermittedDnsPrefix = 'permitted;DNS:'
-    /** The one IP every server cert carries (SanSuffix), as the only permitted IP subtree. */
-    private static readonly PermittedLoopback = 'permitted;IP:127.0.0.1/255.255.255.255'
     private static readonly Eol = '\n'
     private static readonly KeyMode = 0o600
     private static readonly OpensslFailed = 'DevCa: failed to run openssl (is the openssl CLI installed and on PATH?): '
@@ -176,12 +174,15 @@ export class DevCa
     }
 
     /**
-     * The CA may sign only for the hosts it was minted for (and the loopback IP), so trusting it in an OS store (dev-ca-trust.ps1
-     * refuses any CA without a critical name constraint) can never vouch for another site, even if its key leaked during the mint.
+     * The CA may sign only for the DNS hosts it was minted for, so trusting it in an OS store (dev-ca-trust.ps1 refuses any CA
+     * without a critical name constraint) can never vouch for another site, even if its key leaked during the mint. It names no
+     * IP subtree: BoringSSL (Electron's Node, so Plexus's main process) refuses every chain whose CA constrains IP names while
+     * the leaf carries an IP SAN ("unsupported name constraint type"), and every server cert carries the loopback IP
+     * (SanSuffix). The key is never persisted, so an IP name it could sign is bounded by the mint itself.
      */
     private static NameConstraintsOf(hosts: readonly string[]): string
     {
-        return DevCa.NameConstraintsPrefix + [...hosts.map(h => DevCa.PermittedDnsPrefix + h), DevCa.PermittedLoopback].join(DevCa.SanSeparator)
+        return DevCa.NameConstraintsPrefix + hosts.map(h => DevCa.PermittedDnsPrefix + h).join(DevCa.SanSeparator)
     }
 
     /**

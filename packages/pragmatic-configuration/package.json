@@ -1,6 +1,6 @@
 {
   "name": "@pragmatic-tech-ai/pragmatic-configuration",
-  "version": "0.18.12",
+  "version": "0.18.13",
   "license": "Apache-2.0",
   "description": "Component configuration: the versioned configuration repository (versions, apply records; in-memory and Postgres), the applied-configuration object written next to a deployment, and the runtime reader a component calls at start.",
   "repository": {
@@ -33,10 +33,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@pragmatic-tech-ai/pragmatic-component": "0.18.12",
-    "@pragmatic-tech-ai/pragmatic-configuration-runtime": "0.18.12",
-    "@pragmatic-tech-ai/pragmatic-identity": "0.18.12",
-    "@pragmatic-tech-ai/pragmatic-realm-adapters": "0.18.12"
+    "@pragmatic-tech-ai/pragmatic-component": "0.18.13",
+    "@pragmatic-tech-ai/pragmatic-configuration-runtime": "0.18.13",
+    "@pragmatic-tech-ai/pragmatic-identity": "0.18.13",
+    "@pragmatic-tech-ai/pragmatic-realm-adapters": "0.18.13"
   },
   "peerDependencies": {
     "@pragmatic-tech-ai/todl": "file:../../../TODL",

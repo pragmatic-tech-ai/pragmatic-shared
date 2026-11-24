@@ -226,7 +226,7 @@ class OpensslProbe
     }
 }
 
-test('the CA is a critical name-constrained CA limited to its hosts and the loopback IP', () =>
+test('the CA is a critical name-constrained CA limited to its DNS hosts, with no IP subtree (BoringSSL refuses the chain over one)', () =>
 {
     const dir = mkdtempSync(join(tmpdir(), 'devca-'))
     try
@@ -238,7 +238,10 @@ test('the CA is a critical name-constrained CA limited to its hosts and the loop
         assert.match(constraints, /Name Constraints: critical/)
         assert.match(constraints, /DNS:a\.example/)
         assert.match(constraints, /DNS:b\.example/)
-        assert.match(constraints, /IP:127\.0\.0\.1\/255\.255\.255\.255/)
+        // Electron's BoringSSL (Plexus's main process) rejects a chain whose CA constrains IP names ("unsupported name
+        // constraint type") whenever the leaf carries an IP SAN, so the CA constrains DNS names only.
+        assert.doesNotMatch(constraints, /IP:/)
+        assert.ok(new X509Certificate(readFileSync(f.certFile)).subjectAltName?.includes('IP Address:127.0.0.1'), 'the leaf keeps its loopback IP')
         assert.doesNotMatch(constraints, /Excluded/)
         assert.match(OpensslProbe.Extension(f.caFile, 'basicConstraints'), /critical[\s\S]*CA:TRUE, pathlen:0/)
         assert.match(OpensslProbe.Extension(f.caFile, 'keyUsage'), /critical[\s\S]*Certificate Sign, CRL Sign/)
