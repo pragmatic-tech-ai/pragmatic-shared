@@ -205,6 +205,8 @@ describe('ContainerTemplate', () =>
         assert.ok(dockerfile.Stage('build').some(line => line.startsWith('RUN npm prune --omit=dev')))
         assert.ok(dockerfile.Stage('runtime').some(line => line.includes('--uid 10001 --gid 10001')))
         const image = dockerfile.Stage('pragmatic-env-gateway')
+        // ca-certificates on every runtime image, even one with no other apt packages (C5.1): HTTPS clients need a trust store.
+        assert.ok(image.some(line => line.includes('apt-get install') && line.includes('ca-certificates')), 'the runtime carries the CA bundle')
         assert.ok(image.includes('USER 10001'))
         assert.ok(image.includes('EXPOSE 8080'))
         assert.ok(image.some(line => line.startsWith('HEALTHCHECK ') && line.includes("require('node:http')") && line.includes('process.env.PRAGMATIC_PORT||8080')))
@@ -223,6 +225,7 @@ describe('ContainerTemplate', () =>
         ])
         assert.ok(image.filter(line => line.startsWith('COPY ')).every(line => !line.includes('--chown')), 'the app tree is root\'s')
         assert.ok(image.some(line => line.includes('apt-get install') && line.includes('openssl')))
+        assert.ok(image.some(line => line.includes('apt-get install') && line.includes('ca-certificates')), 'the runtime carries the CA bundle beside openssl')
         // The console image runs the engine chart's bootstrap Job, which mints certificates with the openssl CLI.
         assert.ok(TemplateFixture.Dockerfile(ReleaseApp.TenantAdmin).Stage('pragmatic-tenant-admin').some(line => line.includes('apt-get install') && line.includes('openssl')))
         assert.ok(image.some(line => line.startsWith('HEALTHCHECK ') && line.includes("require('node:https')") && line.includes('rejectUnauthorized:false')))

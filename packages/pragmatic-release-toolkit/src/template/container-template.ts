@@ -108,6 +108,8 @@ export class ContainerTemplate
     private static readonly PruneSnippet = 'snippets/prune.Dockerfile'
     private static readonly ModuleDirsSnippet = 'snippets/module-dirs.Dockerfile'
     private static readonly AptSnippet = 'snippets/apt.Dockerfile'
+    /** Every runtime image carries the CA bundle (node:22-slim ships none): any HTTPS client — helm, kubectl, fetch — verifies public and cluster TLS against it. */
+    private static readonly CaCertificates = 'ca-certificates'
     private static readonly EnvSnippet = 'snippets/env.Dockerfile'
     private static readonly ExposeSnippet = 'snippets/expose.Dockerfile'
     private static readonly HealthcheckSnippet = 'snippets/healthcheck.Dockerfile'
@@ -344,10 +346,10 @@ export class ContainerTemplate
     {
         const T = ContainerTemplate
         const lines: string[] = []
-        if (profile.AptPackages.length > 0)
-        {
-            lines.push(T.Snippet(T.AptSnippet, { Packages: profile.AptPackages.join(T.Space) }))
-        }
+        // ca-certificates first, on every image: a Hosted placement's helm pull of the public engine chart failed with
+        // "certificate signed by unknown authority" because node:22-slim has no trust store (C5.1 live finding, 2026-11-27).
+        const packages = [T.CaCertificates, ...profile.AptPackages]
+        lines.push(T.Snippet(T.AptSnippet, { Packages: packages.join(T.Space) }))
         if (profile.ProvisioningTools)
         {
             lines.push(T.Snippet(T.ToolsCopySnippet, {}))
